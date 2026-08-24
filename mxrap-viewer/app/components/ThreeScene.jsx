@@ -1,0 +1,134 @@
+"use client";
+
+// 这是整个 3D Viewer 的核心地基（core scene setup）
+// This is the foundational component for the whole 3D viewer.
+//
+// 相比最初的 demo 版本，这一版根据 8.13 客户会议梳理出的信息做了升级：
+// 1. 组件不再写死内容，而是接收一个 sceneData prop（对应一个 scene 的数据）
+// 2. 相机位置从 sceneData.cameraPosition 读取，不再写死
+// 3. sceneData 变化（切换 scene）时，完整清空旧内容 + 重新加载新内容
+//    （这是客户明确要求的行为："切换scene = 丢弃旧模型，加载新模型"）
+// 4. 用 buildSurfaceMesh() 把 {vertices, faces} 数据转换成真实几何体，
+//    并统一设置 DoubleSide（双面渲染），这也是客户明确要求的
+
+import { useEffect, useRef } from "react";
+import * as THREE from "three";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { buildSurfaceMesh } from "./geometryBuilder";
+
+// Note: OrbitControls added here is only the basic official Three.js
+// control (drag to rotate, scroll to zoom, right-click to pan).
+// Full camera navigation (limits, smooth transitions between scenes,
+// etc.) is still Warson's task ("Develop camera navigation", 31.08).
+// This is just a minimal baseline so the demo is interactive.
+
+export default function ThreeScene({ sceneData }) {
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || !sceneData) return;
+
+    // ---------- 1. Scene / Camera / Renderer ----------
+    // 这部分跟最初的 demo 版本基本一致：搭好容器、相机、渲染器
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xf0f0f0);
+
+    const camera = new THREE.PerspectiveCamera(
+      50,
+      container.clientWidth / container.clientHeight,
+      0.1,
+      1000
+    );
+
+    // 关键改动：相机位置从 sceneData 里读取，而不是写死
+    // Key change: camera position now comes from sceneData, not hardcoded.
+    const camPos = sceneData.cameraPosition ?? { x: 3, y: 3, z: 5 };
+    camera.position.set(camPos.x, camPos.y, camPos.z);
+    camera.lookAt(0, 0, 0);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(container.clientWidth, container.clientHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    container.appendChild(renderer.domElement);
+
+    // ---------- 1b. Camera controls (drag to rotate) ----------
+    // OrbitControls lets the user click-and-drag to rotate the camera
+    // around the model, scroll to zoom, and right-click-drag to pan.
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true; // smooth, slightly "floaty" motion instead of instant stop
+    controls.dampingFactor = 0.08;
+    controls.target.set(0, 0, 0); // orbit around the origin, matching camera.lookAt above
+
+    // ---------- 2. Lights ----------
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    scene.add(ambientLight);
+
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    directionalLight.position.set(5, 10, 7);
+    scene.add(directionalLight);
+
+    // ---------- 3. 根据 sceneData 加载真实内容 ----------
+    // 之前的 demo 版本这里是写死的一个立方体，
+    // 现在改成遍历 sceneData.surfaces，用 buildSurfaceMesh() 逐个构建真实几何体
+    //
+    // Instead of a hardcoded cube, we now loop through sceneData.surfaces
+    // and build real geometry from the scene's own data.
+    const meshes = [];
+    (sceneData.surfaces ?? []).forEach((surfaceData) => {
+      const mesh = buildSurfaceMesh(surfaceData);
+      scene.add(mesh);
+      meshes.push(mesh);
+    });
+
+    // 坐标轴辅助线，方便调试时确认方向
+    const axesHelper = new THREE.AxesHelper(2);
+    scene.add(axesHelper);
+
+    // ---------- 4. Resize 监听 ----------
+    function handleResize() {
+      const width = container.clientWidth;
+      const height = container.clientHeight;
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+      renderer.setSize(width, height);
+    }
+    window.addEventListener("resize", handleResize);
+
+    // ---------- 5. 渲染循环 ----------
+    let animationId;
+    function animate() {
+      animationId = requestAnimationFrame(animate);
+      controls.update(); // required every frame when enableDamping is true
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    // ---------- 6. Cleanup（清理）----------
+    // 这一步现在承担了两个角色：
+    // 1. React 组件卸载时的常规清理
+    // 2. sceneData 变化（切换到下一个 scene）时的"完整清空旧内容"
+    //    —— 这正是 8.13 会议里客户要求的行为
+    //
+    // 因为这个函数依赖 sceneData（见下方 useEffect 的依赖数组），
+    // 每次 sceneData 变化，React 会先跑这个 cleanup，再重新执行上面的
+    // 所有初始化逻辑，天然实现了"清空旧场景 -> 加载新场景"。
+    return () => {
+      cancelAnimationFrame(animationId);
+      window.removeEventListener("resize", handleResize);
+
+      meshes.forEach((mesh) => {
+        mesh.geometry.dispose();
+        mesh.material.dispose();
+      });
+
+      controls.dispose();
+      renderer.dispose();
+      if (container.contains(renderer.domElement)) {
+        container.removeChild(renderer.domElement);
+      }
+    };
+  }, [sceneData]); // 关键：依赖 sceneData，变化时触发完整的清空+重建
+
+  return <div ref={containerRef} style={{ width: "100%", height: "100%" }} />;
+}
