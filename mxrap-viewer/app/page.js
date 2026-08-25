@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import ThreeScene from "./components/ThreeScene";
 import { mockScenes } from "./components/mockScenes";
 
 export default function Home() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const currentScene = mockScenes[currentIndex];
+  const threeSceneRef = useRef(null);
 
   function goToNextScene() {
     setCurrentIndex((prev) => (prev + 1) % mockScenes.length);
@@ -56,9 +57,15 @@ export default function Home() {
           <button onClick={goToNextScene} style={{ padding: "6px 12px", cursor: "pointer" }}>
             Next Scene
           </button>
+          <button
+            onClick={() => threeSceneRef.current?.resetView()}
+            style={{ padding: "6px 12px", cursor: "pointer", marginLeft: 8 }}
+          >
+            Reset View
+          </button>
         </div>
 
-        <ThreeScene sceneData={currentScene} />
+        <ThreeScene ref={threeSceneRef} sceneData={currentScene} />
       </div>
     </main>
   );

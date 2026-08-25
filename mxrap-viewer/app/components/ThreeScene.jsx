@@ -10,20 +10,34 @@
 //    （这是客户明确要求的行为："切换scene = 丢弃旧模型，加载新模型"）
 // 4. 用 buildSurfaceMesh() 把 {vertices, faces} 数据转换成真实几何体，
 //    并统一设置 DoubleSide（双面渲染），这也是客户明确要求的
+//
+// Camera navigation (rotate/zoom/tilt/pan, with limits, plus a smooth
+// "reset view" animation) lives in cameraControls.js and is wired in below.
+// resetView() is exposed via ref so a parent can add a "Reset View" button.
 
-import { useEffect, useRef } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import * as THREE from "three";
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { buildSurfaceMesh } from "./geometryBuilder";
+import { animateCameraTo, createCameraControls } from "./cameraControls";
 
-// Note: OrbitControls added here is only the basic official Three.js
-// control (drag to rotate, scroll to zoom, right-click to pan).
-// Full camera navigation (limits, smooth transitions between scenes,
-// etc.) is still Warson's task ("Develop camera navigation", 31.08).
-// This is just a minimal baseline so the demo is interactive.
-
-export default function ThreeScene({ sceneData }) {
+const ThreeScene = forwardRef(function ThreeScene({ sceneData }, ref) {
   const containerRef = useRef(null);
+  const cameraRef = useRef(null);
+  const controlsRef = useRef(null);
+  const homeViewRef = useRef(null); // { position, target } to return to on reset
+  const cancelAnimationRef = useRef(null);
+
+  useImperativeHandle(ref, () => ({
+    resetView() {
+      const camera = cameraRef.current;
+      const controls = controlsRef.current;
+      const home = homeViewRef.current;
+      if (!camera || !controls || !home) return;
+
+      cancelAnimationRef.current?.();
+      cancelAnimationRef.current = animateCameraTo(camera, controls, home.position, home.target);
+    },
+  }));
 
   useEffect(() => {
     const container = containerRef.current;
@@ -52,13 +66,13 @@ export default function ThreeScene({ sceneData }) {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     container.appendChild(renderer.domElement);
 
-    // ---------- 1b. Camera controls (drag to rotate) ----------
-    // OrbitControls lets the user click-and-drag to rotate the camera
-    // around the model, scroll to zoom, and right-click-drag to pan.
-    const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true; // smooth, slightly "floaty" motion instead of instant stop
-    controls.dampingFactor = 0.08;
-    controls.target.set(0, 0, 0); // orbit around the origin, matching camera.lookAt above
+    // ---------- 1b. Camera controls (rotate / zoom / tilt / pan) ----------
+    const orbitTarget = new THREE.Vector3(0, 0, 0); // matches camera.lookAt above
+    const controls = createCameraControls(camera, renderer.domElement, orbitTarget);
+
+    cameraRef.current = camera;
+    controlsRef.current = controls;
+    homeViewRef.current = { position: camPos, target: { x: 0, y: 0, z: 0 } };
 
     // ---------- 2. Lights ----------
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
@@ -115,6 +129,7 @@ export default function ThreeScene({ sceneData }) {
     // 所有初始化逻辑，天然实现了"清空旧场景 -> 加载新场景"。
     return () => {
       cancelAnimationFrame(animationId);
+      cancelAnimationRef.current?.();
       window.removeEventListener("resize", handleResize);
 
       meshes.forEach((mesh) => {
@@ -127,8 +142,13 @@ export default function ThreeScene({ sceneData }) {
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
       }
+
+      cameraRef.current = null;
+      controlsRef.current = null;
     };
   }, [sceneData]); // 关键：依赖 sceneData，变化时触发完整的清空+重建
 
   return <div ref={containerRef} style={{ width: "100%", height: "100%" }} />;
-}
+});
+
+export default ThreeScene;
