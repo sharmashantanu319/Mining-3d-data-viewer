@@ -5,6 +5,7 @@
 // 1. 能否根据 sceneData 正确渲染出对应的 surface（表面）
 // 2. 能否根据 sceneData.cameraPosition 设置相机位置
 // 3. 切换 scene 时，能否完整清空旧内容、加载新内容
+// 4. 能否根据 sceneData.pointClouds 正确渲染出点云（对应 events/sensors 数据）
 //
 // 等 Amritansh/Hongfei 的 parser 任务完成、真实数据结构确定后，
 // 这份文件可以直接被替换，不影响 ThreeScene 组件本身的逻辑。
@@ -26,6 +27,22 @@ const scene1 = {
       faces: [{ v1: 101, v2: 102, v3: 103 }],
     },
   ],
+  // 模拟 events 点云：对应真实导出数据里 events/data.csv 的 X/Y/Z 列
+  // Mock "events" point cloud, standing in for events/data.csv's X/Y/Z columns.
+  pointClouds: [
+    {
+      color: 0xffcc00, // 黄色，代表地震事件（events）
+      size: 0.12,
+      points: [
+        { id: 201, x: -0.6, y: 0.3, z: 0.4 },
+        { id: 202, x: 0.2, y: 0.6, z: -0.3 },
+        { id: 203, x: 0.5, y: 0.9, z: 0.2 },
+        { id: 204, x: -0.3, y: 1.1, z: -0.5 },
+        { id: 205, x: 0.8, y: 0.4, z: 0.1 },
+        { id: 206, x: -0.8, y: 0.7, z: -0.2 },
+      ],
+    },
+  ],
 };
 
 // Scene 2：一个由两个三角形组成的四边形（正方形平面），相机位置也不同
@@ -45,6 +62,21 @@ const scene2 = {
       faces: [
         { v1: 1, v2: 2, v3: 3 },
         { v1: 1, v2: 3, v3: 4 },
+      ],
+    },
+  ],
+  // 模拟 sensors 点云：对应真实导出数据里 sensors/data.csv 的 X/Y/Z 列
+  // Mock "sensors" point cloud, standing in for sensors/data.csv's X/Y/Z columns.
+  pointClouds: [
+    {
+      color: 0x33cc66, // 绿色，代表传感器（sensors）
+      size: 0.1,
+      points: [
+        { id: 1, x: -1.4, y: -0.6, z: 0.5 },
+        { id: 2, x: 1.5, y: 0.4, z: -0.4 },
+        { id: 3, x: 0.6, y: 1.2, z: 0.3 },
+        { id: 4, x: -0.8, y: 1.3, z: -0.2 },
+        { id: 5, x: 1.6, y: -0.9, z: 0.2 },
       ],
     },
   ],

@@ -18,6 +18,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import * as THREE from "three";
 import { buildSurfaceMesh } from "./geometryBuilder";
+import { buildPointCloud } from "./pointsBuilder";
 import { animateCameraTo, createCameraControls } from "./cameraControls";
 
 const ThreeScene = forwardRef(function ThreeScene({ sceneData }, ref) {
@@ -95,6 +96,18 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData }, ref) {
       meshes.push(mesh);
     });
 
+    // 同样遍历 sceneData.pointClouds，用 buildPointCloud() 渲染点数据
+    // (events / sensors 等) —— 目前只有位置/大小/纯色，颜色渐变条和
+    // marker 贴图属于后续任务。
+    // Same idea for sceneData.pointClouds (events / sensors, etc.) — position/
+    // size/flat colour only for now; colour ramps and marker sprites are later tasks.
+    const pointClouds = [];
+    (sceneData.pointClouds ?? []).forEach((pointSeriesData) => {
+      const pointCloud = buildPointCloud(pointSeriesData);
+      scene.add(pointCloud);
+      pointClouds.push(pointCloud);
+    });
+
     // 坐标轴辅助线，方便调试时确认方向
     const axesHelper = new THREE.AxesHelper(2);
     scene.add(axesHelper);
@@ -135,6 +148,11 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData }, ref) {
       meshes.forEach((mesh) => {
         mesh.geometry.dispose();
         mesh.material.dispose();
+      });
+
+      pointClouds.forEach((pointCloud) => {
+        pointCloud.geometry.dispose();
+        pointCloud.material.dispose();
       });
 
       controls.dispose();
