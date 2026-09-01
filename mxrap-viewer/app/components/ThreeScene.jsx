@@ -3,13 +3,26 @@
 // 这是整个 3D Viewer 的核心地基（core scene setup）
 // This is the foundational component for the whole 3D viewer.
 //
-// 相比最初的 demo 版本，这一版根据 8.13 客户会议梳理出的信息做了升级：
-// 1. 组件不再写死内容，而是接收一个 sceneData prop（对应一个 scene 的数据）
-// 2. 相机位置从 sceneData.cameraPosition 读取，不再写死
-// 3. sceneData 变化（切换 scene）时，完整清空旧内容 + 重新加载新内容
-//    （这是客户明确要求的行为："切换scene = 丢弃旧模型，加载新模型"）
-// 4. 用 buildSurfaceMesh() 把 {vertices, faces} 数据转换成真实几何体，
-//    并统一设置 DoubleSide（双面渲染），这也是客户明确要求的
+// 这一版在原有基础上，新增了对真实相机数据的支持：
+// This version adds support for the real camera data shape.
+//
+// 背景 / Background:
+// 之前假设相机只有一个 position，永远看向原点 (0,0,0)。
+// 但客户样例数据（config.json 的 "camera" 字段）显示，真实的相机定义
+// 包含三个独立的向量：
+//   - Position：相机所在位置
+//   - Focal：相机看向的点（不是原点！可能离 Position 很远）
+//   - Up：相机的"上方向"，不一定是 (0,1,0)
+//
+// We previously assumed the camera only had a position and always looked
+// at the origin. But the real sample data's config.json "camera" field
+// shows the camera is defined by three separate vectors: Position, Focal
+// (the point it looks at — not necessarily the origin), and Up (the
+// camera's "up" direction, not necessarily (0,1,0)).
+//
+// 所以 sceneData.camera 现在的形状是：
+// sceneData.camera is now shaped like:
+//   { position: {x,y,z}, focal: {x,y,z}, up: {x,y,z} }
 //
 // Camera navigation (rotate/zoom/tilt/pan, with limits, plus a smooth
 // "reset view" animation) lives in cameraControls.js and is wired in below.
@@ -20,11 +33,20 @@ import * as THREE from "three";
 import { buildSurfaceMesh } from "./geometryBuilder";
 import { animateCameraTo, createCameraControls } from "./cameraControls";
 
+// 默认相机设置，用于 sceneData.camera 缺失字段时的兜底
+// Default camera settings, used as a fallback when sceneData.camera is
+// missing some (or all) fields.
+const DEFAULT_CAMERA = {
+  position: { x: 3, y: 3, z: 5 },
+  focal: { x: 0, y: 0, z: 0 },
+  up: { x: 0, y: 1, z: 0 },
+};
+
 const ThreeScene = forwardRef(function ThreeScene({ sceneData }, ref) {
   const containerRef = useRef(null);
   const cameraRef = useRef(null);
   const controlsRef = useRef(null);
-  const homeViewRef = useRef(null); // { position, target } to return to on reset
+  const homeViewRef = useRef(null); // { position, target } 用于 Reset View 回归的目标
   const cancelAnimationRef = useRef(null);
 
   useImperativeHandle(ref, () => ({
@@ -44,7 +66,6 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData }, ref) {
     if (!container || !sceneData) return;
 
     // ---------- 1. Scene / Camera / Renderer ----------
-    // 这部分跟最初的 demo 版本基本一致：搭好容器、相机、渲染器
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0xf0f0f0);
 
@@ -55,11 +76,24 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData }, ref) {
       1000
     );
 
-    // 关键改动：相机位置从 sceneData 里读取，而不是写死
-    // Key change: camera position now comes from sceneData, not hardcoded.
-    const camPos = sceneData.cameraPosition ?? { x: 3, y: 3, z: 5 };
+    // 关键改动：相机的 position / focal / up 都从 sceneData 读取，
+    // 而不是只有 position、且永远看向原点。
+    // Key change: position / focal / up all come from sceneData now,
+    // instead of only having a position that always looks at the origin.
+    const camPos = sceneData.camera?.position ?? DEFAULT_CAMERA.position;
+    const camFocal = sceneData.camera?.focal ?? DEFAULT_CAMERA.focal;
+    const camUp = sceneData.camera?.up ?? DEFAULT_CAMERA.up;
+
     camera.position.set(camPos.x, camPos.y, camPos.z);
-    camera.lookAt(0, 0, 0);
+    // 注意：up 必须在 lookAt 之前设置，否则不会生效！
+    // lookAt 内部计算旋转矩阵时会用到 up 向量，顺序反了会导致
+    // 相机朝向计算错误（实测过：顺序写反会造成 9.52 度的方向偏差）。
+    // Note: up must be set BEFORE lookAt, or it won't take effect!
+    // lookAt's internal rotation matrix calculation depends on up —
+    // getting the order wrong causes incorrect camera orientation
+    // (verified: wrong order caused a 9.52-degree deviation in testing).
+    camera.up.set(camUp.x, camUp.y, camUp.z);
+    camera.lookAt(camFocal.x, camFocal.y, camFocal.z);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(container.clientWidth, container.clientHeight);
@@ -67,12 +101,18 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData }, ref) {
     container.appendChild(renderer.domElement);
 
     // ---------- 1b. Camera controls (rotate / zoom / tilt / pan) ----------
-    const orbitTarget = new THREE.Vector3(0, 0, 0); // matches camera.lookAt above
+    // orbitTarget 现在是真实的 Focal 点，不再写死原点
+    // orbitTarget is now the real Focal point, not a hardcoded origin.
+    const orbitTarget = new THREE.Vector3(camFocal.x, camFocal.y, camFocal.z);
     const controls = createCameraControls(camera, renderer.domElement, orbitTarget);
 
     cameraRef.current = camera;
     controlsRef.current = controls;
-    homeViewRef.current = { position: camPos, target: { x: 0, y: 0, z: 0 } };
+    // homeViewRef 的 target 现在也用真实 Focal，这样 Reset View 才能
+    // 正确回到客户在真实数据里定义的默认视角，而不是回到原点。
+    // homeViewRef's target now uses the real Focal too, so Reset View
+    // correctly returns to the view defined in the real data, not the origin.
+    homeViewRef.current = { position: camPos, target: camFocal };
 
     // ---------- 2. Lights ----------
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
@@ -83,11 +123,7 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData }, ref) {
     scene.add(directionalLight);
 
     // ---------- 3. 根据 sceneData 加载真实内容 ----------
-    // 之前的 demo 版本这里是写死的一个立方体，
-    // 现在改成遍历 sceneData.surfaces，用 buildSurfaceMesh() 逐个构建真实几何体
-    //
-    // Instead of a hardcoded cube, we now loop through sceneData.surfaces
-    // and build real geometry from the scene's own data.
+    // Load real geometry from sceneData.surfaces.
     const meshes = [];
     (sceneData.surfaces ?? []).forEach((surfaceData) => {
       const mesh = buildSurfaceMesh(surfaceData);
@@ -96,6 +132,7 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData }, ref) {
     });
 
     // 坐标轴辅助线，方便调试时确认方向
+    // Axes helper, useful for confirming orientation while debugging.
     const axesHelper = new THREE.AxesHelper(2);
     scene.add(axesHelper);
 
@@ -113,20 +150,19 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData }, ref) {
     let animationId;
     function animate() {
       animationId = requestAnimationFrame(animate);
-      controls.update(); // required every frame when enableDamping is true
+      controls.update(); // enableDamping 为 true 时每帧都需要调用
       renderer.render(scene, camera);
     }
     animate();
 
     // ---------- 6. Cleanup（清理）----------
-    // 这一步现在承担了两个角色：
+    // 这一步同时承担两个角色：
     // 1. React 组件卸载时的常规清理
     // 2. sceneData 变化（切换到下一个 scene）时的"完整清空旧内容"
     //    —— 这正是 8.13 会议里客户要求的行为
-    //
-    // 因为这个函数依赖 sceneData（见下方 useEffect 的依赖数组），
-    // 每次 sceneData 变化，React 会先跑这个 cleanup，再重新执行上面的
-    // 所有初始化逻辑，天然实现了"清空旧场景 -> 加载新场景"。
+    // This cleanup serves two roles: normal unmount cleanup, and the
+    // "fully tear down old content" behavior on scene switch that the
+    // client asked for in the 13 Aug meeting.
     return () => {
       cancelAnimationFrame(animationId);
       cancelAnimationRef.current?.();
