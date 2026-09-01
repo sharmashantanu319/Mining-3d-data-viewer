@@ -3,13 +3,15 @@
 // 这是整个 3D Viewer 的核心地基（core scene setup）
 // This is the foundational component for the whole 3D viewer.
 //
-// 相比最初的 demo 版本，这一版根据 8.13 客户会议梳理出的信息做了升级：
-// 1. 组件不再写死内容，而是接收一个 sceneData prop（对应一个 scene 的数据）
-// 2. 相机位置从 sceneData.cameraPosition 读取，不再写死
-// 3. sceneData 变化（切换 scene）时，完整清空旧内容 + 重新加载新内容
-//    （这是客户明确要求的行为："切换scene = 丢弃旧模型，加载新模型"）
-// 4. 用 buildSurfaceMesh() 把 {vertices, faces} 数据转换成真实几何体，
-//    并统一设置 DoubleSide（双面渲染），这也是客户明确要求的
+// 相机的 position / focal / up 都从 sceneData.camera 读取，
+// near/far 根据相机到焦点的真实距离动态计算（不能用固定数字，
+// 否则真实矿井坐标和 mock 坐标尺度差太多，会导致深度精度问题、
+// 画面完全空白）。
+// Camera position/focal/up are read from sceneData.camera; near/far
+// are computed dynamically from the real camera-to-focal distance
+// (fixed numbers don't work because mock and real mine coordinates
+// differ by orders of magnitude, causing depth-precision issues and a
+// blank screen).
 //
 // Camera navigation (rotate/zoom/tilt/pan, with limits, plus a smooth
 // "reset view" animation) lives in cameraControls.js and is wired in below.
@@ -19,6 +21,15 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import * as THREE from "three";
 import { buildSurfaceMesh } from "./geometryBuilder";
 import { animateCameraTo, createCameraControls } from "./cameraControls";
+
+// 默认相机设置，用于 sceneData.camera 缺失字段时的兜底
+// Default camera settings, used as a fallback when sceneData.camera is
+// missing some (or all) fields.
+const DEFAULT_CAMERA = {
+  position: { x: 3, y: 3, z: 5 },
+  focal: { x: 0, y: 0, z: 0 },
+  up: { x: 0, y: 1, z: 0 },
+};
 
 const ThreeScene = forwardRef(function ThreeScene({ sceneData }, ref) {
   const containerRef = useRef(null);
@@ -44,22 +55,37 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData }, ref) {
     if (!container || !sceneData) return;
 
     // ---------- 1. Scene / Camera / Renderer ----------
-    // 这部分跟最初的 demo 版本基本一致：搭好容器、相机、渲染器
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0xf0f0f0);
+
+    // near/far 不能用固定数字，必须根据相机到焦点的真实距离动态计算。
+    // 之前踩过的坑：near=0.1、far=100000 这种固定值，比例差了 100万倍，
+    // 会导致 WebGL 深度缓冲区精度严重不足——物体明明数据正确，却因为
+    // 深度计算出错而完全不可见。mock 数据的尺度是"个位数"，真实矿井
+    // 数据的尺度是"几千"，用同一套固定 near/far 不可能同时适配两者。
+    //
+    // near/far cannot be fixed numbers — they must be computed from the
+    // real camera-to-focal distance. A fixed near=0.1, far=100000 (a
+    // 1,000,000x ratio) causes severe WebGL depth-buffer precision loss.
+    const camPos = sceneData.camera?.position ?? DEFAULT_CAMERA.position;
+    const camFocal = sceneData.camera?.focal ?? DEFAULT_CAMERA.focal;
+    const camUp = sceneData.camera?.up ?? DEFAULT_CAMERA.up;
+
+    const distance =
+      Math.hypot(camPos.x - camFocal.x, camPos.y - camFocal.y, camPos.z - camFocal.z) || 10;
+    const near = Math.max(distance / 1000, 0.01);
+    const far = Math.max(distance * 100, 1000);
 
     const camera = new THREE.PerspectiveCamera(
       50,
       container.clientWidth / container.clientHeight,
-      0.1,
-      1000
+      near,
+      far
     );
 
-    // 关键改动：相机位置从 sceneData 里读取，而不是写死
-    // Key change: camera position now comes from sceneData, not hardcoded.
-    const camPos = sceneData.cameraPosition ?? { x: 3, y: 3, z: 5 };
     camera.position.set(camPos.x, camPos.y, camPos.z);
-    camera.lookAt(0, 0, 0);
+    camera.up.set(camUp.x, camUp.y, camUp.z); // 必须在 lookAt 之前设置，否则不生效
+    camera.lookAt(camFocal.x, camFocal.y, camFocal.z);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(container.clientWidth, container.clientHeight);
@@ -67,12 +93,12 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData }, ref) {
     container.appendChild(renderer.domElement);
 
     // ---------- 1b. Camera controls (rotate / zoom / tilt / pan) ----------
-    const orbitTarget = new THREE.Vector3(0, 0, 0); // matches camera.lookAt above
+    const orbitTarget = new THREE.Vector3(camFocal.x, camFocal.y, camFocal.z);
     const controls = createCameraControls(camera, renderer.domElement, orbitTarget);
 
     cameraRef.current = camera;
     controlsRef.current = controls;
-    homeViewRef.current = { position: camPos, target: { x: 0, y: 0, z: 0 } };
+    homeViewRef.current = { position: camPos, target: camFocal };
 
     // ---------- 2. Lights ----------
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
@@ -83,11 +109,6 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData }, ref) {
     scene.add(directionalLight);
 
     // ---------- 3. 根据 sceneData 加载真实内容 ----------
-    // 之前的 demo 版本这里是写死的一个立方体，
-    // 现在改成遍历 sceneData.surfaces，用 buildSurfaceMesh() 逐个构建真实几何体
-    //
-    // Instead of a hardcoded cube, we now loop through sceneData.surfaces
-    // and build real geometry from the scene's own data.
     const meshes = [];
     (sceneData.surfaces ?? []).forEach((surfaceData) => {
       const mesh = buildSurfaceMesh(surfaceData);
@@ -113,20 +134,12 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData }, ref) {
     let animationId;
     function animate() {
       animationId = requestAnimationFrame(animate);
-      controls.update(); // required every frame when enableDamping is true
+      controls.update();
       renderer.render(scene, camera);
     }
     animate();
 
     // ---------- 6. Cleanup（清理）----------
-    // 这一步现在承担了两个角色：
-    // 1. React 组件卸载时的常规清理
-    // 2. sceneData 变化（切换到下一个 scene）时的"完整清空旧内容"
-    //    —— 这正是 8.13 会议里客户要求的行为
-    //
-    // 因为这个函数依赖 sceneData（见下方 useEffect 的依赖数组），
-    // 每次 sceneData 变化，React 会先跑这个 cleanup，再重新执行上面的
-    // 所有初始化逻辑，天然实现了"清空旧场景 -> 加载新场景"。
     return () => {
       cancelAnimationFrame(animationId);
       cancelAnimationRef.current?.();
@@ -146,7 +159,7 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData }, ref) {
       cameraRef.current = null;
       controlsRef.current = null;
     };
-  }, [sceneData]); // 关键：依赖 sceneData，变化时触发完整的清空+重建
+  }, [sceneData]);
 
   return <div ref={containerRef} style={{ width: "100%", height: "100%" }} />;
 });

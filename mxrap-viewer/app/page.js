@@ -3,14 +3,36 @@
 import { useRef, useState } from "react";
 import ThreeScene from "./components/ThreeScene";
 import { mockScenes } from "./components/mockScenes";
+import { parseExportFile } from "./components/parseExportFile";
 
 export default function Home() {
+  const [scenes, setScenes] = useState(mockScenes); // 初始用 mock 数据占位，上传真实文件后会替换
   const [currentIndex, setCurrentIndex] = useState(0);
-  const currentScene = mockScenes[currentIndex];
+  const [error, setError] = useState(null);
+  const [fileName, setFileName] = useState(null);
   const threeSceneRef = useRef(null);
 
+  const currentScene = scenes[currentIndex];
+
+  async function handleFileChange(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setFileName(file.name);
+    setError(null);
+    try {
+      const parsed = await parseExportFile(file);
+      console.log("PARSED RESULT:", JSON.stringify(parsed, null, 2));
+      setScenes(parsed.scenes);
+      setCurrentIndex(0);
+    } catch (err) {
+      console.error(err);
+      setError(err.message);
+    }
+  }
+
   function goToNextScene() {
-    setCurrentIndex((prev) => (prev + 1) % mockScenes.length);
+    setCurrentIndex((prev) => (prev + 1) % scenes.length);
   }
 
   return (
@@ -31,12 +53,15 @@ export default function Home() {
           <input
             type="file"
             accept=".zip,.json"
+            onChange={handleFileChange}
           />
         </label>
       </header>
 
       {/* Core Three.js scene setup — see mockScenes.js for placeholder
-          data. This will later be wired up to real parsed export data. */}
+          data used before a real file is uploaded. Once a file is
+          selected via the "Open export" button above, parseExportFile()
+          replaces it with real parsed scenes. */}
       <div style={{ position: "relative", flex: 1 }}>
         <div
           style={{
@@ -51,6 +76,14 @@ export default function Home() {
             fontFamily: "Arial, sans-serif",
           }}
         >
+          {fileName && (
+            <div style={{ marginBottom: 8, fontSize: 13, color: "#555" }}>
+              Loaded: {fileName}
+            </div>
+          )}
+
+          {error && <div style={{ color: "red", marginBottom: 8 }}>Error: {error}</div>}
+
           <div style={{ marginBottom: 8 }}>
             Current scene: <strong>{currentScene.title}</strong>
           </div>
