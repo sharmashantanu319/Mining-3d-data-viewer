@@ -34,12 +34,12 @@ const scene1 = {
       color: 0xffcc00, // 黄色，代表地震事件（events）
       size: 0.12,
       points: [
-        { id: 201, x: -0.6, y: 0.3, z: 0.4 },
-        { id: 202, x: 0.2, y: 0.6, z: -0.3 },
-        { id: 203, x: 0.5, y: 0.9, z: 0.2 },
-        { id: 204, x: -0.3, y: 1.1, z: -0.5 },
-        { id: 205, x: 0.8, y: 0.4, z: 0.1 },
-        { id: 206, x: -0.8, y: 0.7, z: -0.2 },
+        { id: 201, x: -0.6, y: 0.3, z: 0.4, ml: -2.4 },
+        { id: 202, x: 0.2, y: 0.6, z: -0.3, ml: -0.8 },
+        { id: 203, x: 0.5, y: 0.9, z: 0.2, ml: 0.5 },
+        { id: 204, x: -0.3, y: 1.1, z: -0.5, ml: 1.9 },
+        { id: 205, x: 0.8, y: 0.4, z: 0.1, ml: 2.8 },
+        { id: 206, x: -0.8, y: 0.7, z: -0.2, ml: -1.5 },
       ],
     },
   ],
@@ -83,3 +83,19 @@ const scene2 = {
 };
 
 export const mockScenes = [scene1, scene2];
+
+// Standalone validation fixtures. They are not included in mockScenes, so
+// the regular scene walkthrough remains unchanged.
+export const mockCorruptedPoints = {
+  points: [
+    { id: "ok-1", x: 0.1, y: 0.2, z: 0.3, ml: 1 },
+    { id: "bad-missing-x", y: 0.2, z: 0.3 },
+    { id: "bad-nan", x: NaN, y: 0.2, z: 0.3 },
+    { id: "bad-infinite", x: Infinity, y: 0.2, z: 0.3 },
+    null,
+    { id: "ok-2", x: -0.5, y: 0.1, z: 0.4, ml: -1.2 },
+  ],
+};
+
+export const mockEmptyPoints = { points: [] };
+export const mockMissingPoints = {};

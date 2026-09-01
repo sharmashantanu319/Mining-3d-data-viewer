@@ -21,6 +21,23 @@ import { buildSurfaceMesh } from "./geometryBuilder";
 import { buildPointCloud } from "./pointsBuilder";
 import { animateCameraTo, createCameraControls } from "./cameraControls";
 
+// Temporary demo adapter used to exercise the point renderer's per-point
+// colour and size paths. The parser remains plain serialisable data; the
+// dedicated colour-interpolation task will replace this adapter later.
+function getDemoRenderOptions(pointSeriesData) {
+  if (!pointSeriesData.points?.[0] || pointSeriesData.points[0].ml === undefined) {
+    return {};
+  }
+
+  return {
+    colorFn: (point) => {
+      const value = Math.min(1, Math.max(0, (point.ml + 4) / 8));
+      return { r: value, g: 0.2, b: 1 - value };
+    },
+    sizeFn: (point) => 4 + Math.max(0, point.ml + 4),
+  };
+}
+
 const ThreeScene = forwardRef(function ThreeScene({ sceneData }, ref) {
   const containerRef = useRef(null);
   const cameraRef = useRef(null);
@@ -103,7 +120,8 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData }, ref) {
     // size/flat colour only for now; colour ramps and marker sprites are later tasks.
     const pointClouds = [];
     (sceneData.pointClouds ?? []).forEach((pointSeriesData) => {
-      const pointCloud = buildPointCloud(pointSeriesData);
+      const renderOptions = getDemoRenderOptions(pointSeriesData);
+      const pointCloud = buildPointCloud(pointSeriesData, renderOptions);
       scene.add(pointCloud);
       pointClouds.push(pointCloud);
     });
