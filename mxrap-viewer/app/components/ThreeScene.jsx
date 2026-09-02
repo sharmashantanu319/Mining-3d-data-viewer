@@ -190,7 +190,7 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData, projectionMode = 
       cameraRef.current = null;
       controlsRef.current = null;
     };
-  }, [sceneData, projectionMode]); // 关键：依赖 sceneData / projectionMode，变化时触发完整的清空+重建
+  }, [sceneData, projectionMode]); // Key: re-run the full teardown/rebuild whenever sceneData or projectionMode changes
 
   return <div ref={containerRef} style={{ width: "100%", height: "100%" }} />;
 });
