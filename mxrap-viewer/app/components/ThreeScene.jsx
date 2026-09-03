@@ -19,7 +19,12 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import * as THREE from "three";
 import { buildSurfaceMesh } from "./geometryBuilder";
 import { buildPointCloud } from "./pointsBuilder";
-import { animateCameraTo, createCameraControls } from "./cameraControls";
+import {
+  animateCameraTo,
+  createCamera,
+  createCameraControls,
+  updateCameraAspect,
+} from "./cameraControls";
 
 // Temporary demo adapter used to exercise the point renderer's per-point
 // colour and size paths. The parser remains plain serialisable data; the
@@ -38,7 +43,7 @@ function getDemoRenderOptions(pointSeriesData) {
   };
 }
 
-const ThreeScene = forwardRef(function ThreeScene({ sceneData }, ref) {
+const ThreeScene = forwardRef(function ThreeScene({ sceneData, projectionMode = "perspective" }, ref) {
   const containerRef = useRef(null);
   const cameraRef = useRef(null);
   const controlsRef = useRef(null);
@@ -66,16 +71,20 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData }, ref) {
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0xf0f0f0);
 
-    const camera = new THREE.PerspectiveCamera(
-      50,
-      container.clientWidth / container.clientHeight,
-      0.1,
-      1000
-    );
-
     // 关键改动：相机位置从 sceneData 里读取，而不是写死
     // Key change: camera position now comes from sceneData, not hardcoded.
     const camPos = sceneData.cameraPosition ?? { x: 3, y: 3, z: 5 };
+    const target = { x: 0, y: 0, z: 0 };
+    const distanceToTarget = Math.hypot(camPos.x - target.x, camPos.y - target.y, camPos.z - target.z) || 1;
+
+    // projectionMode lets the parent switch between perspective (default)
+    // and orthographic (parallel projection, no foreshortening) — see
+    // cameraControls.js for why this exists.
+    const camera = createCamera(
+      projectionMode,
+      container.clientWidth / container.clientHeight,
+      distanceToTarget
+    );
     camera.position.set(camPos.x, camPos.y, camPos.z);
     camera.lookAt(0, 0, 0);
 
@@ -131,8 +140,7 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData }, ref) {
     function handleResize() {
       const width = container.clientWidth;
       const height = container.clientHeight;
-      camera.aspect = width / height;
-      camera.updateProjectionMatrix();
+      updateCameraAspect(camera, width, height);
       renderer.setSize(width, height);
     }
     window.addEventListener("resize", handleResize);
@@ -179,7 +187,7 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData }, ref) {
       cameraRef.current = null;
       controlsRef.current = null;
     };
-  }, [sceneData]); // 关键：依赖 sceneData，变化时触发完整的清空+重建
+  }, [sceneData, projectionMode]); // Key: re-run the full teardown/rebuild whenever sceneData or projectionMode changes
 
   return <div ref={containerRef} style={{ width: "100%", height: "100%" }} />;
 });
