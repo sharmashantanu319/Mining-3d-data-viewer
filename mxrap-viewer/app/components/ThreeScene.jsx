@@ -31,6 +31,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import * as THREE from "three";
 import { buildSurfaceMesh } from "./geometryBuilder";
+import { buildPointCloud } from "./pointsBuilder";
 import { animateCameraTo, createCameraControls } from "./cameraControls";
 
 // 默认相机设置，用于 sceneData.camera 缺失字段时的兜底
@@ -41,6 +42,23 @@ const DEFAULT_CAMERA = {
   focal: { x: 0, y: 0, z: 0 },
   up: { x: 0, y: 1, z: 0 },
 };
+
+// Temporary demo adapter used to exercise the point renderer's per-point
+// colour and size paths. The parser remains plain serialisable data; the
+// dedicated colour-interpolation task will replace this adapter later.
+function getDemoRenderOptions(pointSeriesData) {
+  if (!pointSeriesData.points?.[0] || pointSeriesData.points[0].ml === undefined) {
+    return {};
+  }
+
+  return {
+    colorFn: (point) => {
+      const value = Math.min(1, Math.max(0, (point.ml + 4) / 8));
+      return { r: value, g: 0.2, b: 1 - value };
+    },
+    sizeFn: (point) => 4 + Math.max(0, point.ml + 4),
+  };
+}
 
 const ThreeScene = forwardRef(function ThreeScene({ sceneData }, ref) {
   const containerRef = useRef(null);
@@ -131,6 +149,19 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData }, ref) {
       meshes.push(mesh);
     });
 
+    // 同样遍历 sceneData.pointClouds，用 buildPointCloud() 渲染点数据
+    // (events / sensors 等) —— 目前只有位置/大小/纯色，颜色渐变条和
+    // marker 贴图属于后续任务。
+    // Same idea for sceneData.pointClouds (events / sensors, etc.) — position/
+    // size/flat colour only for now; colour ramps and marker sprites are later tasks.
+    const pointClouds = [];
+    (sceneData.pointClouds ?? []).forEach((pointSeriesData) => {
+      const renderOptions = getDemoRenderOptions(pointSeriesData);
+      const pointCloud = buildPointCloud(pointSeriesData, renderOptions);
+      scene.add(pointCloud);
+      pointClouds.push(pointCloud);
+    });
+
     // 坐标轴辅助线，方便调试时确认方向
     // Axes helper, useful for confirming orientation while debugging.
     const axesHelper = new THREE.AxesHelper(2);
@@ -171,6 +202,11 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData }, ref) {
       meshes.forEach((mesh) => {
         mesh.geometry.dispose();
         mesh.material.dispose();
+      });
+
+      pointClouds.forEach((pointCloud) => {
+        pointCloud.geometry.dispose();
+        pointCloud.material.dispose();
       });
 
       controls.dispose();
