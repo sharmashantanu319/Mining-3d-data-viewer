@@ -1,0 +1,64 @@
+.header {
+  height: 72px;
+  padding: 0 24px;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  background-color: #17211a;
+  color: white;
+  border-bottom: 1px solid #344139;
+}
+
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.logo {
+  width: 40px;
+  height: 40px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  background-color: #b6e36c;
+  color: #17211a;
+
+  border-radius: 6px;
+  font-weight: bold;
+}
+
+.header h1 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.header p {
+  margin: 4px 0 0;
+  color: #aeb9b0;
+  font-size: 12px;
+}
+
+.open-file-button {
+  padding: 10px 16px;
+
+  background-color: #b6e36c;
+  color: #17211a;
+
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.open-file-button:hover {
+  background-color: #c8ef89;
+}
+
+.open-file-button input {
+  display: none;
+}
