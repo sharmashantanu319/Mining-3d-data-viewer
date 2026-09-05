@@ -57,6 +57,7 @@ const scene1 = {
     {
       color: 0xffcc00, // yellow, representing seismic events
       size: 0.12,
+      distanceAttenuation: "cartoon",
       points: [
         { id: 201, x: -0.6, y: 0.3, z: 0.4, ml: -2.4 },
         { id: 202, x: 0.2, y: 0.6, z: -0.3, ml: -0.8 },
@@ -104,6 +105,7 @@ const scene2 = {
     {
       color: 0x33cc66, // green, representing sensors
       size: 0.1,
+      distanceAttenuation: "cartoon",
       points: [
         { id: 1, x: -1.4, y: -0.6, z: 0.5 },
         { id: 2, x: 1.5, y: 0.4, z: -0.4 },
