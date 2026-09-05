@@ -81,9 +81,6 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData, projectionMode = 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0xf0f0f0);
 
-    // near/far 不能用固定数字，必须根据相机到焦点的真实距离动态计算。
-    // near/far cannot be fixed numbers — they must be computed from the
-    // real camera-to-focal distance.
     const camPos = sceneData.camera?.position ?? DEFAULT_CAMERA.position;
     const camFocal = sceneData.camera?.focal ?? DEFAULT_CAMERA.focal;
     const camUp = sceneData.camera?.up ?? DEFAULT_CAMERA.up;
