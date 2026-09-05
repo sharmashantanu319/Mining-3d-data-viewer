@@ -32,7 +32,12 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import * as THREE from "three";
 import { buildSurfaceMesh } from "./geometryBuilder";
 import { buildPointCloud } from "./pointsBuilder";
-import { animateCameraTo, createCameraControls } from "./cameraControls";
+import {
+  animateCameraTo,
+  createCamera,
+  createCameraControls,
+  updateCameraAspect,
+} from "./cameraControls";
 
 // 默认相机设置，用于 sceneData.camera 缺失字段时的兜底
 // Default camera settings, used as a fallback when sceneData.camera is
@@ -60,7 +65,7 @@ function getDemoRenderOptions(pointSeriesData) {
   };
 }
 
-const ThreeScene = forwardRef(function ThreeScene({ sceneData }, ref) {
+const ThreeScene = forwardRef(function ThreeScene({ sceneData, projectionMode = "perspective" }, ref) {
   const containerRef = useRef(null);
   const cameraRef = useRef(null);
   const controlsRef = useRef(null);
@@ -87,13 +92,6 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData }, ref) {
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0xf0f0f0);
 
-    const camera = new THREE.PerspectiveCamera(
-      50,
-      container.clientWidth / container.clientHeight,
-      0.1,
-      1000
-    );
-
     // 关键改动：相机的 position / focal / up 都从 sceneData 读取，
     // 而不是只有 position、且永远看向原点。
     // Key change: position / focal / up all come from sceneData now,
@@ -102,6 +100,17 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData }, ref) {
     const camFocal = sceneData.camera?.focal ?? DEFAULT_CAMERA.focal;
     const camUp = sceneData.camera?.up ?? DEFAULT_CAMERA.up;
 
+  
+    const distanceToTarget = Math.hypot(camPos.x - target.x, camPos.y - target.y, camPos.z - target.z) || 1;
+
+    // projectionMode lets the parent switch between perspective (default)
+    // and orthographic (parallel projection, no foreshortening) — see
+    // cameraControls.js for why this exists.
+    const camera = createCamera(
+      projectionMode,
+      container.clientWidth / container.clientHeight,
+      distanceToTarget
+    );
     camera.position.set(camPos.x, camPos.y, camPos.z);
     // 注意：up 必须在 lookAt 之前设置，否则不会生效！
     // lookAt 内部计算旋转矩阵时会用到 up 向量，顺序反了会导致
@@ -149,9 +158,6 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData }, ref) {
       meshes.push(mesh);
     });
 
-    // 同样遍历 sceneData.pointClouds，用 buildPointCloud() 渲染点数据
-    // (events / sensors 等) —— 目前只有位置/大小/纯色，颜色渐变条和
-    // marker 贴图属于后续任务。
     // Same idea for sceneData.pointClouds (events / sensors, etc.) — position/
     // size/flat colour only for now; colour ramps and marker sprites are later tasks.
     const pointClouds = [];
@@ -171,8 +177,7 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData }, ref) {
     function handleResize() {
       const width = container.clientWidth;
       const height = container.clientHeight;
-      camera.aspect = width / height;
-      camera.updateProjectionMatrix();
+      updateCameraAspect(camera, width, height);
       renderer.setSize(width, height);
     }
     window.addEventListener("resize", handleResize);
@@ -218,7 +223,7 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData }, ref) {
       cameraRef.current = null;
       controlsRef.current = null;
     };
-  }, [sceneData]); // 关键：依赖 sceneData，变化时触发完整的清空+重建
+  }, [sceneData, projectionMode]); // Key: re-run the full teardown/rebuild whenever sceneData or projectionMode changes
 
   return <div ref={containerRef} style={{ width: "100%", height: "100%" }} />;
 });
