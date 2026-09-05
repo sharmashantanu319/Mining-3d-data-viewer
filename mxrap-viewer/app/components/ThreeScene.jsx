@@ -113,6 +113,9 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData }, ref) {
       meshes.push(mesh);
     });
 
+    // 同样遍历 sceneData.pointClouds，用 buildPointCloud() 渲染点数据
+    // (events / sensors 等) —— 目前只有位置/大小/纯色，颜色渐变条和
+    // marker 贴图属于后续任务。
     // Same idea for sceneData.pointClouds (events / sensors, etc.) — position/
     // size/flat colour only for now; colour ramps and marker sprites are later tasks.
     const pointClouds = [];
