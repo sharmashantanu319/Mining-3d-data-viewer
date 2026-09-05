@@ -46,7 +46,7 @@ export function buildSurfaceGeometry(vertices, faces) {
     // 防御性检查：如果某个 ID 在顶点表里找不到，跳过这个面并给出警告
     // Defensive check: if an ID isn't found in the vertex table, skip this face.
     if (i1 === undefined || i2 === undefined || i3 === undefined) {
-      console.warn("发现无效的顶点引用，已跳过该面 / Invalid vertex reference, face skipped:", face);
+      console.warn("Invalid vertex reference, face skipped:", face);
       return;
     }
     indices.push(i1, i2, i3);
