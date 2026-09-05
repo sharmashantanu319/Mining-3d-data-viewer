@@ -21,7 +21,21 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import * as THREE from "three";
 import { buildSurfaceMesh } from "./geometryBuilder";
 import { buildPointCloud } from "./pointsBuilder";
-import { animateCameraTo, createCameraControls } from "./cameraControls";
+import {
+  animateCameraTo,
+  createCamera,
+  createCameraControls,
+  updateCameraAspect,
+} from "./cameraControls";
+
+// 默认相机设置，用于 sceneData.camera 缺失字段时的兜底
+// Default camera settings, used as a fallback when sceneData.camera is
+// missing some (or all) fields.
+const DEFAULT_CAMERA = {
+  position: { x: 3, y: 3, z: 5 },
+  focal: { x: 0, y: 0, z: 0 },
+  up: { x: 0, y: 1, z: 0 },
+};
 
 // Temporary demo adapter used to exercise the point renderer's per-point
 // colour and size paths. The parser remains plain serialisable data; the
@@ -40,16 +54,7 @@ function getDemoRenderOptions(pointSeriesData) {
   };
 }
 
-// 默认相机设置，用于 sceneData.camera 缺失字段时的兜底
-// Default camera settings, used as a fallback when sceneData.camera is
-// missing some (or all) fields.
-const DEFAULT_CAMERA = {
-  position: { x: 3, y: 3, z: 5 },
-  focal: { x: 0, y: 0, z: 0 },
-  up: { x: 0, y: 1, z: 0 },
-};
-
-const ThreeScene = forwardRef(function ThreeScene({ sceneData }, ref) {
+const ThreeScene = forwardRef(function ThreeScene({ sceneData, projectionMode = "perspective" }, ref) {
   const containerRef = useRef(null);
   const cameraRef = useRef(null);
   const controlsRef = useRef(null);
@@ -77,28 +82,22 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData }, ref) {
     scene.background = new THREE.Color(0xf0f0f0);
 
     // near/far 不能用固定数字，必须根据相机到焦点的真实距离动态计算。
-    // 之前踩过的坑：near=0.1、far=100000 这种固定值，比例差了 100万倍，
-    // 会导致 WebGL 深度缓冲区精度严重不足——物体明明数据正确，却因为
-    // 深度计算出错而完全不可见。mock 数据的尺度是"个位数"，真实矿井
-    // 数据的尺度是"几千"，用同一套固定 near/far 不可能同时适配两者。
-    //
     // near/far cannot be fixed numbers — they must be computed from the
-    // real camera-to-focal distance. A fixed near=0.1, far=100000 (a
-    // 1,000,000x ratio) causes severe WebGL depth-buffer precision loss.
+    // real camera-to-focal distance.
     const camPos = sceneData.camera?.position ?? DEFAULT_CAMERA.position;
     const camFocal = sceneData.camera?.focal ?? DEFAULT_CAMERA.focal;
     const camUp = sceneData.camera?.up ?? DEFAULT_CAMERA.up;
 
-    const distance =
+    const distanceToTarget =
       Math.hypot(camPos.x - camFocal.x, camPos.y - camFocal.y, camPos.z - camFocal.z) || 10;
-    const near = Math.max(distance / 1000, 0.01);
-    const far = Math.max(distance * 100, 1000);
 
-    const camera = new THREE.PerspectiveCamera(
-      50,
+    // projectionMode lets the parent switch between perspective (default)
+    // and orthographic (parallel projection, no foreshortening) — see
+    // cameraControls.js for why this exists.
+    const camera = createCamera(
+      projectionMode,
       container.clientWidth / container.clientHeight,
-      near,
-      far
+      distanceToTarget
     );
 
     camera.position.set(camPos.x, camPos.y, camPos.z);
@@ -134,11 +133,6 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData }, ref) {
       meshes.push(mesh);
     });
 
-    // 同样遍历 sceneData.pointClouds，用 buildPointCloud() 渲染点数据
-    // (events / sensors 等) —— 目前只有位置/大小/纯色，颜色渐变条和
-    // marker 贴图属于后续任务。
-    // Same idea for sceneData.pointClouds (events / sensors, etc.) — position/
-    // size/flat colour only for now; colour ramps and marker sprites are later tasks.
     const pointClouds = [];
     (sceneData.pointClouds ?? []).forEach((pointSeriesData) => {
       const renderOptions = getDemoRenderOptions(pointSeriesData);
@@ -155,8 +149,7 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData }, ref) {
     function handleResize() {
       const width = container.clientWidth;
       const height = container.clientHeight;
-      camera.aspect = width / height;
-      camera.updateProjectionMatrix();
+      updateCameraAspect(camera, width, height);
       renderer.setSize(width, height);
     }
     window.addEventListener("resize", handleResize);
@@ -195,7 +188,7 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData }, ref) {
       cameraRef.current = null;
       controlsRef.current = null;
     };
-  }, [sceneData]);
+  }, [sceneData, projectionMode]); // Key: re-run the full teardown/rebuild whenever sceneData or projectionMode changes
 
   return <div ref={containerRef} style={{ width: "100%", height: "100%" }} />;
 });

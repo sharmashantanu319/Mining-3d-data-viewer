@@ -10,6 +10,7 @@ export default function Home() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [error, setError] = useState(null);
   const [fileName, setFileName] = useState(null);
+  const [projectionMode, setProjectionMode] = useState("perspective");
   const threeSceneRef = useRef(null);
 
   const currentScene = scenes[currentIndex];
@@ -22,13 +23,16 @@ export default function Home() {
     setError(null);
     try {
       const parsed = await parseExportFile(file);
-      console.log("PARSED RESULT:", JSON.stringify(parsed, null, 2));
       setScenes(parsed.scenes);
       setCurrentIndex(0);
     } catch (err) {
       console.error(err);
       setError(err.message);
     }
+  }
+
+  function toggleProjectionMode() {
+    setProjectionMode((mode) => (mode === "perspective" ? "orthographic" : "perspective"));
   }
 
   function goToNextScene() {
@@ -96,9 +100,15 @@ export default function Home() {
           >
             Reset View
           </button>
+          <button
+            onClick={toggleProjectionMode}
+            style={{ padding: "6px 12px", cursor: "pointer", marginLeft: 8 }}
+          >
+            {projectionMode === "perspective" ? "Switch to Orthographic" : "Switch to Perspective"}
+          </button>
         </div>
 
-        <ThreeScene ref={threeSceneRef} sceneData={currentScene} />
+        <ThreeScene ref={threeSceneRef} sceneData={currentScene} projectionMode={projectionMode} />
       </div>
     </main>
   );
