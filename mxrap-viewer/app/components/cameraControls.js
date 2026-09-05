@@ -5,11 +5,9 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 
-// Keep tilt just short of straight up/down to avoid the OrbitControls
-// gimbal-lock edge case at the poles. Otherwise the full tilt range stays
-// available — mine geometry (tunnels, underground structures) can need
-// viewing from any angle, not just "from above".
 const POLAR_ANGLE_EPSILON = 0.001;
+
+
 
 // Field of view used for the perspective camera, and re-used to size the
 // orthographic frustum so switching projection mode doesn't change the
@@ -34,8 +32,16 @@ const CAMERA_FOV_DEGREES = 50;
  * @param {number} distanceToTarget camera distance from its orbit target
  */
 export function createCamera(projectionMode, aspect, distanceToTarget) {
-  const near = 0.1;
-  const far = 1000;
+  // near/far 根据相机到目标的真实距离动态计算，不能用固定数字。
+  // 之前踩过的坑：固定的 near=0.1/far=1000（或类似比例失衡的值）
+  // 会导致真实矿井坐标（数值上千）超出 far 范围，画面完全空白，
+  // 或者 near/far 比例过大导致深度精度问题、同样导致不可见。
+  // near/far must be computed from the real distance-to-target, not
+  // fixed numbers — a fixed far=1000 clips out real mine coordinates
+  // (which can be in the thousands), and a too-extreme near/far ratio
+  // causes depth-precision issues, both resulting in a blank screen.
+  const near = Math.max(distanceToTarget / 1000, 0.01);
+  const far = Math.max(distanceToTarget * 100, 1000);
 
   if (projectionMode === "orthographic") {
     const viewHeight =
@@ -78,15 +84,6 @@ export function updateCameraAspect(camera, width, height) {
   camera.updateProjectionMatrix();
 }
 
-/**
- * Create and configure OrbitControls for a scene's camera.
- * Zoom limits scale with the scene's own starting camera distance, so the
- * same defaults work whether the model spans a few metres or kilometres.
- *
- * @param {THREE.Camera} camera
- * @param {HTMLElement} domElement
- * @param {THREE.Vector3} target point the camera orbits around
- */
 export function createCameraControls(camera, domElement, target) {
   const controls = new OrbitControls(camera, domElement);
   controls.target.copy(target);
@@ -108,17 +105,6 @@ export function createCameraControls(camera, domElement, target) {
   return controls;
 }
 
-/**
- * Smoothly animate the camera position and orbit target to a new view.
- * Returns a cancel function (call it if the component unmounts or a new
- * animation starts mid-flight).
- *
- * @param {THREE.Camera} camera
- * @param {OrbitControls} controls
- * @param {{x:number,y:number,z:number}} position
- * @param {{x:number,y:number,z:number}} target
- * @param {number} duration ms
- */
 export function animateCameraTo(camera, controls, position, target, duration = 600) {
   const startPosition = camera.position.clone();
   const startTarget = controls.target.clone();
@@ -130,7 +116,7 @@ export function animateCameraTo(camera, controls, position, target, duration = 6
 
   function step(now) {
     const t = Math.min((now - startTime) / duration, 1);
-    const eased = 1 - Math.pow(1 - t, 3); // ease-out cubic
+    const eased = 1 - Math.pow(1 - t, 3);
 
     camera.position.lerpVectors(startPosition, endPosition, eased);
     controls.target.lerpVectors(startTarget, endTarget, eased);
