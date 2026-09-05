@@ -6,13 +6,8 @@ import { mockScenes } from "./components/mockScenes";
 
 export default function Home() {
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [projectionMode, setProjectionMode] = useState("perspective");
   const currentScene = mockScenes[currentIndex];
   const threeSceneRef = useRef(null);
-
-  function toggleProjectionMode() {
-    setProjectionMode((mode) => (mode === "perspective" ? "orthographic" : "perspective"));
-  }
 
   function goToNextScene() {
     setCurrentIndex((prev) => (prev + 1) % mockScenes.length);
@@ -68,15 +63,9 @@ export default function Home() {
           >
             Reset View
           </button>
-          <button
-            onClick={toggleProjectionMode}
-            style={{ padding: "6px 12px", cursor: "pointer", marginLeft: 8 }}
-          >
-            {projectionMode === "perspective" ? "Switch to Orthographic" : "Switch to Perspective"}
-          </button>
         </div>
 
-        <ThreeScene ref={threeSceneRef} sceneData={currentScene} projectionMode={projectionMode} />
+        <ThreeScene ref={threeSceneRef} sceneData={currentScene} />
       </div>
     </main>
   );

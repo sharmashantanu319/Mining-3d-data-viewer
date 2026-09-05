@@ -19,12 +19,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import * as THREE from "three";
 import { buildSurfaceMesh } from "./geometryBuilder";
 import { buildPointCloud } from "./pointsBuilder";
-import {
-  animateCameraTo,
-  createCamera,
-  createCameraControls,
-  updateCameraAspect,
-} from "./cameraControls";
+import { animateCameraTo, createCameraControls } from "./cameraControls";
 
 // Temporary demo adapter used to exercise the point renderer's per-point
 // colour and size paths. The parser remains plain serialisable data; the
@@ -43,7 +38,7 @@ function getDemoRenderOptions(pointSeriesData) {
   };
 }
 
-const ThreeScene = forwardRef(function ThreeScene({ sceneData, projectionMode = "perspective" }, ref) {
+const ThreeScene = forwardRef(function ThreeScene({ sceneData }, ref) {
   const containerRef = useRef(null);
   const cameraRef = useRef(null);
   const controlsRef = useRef(null);
@@ -71,20 +66,16 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData, projectionMode = 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0xf0f0f0);
 
+    const camera = new THREE.PerspectiveCamera(
+      50,
+      container.clientWidth / container.clientHeight,
+      0.1,
+      1000
+    );
+
     // 关键改动：相机位置从 sceneData 里读取，而不是写死
     // Key change: camera position now comes from sceneData, not hardcoded.
     const camPos = sceneData.cameraPosition ?? { x: 3, y: 3, z: 5 };
-    const target = { x: 0, y: 0, z: 0 };
-    const distanceToTarget = Math.hypot(camPos.x - target.x, camPos.y - target.y, camPos.z - target.z) || 1;
-
-    // projectionMode lets the parent switch between perspective (default)
-    // and orthographic (parallel projection, no foreshortening) — see
-    // cameraControls.js for why this exists.
-    const camera = createCamera(
-      projectionMode,
-      container.clientWidth / container.clientHeight,
-      distanceToTarget
-    );
     camera.position.set(camPos.x, camPos.y, camPos.z);
     camera.lookAt(0, 0, 0);
 
@@ -122,6 +113,9 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData, projectionMode = 
       meshes.push(mesh);
     });
 
+    // 同样遍历 sceneData.pointClouds，用 buildPointCloud() 渲染点数据
+    // (events / sensors 等) —— 目前只有位置/大小/纯色，颜色渐变条和
+    // marker 贴图属于后续任务。
     // Same idea for sceneData.pointClouds (events / sensors, etc.) — position/
     // size/flat colour only for now; colour ramps and marker sprites are later tasks.
     const pointClouds = [];
@@ -140,7 +134,8 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData, projectionMode = 
     function handleResize() {
       const width = container.clientWidth;
       const height = container.clientHeight;
-      updateCameraAspect(camera, width, height);
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
       renderer.setSize(width, height);
     }
     window.addEventListener("resize", handleResize);
@@ -187,7 +182,7 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData, projectionMode = 
       cameraRef.current = null;
       controlsRef.current = null;
     };
-  }, [sceneData, projectionMode]); // Key: re-run the full teardown/rebuild whenever sceneData or projectionMode changes
+  }, [sceneData]); // 关键：依赖 sceneData，变化时触发完整的清空+重建
 
   return <div ref={containerRef} style={{ width: "100%", height: "100%" }} />;
 });
