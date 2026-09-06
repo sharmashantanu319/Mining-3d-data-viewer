@@ -20,7 +20,11 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import * as THREE from "three";
 import { buildSurfaceMesh } from "./geometryBuilder";
-import { buildPointCloud } from "./pointsBuilder";
+import { buildPointCloud, getHardwarePointSizeRange } from "./pointsBuilder";
+import {
+  orthoParallelScaleFromCamera,
+  parallelCartoonScale as computeParallelCartoonScale,
+} from "./pointSizing";
 import {
   animateCameraTo,
   createCamera,
@@ -40,16 +44,33 @@ const DEFAULT_CAMERA = {
 // Temporary demo adapter used to exercise the point renderer's per-point
 // colour and size paths. The parser remains plain serialisable data; the
 // dedicated colour-interpolation task will replace this adapter later.
-function getDemoRenderOptions(pointSeriesData) {
+//
+// `sizing` carries the renderer/camera-dependent inputs to the customer
+// point-size model (see pointSizing.js): which projection the camera uses,
+// the drawing-buffer-derived `pixelSizeNVCx`, the orthographic
+// `parallelCartoonScale`, and the GPU's real point-size range. ThreeScene
+// computes it and refreshes the orthographic values every frame.
+function getDemoRenderOptions(pointSeriesData, sizing = {}) {
+  // renderWindowDPI / 72, with renderWindowDPI approximated as
+  // 96 * devicePixelRatio and the ratio capped at 2 (an earlier safety
+  // decision for very high-DPR displays). Perspective branch only.
   const pointScaleFactor = Math.min(window.devicePixelRatio, 2) * (96 / 72);
 
-  // Final screen-size safety clamp (framebuffer pixels — see pointsBuilder.js
-  // for units/DPR notes). 2px minimum rather than 1px: testing found a
-  // literal 1px floor did not reliably render in a software WebGL context;
-  // 96px ceiling is a conservative default pending real-hardware
-  // ALIASED_POINT_SIZE_RANGE verification (see getHardwarePointSizeRange()
-  // in pointsBuilder.js — not wired in here yet, follow-up work).
+  // Final screen-size safety clamp (framebuffer pixels). 2px floor rather
+  // than 1px: a literal 1px floor did not render reliably in a software
+  // WebGL context. The 96px ceiling is further intersected with the GPU's
+  // real ALIASED_POINT_SIZE_RANGE inside buildPointCloud when
+  // `hardwarePointSizeRange` is supplied.
   const screenClamp = { minScreenPointSize: 2, maxScreenPointSize: 96 };
+
+  const sharedSizing = {
+    pointScaleFactor,
+    cameraParallel: sizing.cameraParallel ?? 0,
+    pixelSizeNVCx: sizing.pixelSizeNVCx,
+    parallelCartoonScale: sizing.parallelCartoonScale,
+    hardwarePointSizeRange: sizing.hardwarePointSizeRange ?? null,
+    ...screenClamp,
+  };
 
   if (!pointSeriesData.points?.[0] || pointSeriesData.points[0].ml === undefined) {
     // No per-point value to map from, so no colour/size-by-value. Still route
@@ -62,8 +83,7 @@ function getDemoRenderOptions(pointSeriesData) {
       minPointSize: 0.3,
       maxPointSize: 1.2,
       distanceAttenuation: pointSeriesData.distanceAttenuation,
-      pointScaleFactor,
-      ...screenClamp,
+      ...sharedSizing,
     };
   }
 
@@ -91,8 +111,7 @@ function getDemoRenderOptions(pointSeriesData) {
     minPointSize: 0.3,
     maxPointSize: 1.2,
     distanceAttenuation: pointSeriesData.distanceAttenuation,
-    pointScaleFactor,
-    ...screenClamp,
+    ...sharedSizing,
   };
 }
 
@@ -156,6 +175,28 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData, projectionMode = 
     controlsRef.current = controls;
     homeViewRef.current = { position: camPos, target: camFocal };
 
+    // ---------- 1c. Point-size inputs that depend on renderer / camera ----------
+    // The GPU's supported point-size range is queried once. The rest
+    // (drawing-buffer width -> pixelSizeNVCx, orthographic parallelCartoonScale)
+    // change on zoom/resize, so they're recomputed here and refreshed every
+    // frame in the animation loop. See pointSizing.js for the customer model.
+    const hardwarePointSizeRange = getHardwarePointSizeRange(renderer);
+    const drawingBufferSize = new THREE.Vector2();
+
+    function currentPointSizing() {
+      renderer.getDrawingBufferSize(drawingBufferSize);
+      const bufferWidth = Math.max(1, drawingBufferSize.x);
+      const isParallel = camera.isOrthographicCamera === true;
+      return {
+        cameraParallel: isParallel ? 1 : 0,
+        pixelSizeNVCx: 2 / bufferWidth,
+        parallelCartoonScale: isParallel
+          ? computeParallelCartoonScale(orthoParallelScaleFromCamera(camera))
+          : 1,
+        hardwarePointSizeRange,
+      };
+    }
+
     // ---------- 2. Lights ----------
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
     scene.add(ambientLight);
@@ -174,11 +215,31 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData, projectionMode = 
 
     const pointClouds = [];
     (sceneData.pointClouds ?? []).forEach((pointSeriesData) => {
-      const renderOptions = getDemoRenderOptions(pointSeriesData);
+      const renderOptions = getDemoRenderOptions(pointSeriesData, currentPointSizing());
       const pointCloud = buildPointCloud(pointSeriesData, renderOptions);
       scene.add(pointCloud);
       pointClouds.push(pointCloud);
     });
+
+    // Keep the orthographic point-size uniforms in step with zoom / resize.
+    // Perspective materials don't declare these uniforms, so they're skipped;
+    // currentPointSizing() is only recomputed when an orthographic material
+    // is actually present.
+    function refreshOrthographicPointSizing() {
+      let sizing = null;
+      for (const pointCloud of pointClouds) {
+        const uniforms = pointCloud.material?.uniforms;
+        if (!uniforms) continue;
+        if (!uniforms.pixelSizeNVCx && !uniforms.parallelCartoonScale) continue;
+        if (!sizing) sizing = currentPointSizing();
+        if (uniforms.pixelSizeNVCx) {
+          uniforms.pixelSizeNVCx.value = sizing.pixelSizeNVCx;
+        }
+        if (uniforms.parallelCartoonScale) {
+          uniforms.parallelCartoonScale.value = sizing.parallelCartoonScale;
+        }
+      }
+    }
 
     // 坐标轴辅助线，方便调试时确认方向
     const axesHelper = new THREE.AxesHelper(2);
@@ -198,6 +259,7 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData, projectionMode = 
     function animate() {
       animationId = requestAnimationFrame(animate);
       controls.update();
+      refreshOrthographicPointSizing();
       renderer.render(scene, camera);
     }
     animate();
