@@ -41,16 +41,58 @@ const DEFAULT_CAMERA = {
 // colour and size paths. The parser remains plain serialisable data; the
 // dedicated colour-interpolation task will replace this adapter later.
 function getDemoRenderOptions(pointSeriesData) {
+  const pointScaleFactor = Math.min(window.devicePixelRatio, 2) * (96 / 72);
+
+  // Final screen-size safety clamp (framebuffer pixels — see pointsBuilder.js
+  // for units/DPR notes). 2px minimum rather than 1px: testing found a
+  // literal 1px floor did not reliably render in a software WebGL context;
+  // 96px ceiling is a conservative default pending real-hardware
+  // ALIASED_POINT_SIZE_RANGE verification (see getHardwarePointSizeRange()
+  // in pointsBuilder.js — not wired in here yet, follow-up work).
+  const screenClamp = { minScreenPointSize: 2, maxScreenPointSize: 96 };
+
   if (!pointSeriesData.points?.[0] || pointSeriesData.points[0].ml === undefined) {
-    return {};
+    // No per-point value to map from, so no colour/size-by-value. Still route
+    // through the shader clamp path with a flat, calibrated size (mid-range of
+    // the same 0.3-1.2 window the ml branch uses) instead of falling through
+    // to the uncalibrated fixed `size` in mockScenes.js, which was never tuned
+    // for the "cartoon" distance-attenuation formula.
+    return {
+      sizeFn: () => 0.6,
+      minPointSize: 0.3,
+      maxPointSize: 1.2,
+      distanceAttenuation: pointSeriesData.distanceAttenuation,
+      pointScaleFactor,
+      ...screenClamp,
+    };
   }
 
+  // DEMO-ONLY calibration for this mock scene's normalised coordinates and
+  // ~3-8 unit camera distances. NOT the customer's real marker-size
+  // configuration (that operates on real mining-coordinate distances and
+  // uses very different values, e.g. sizeMinimum 1.0 / sizeMaximum 25.0 —
+  // see config.json). Applying the customer's real 1-25 range directly to
+  // this normalised demo scene was tested and found to produce points
+  // clamped against the screen-size ceiling almost immediately (the
+  // "cartoon" attenuation model grows much faster relative to this scene's
+  // small coordinate scale than it does at real mining-coordinate scale).
+  // 0.3-1.2 was chosen by computing expected pixel sizes across this demo's
+  // typical camera distances (3-8 units) and confirming the result stays
+  // within the screen clamp's range without pinning to either bound —
+  // i.e. distance attenuation is actually visible, not swamped by the
+  // clamp. When real customer data/config lands, this whole function
+  // should be replaced, not extended.
   return {
     colorFn: (point) => {
       const value = Math.min(1, Math.max(0, (point.ml + 4) / 8));
       return { r: value, g: 0.2, b: 1 - value };
     },
-    sizeFn: (point) => 4 + Math.max(0, point.ml + 4),
+    sizeFn: (point) => 0.3 + 0.9 * Math.min(1, Math.max(0, (point.ml + 4) / 8)),
+    minPointSize: 0.3,
+    maxPointSize: 1.2,
+    distanceAttenuation: pointSeriesData.distanceAttenuation,
+    pointScaleFactor,
+    ...screenClamp,
   };
 }
 
