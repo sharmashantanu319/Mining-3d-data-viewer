@@ -1,6 +1,20 @@
 // Convert mXrap point-series rows into an efficient Three.js point cloud.
 
 import * as THREE from "three";
+import {
+  resolveDistanceAttenuation,
+  validateScreenSizeClamp,
+  intersectHardwareLimit,
+  selectPointSizeBranch,
+  buildSizeVertexShaderSource,
+  POINT_SIZE_BRANCHES,
+} from "./pointSizing";
+
+// Fallback for `mx_pixelSizeNVC.x` (= 2 / drawing-buffer width) when a caller
+// uses an orthographic branch without wiring the real viewport width in.
+// Corresponds to a ~1280px-wide buffer; only prevents a divide-by-undefined,
+// ThreeScene always passes and keeps the real value updated.
+const DEFAULT_PIXEL_SIZE_NVCX = 2 / 1280;
 
 function validatePoints(points) {
   if (!Array.isArray(points)) {
@@ -70,84 +84,15 @@ function safeSize(sizeFn, point, minPointSize, maxPointSize) {
   return Math.min(maxPointSize, Math.max(minPointSize, value));
 }
 
-// Three.js only declares the built-in `color` attribute when vertex colours
-// are enabled. The size-only shader therefore uses a flat colour uniform.
-const DISTANCE_ATTENUATION_MODELS = {
-  cartoon: { a: 0, b: 0.0012, c: 1.2e-7 },
-  real: { a: 0, b: 0, c: 1.2e-6 },
-  fixed: { a: 1.2, b: 0, c: 0 },
-};
-
-function resolveDistanceAttenuation(model) {
-  return DISTANCE_ATTENUATION_MODELS[model] ?? null;
-}
-
 /**
- * Validate the final screen-size clamp bounds. Falls back to safe defaults
- * if either value is non-finite, negative, or if min > max — these are
- * exactly the "invalid screen-limit options" cases the review flagged.
+ * OPTIONAL helper. Queries the actual WebGL context's supported point-size
+ * range (ALIASED_POINT_SIZE_RANGE) so the integration layer (ThreeScene.jsx),
+ * which has the renderer, can pass it to buildPointCloud() as
+ * `hardwarePointSizeRange` — the final screen clamp is then intersected with
+ * it (see intersectHardwareLimit in pointSizing.js) rather than assuming a
+ * fixed ceiling works on every GPU/driver.
  *
- * Units: framebuffer pixels — `gl_PointSize` is always specified in
- * framebuffer pixels per the WebGL/GLSL spec, NOT CSS pixels.
- * `renderer.setPixelRatio(dpr)` changes the drawing buffer's resolution
- * (the framebuffer becomes dpr× larger in each dimension) — it does NOT
- * modify the projection matrix. Because of this, the same
- * gl_PointSize value corresponds to a SMALLER apparent size in CSS
- * pixels as dpr increases (e.g. a 96-framebuffer-pixel point appears
- * roughly 48 CSS pixels wide at dpr=2), since more framebuffer pixels
- * are packed into the same CSS-pixel area.
- *
- * Default minimum is 2 (not 1): earlier testing found that a literal
- * 1px clamp floor did not reliably render as a visible pixel in a
- * software (SwiftShader) WebGL context, supporting the general product
- * guidance that single-pixel points are an unreliable target across
- * GPUs/drivers — 2 framebuffer pixels is a safer conservative floor,
- * still to be confirmed on real GPU hardware.
- *
- * This function does NOT query GPU-specific limits such as
- * `ALIASED_POINT_SIZE_RANGE` — it has no access to a WebGL context
- * (buildPointCloud is renderer-agnostic by design). See
- * `getHardwarePointSizeRange()` below for an optional helper the
- * integration layer (ThreeScene.jsx) can use to query real hardware
- * limits and pass an appropriately-bounded maxScreenPointSize in; that
- * wiring is NOT done automatically here and remains follow-up work.
- *
- * @param {number} minScreenPointSize
- * @param {number} maxScreenPointSize
- * @returns {{min:number, max:number}}
- */
-function validateScreenSizeClamp(minScreenPointSize, maxScreenPointSize) {
-  const DEFAULT_MIN = 2;
-  const DEFAULT_MAX = 96;
-
-  let min = Number.isFinite(minScreenPointSize) && minScreenPointSize >= 0
-    ? minScreenPointSize
-    : DEFAULT_MIN;
-  let max = Number.isFinite(maxScreenPointSize) && maxScreenPointSize >= 0
-    ? maxScreenPointSize
-    : DEFAULT_MAX;
-
-  if (min > max) {
-    console.warn(
-      `buildPointCloud: minScreenPointSize (${minScreenPointSize}) > maxScreenPointSize ` +
-      `(${maxScreenPointSize}) — falling back to defaults (${DEFAULT_MIN}, ${DEFAULT_MAX}).`
-    );
-    min = DEFAULT_MIN;
-    max = DEFAULT_MAX;
-  }
-
-  return { min, max };
-}
-
-/**
- * OPTIONAL helper, NOT called automatically by buildPointCloud(). Queries
- * the actual WebGL context's supported point-size range
- * (ALIASED_POINT_SIZE_RANGE) so an integration layer that DOES have
- * access to the renderer (e.g. ThreeScene.jsx) can clamp
- * maxScreenPointSize to a value the current GPU/driver actually supports,
- * rather than assuming any fixed constant works everywhere.
- *
- * This is explicitly left unwired — see REPORT.md "Remaining work".
+ * `buildPointCloud` itself is renderer-agnostic and never calls this.
  *
  * @param {THREE.WebGLRenderer} renderer
  * @returns {{min:number, max:number} | null} null if the range can't be queried
@@ -157,58 +102,11 @@ export function getHardwarePointSizeRange(renderer) {
     const gl = renderer.getContext();
     const range = gl.getParameter(gl.ALIASED_POINT_SIZE_RANGE);
     if (!range || range.length < 2) return null;
+    if (!Number.isFinite(range[0]) || !Number.isFinite(range[1])) return null;
     return { min: range[0], max: range[1] };
-  } catch (e) {
+  } catch {
     return null;
   }
-}
-
-function buildSizeVertexShader(hasColor, usesMxrapAttenuation) {
-  return `
-    attribute float pointSize;
-    ${
-      usesMxrapAttenuation
-        ? `uniform float distanceAttenuationA;
-    uniform float distanceAttenuationB;
-    uniform float distanceAttenuationC;
-    uniform float pointScaleFactor;`
-        : "uniform float sizeAttenuationFactor;"
-    }
-    // Final screen-size clamp (framebuffer pixels — gl_PointSize is
-    // always specified in framebuffer pixels per the WebGL/GLSL spec,
-    // NOT CSS pixels; see validateScreenSizeClamp()'s doc comment for how
-    // renderer.setPixelRatio() changes the drawing-buffer resolution and
-    // therefore the relationship between framebuffer and CSS pixels — it
-    // does NOT modify the projection matrix). Applied identically to
-    // both the real customer attenuation path and the legacy linear
-    // fallback path, since both were observed to be capable of producing
-    // runaway point sizes at close camera range.
-    uniform float minScreenPointSize;
-    uniform float maxScreenPointSize;
-    ${hasColor ? "" : "uniform vec3 flatColor;"}
-    varying vec3 vColor;
-
-    void main() {
-      vColor = ${hasColor ? "color" : "flatColor"};
-      vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-      float rawPointSize;
-      ${
-        usesMxrapAttenuation
-          ? `float d = max(0.0, -mvPosition.z);
-      float denominator = max(
-        distanceAttenuationA +
-        distanceAttenuationB * d +
-        distanceAttenuationC * d * d,
-        0.000000000001
-      );
-      float attenuation = sqrt(1.0 / denominator);
-      rawPointSize = pointScaleFactor * attenuation * pointSize;`
-          : "rawPointSize = pointSize * (sizeAttenuationFactor / max(0.000001, -mvPosition.z));"
-      }
-      gl_PointSize = clamp(rawPointSize, minScreenPointSize, maxScreenPointSize);
-      gl_Position = projectionMatrix * mvPosition;
-    }
-  `;
 }
 
 const SIZE_FRAGMENT_SHADER = `
@@ -224,21 +122,25 @@ const SIZE_FRAGMENT_SHADER = `
 /**
  * Build one THREE.Points object for a point series.
  *
- * Validation counts are exposed through pointCloud.userData.validation while
- * the return type remains backward-compatible.
+ * Validation counts are exposed through pointCloud.userData.validation and the
+ * resolved size model through pointCloud.userData.pointSizing; the return type
+ * stays backward-compatible.
  *
  * @param {object} pointSeriesData
  * @param {object} [options]
- * @param {number} [options.minScreenPointSize] - Final clamp floor, in
- *   framebuffer pixels (see shader comment — NOT CSS pixels). Applied
- *   after distance attenuation on both the real customer attenuation path
- *   and the legacy fallback path. Defaults to 2 if omitted/invalid (see
- *   validateScreenSizeClamp() for why 2 rather than 1).
- * @param {number} [options.maxScreenPointSize] - Final clamp ceiling, same
- *   units as minScreenPointSize. Defaults to 96 if omitted/invalid. This is
- *   a conservative default, not tied to any specific GPU's
- *   ALIASED_POINT_SIZE_RANGE — callers rendering on unusual hardware should
- *   query that range themselves and pick a compatible value.
+ * @param {Function} [options.colorFn] - point -> {r,g,b} in 0..1
+ * @param {Function} [options.sizeFn] - point -> per-point marker size
+ * @param {string} [options.distanceAttenuation] - "cartoon" | "real" | "fixed"
+ * @param {number} [options.cameraParallel] - 0 perspective (default), 1 orthographic
+ * @param {number} [options.pointScaleFactor] - renderWindowDPI / 72 (perspective branch)
+ * @param {number} [options.parallelCartoonScale] - orthographic "cartoon" branch factor
+ * @param {number} [options.pixelSizeNVCx] - 2 / drawing-buffer width (orthographic branches)
+ * @param {{min:number,max:number}|null} [options.hardwarePointSizeRange] - from getHardwarePointSizeRange()
+ * @param {number} [options.minScreenPointSize] - final clamp floor, framebuffer px (default 2)
+ * @param {number} [options.maxScreenPointSize] - final clamp ceiling, framebuffer px (default 96)
+ * @param {number} [options.minPointSize] - clamp applied to sizeFn output (default 2)
+ * @param {number} [options.maxPointSize] - clamp applied to sizeFn output (default 40)
+ * @param {number} [options.sizeAttenuationFactor] - legacy fallback only (default 20)
  */
 export function buildPointCloud(pointSeriesData, options = {}) {
   const { points, color, size } = pointSeriesData ?? {};
@@ -249,7 +151,11 @@ export function buildPointCloud(pointSeriesData, options = {}) {
     minPointSize = 2,
     maxPointSize = 40,
     distanceAttenuation,
+    cameraParallel = 0,
     pointScaleFactor = 1,
+    parallelCartoonScale,
+    pixelSizeNVCx,
+    hardwarePointSizeRange = null,
     minScreenPointSize,
     maxScreenPointSize,
   } = options;
@@ -258,7 +164,16 @@ export function buildPointCloud(pointSeriesData, options = {}) {
   const maximumSize = Number.isFinite(maxPointSize)
     ? Math.max(maxPointSize, minimumSize)
     : Math.max(40, minimumSize);
-  const screenClamp = validateScreenSizeClamp(minScreenPointSize, maxScreenPointSize);
+
+  const validatedClamp = validateScreenSizeClamp(minScreenPointSize, maxScreenPointSize);
+  if (validatedClamp.usedFallback) {
+    console.warn(
+      `buildPointCloud: invalid screen-size clamp (${minScreenPointSize}, ${maxScreenPointSize}) ` +
+        "— falling back to defaults."
+    );
+  }
+  const screenClamp = intersectHardwareLimit(validatedClamp, hardwarePointSizeRange);
+
   const { valid: validPoints, invalidCount, totalCount } = validatePoints(points);
 
   const positions = new Float32Array(validPoints.length * 3);
@@ -285,31 +200,63 @@ export function buildPointCloud(pointSeriesData, options = {}) {
   geometry.computeBoundingSphere();
 
   const attenuationParameters = resolveDistanceAttenuation(distanceAttenuation);
+  const usesMxrapAttenuation = Boolean(attenuationParameters);
+  const parallel = cameraParallel ? 1 : 0;
+  const branch = usesMxrapAttenuation
+    ? selectPointSizeBranch({
+        a: attenuationParameters.a,
+        b: attenuationParameters.b,
+        cameraParallel: parallel,
+      })
+    : POINT_SIZE_BRANCHES.LEGACY;
+
+  const safePixelSizeNVCx =
+    Number.isFinite(pixelSizeNVCx) && pixelSizeNVCx > 0
+      ? pixelSizeNVCx
+      : DEFAULT_PIXEL_SIZE_NVCX;
+
   let material;
-  if (sizeFn || attenuationParameters) {
+  if (sizeFn || usesMxrapAttenuation) {
     const sizes = new Float32Array(validPoints.length);
     validPoints.forEach((point, index) => {
       sizes[index] = sizeFn
         ? safeSize(sizeFn, point, minimumSize, maximumSize)
-        : (Number.isFinite(size) ? size : 0.15);
+        : Number.isFinite(size)
+          ? size
+          : 0.15;
     });
     geometry.setAttribute("pointSize", new THREE.BufferAttribute(sizes, 1));
 
     const hasColor = Boolean(colorFn);
-    const uniforms = attenuationParameters
-      ? {
-          distanceAttenuationA: { value: attenuationParameters.a },
-          distanceAttenuationB: { value: attenuationParameters.b },
-          distanceAttenuationC: { value: attenuationParameters.c },
-          pointScaleFactor: {
-            value: Number.isFinite(pointScaleFactor) ? pointScaleFactor : 1,
-          },
-        }
-      : {
-          sizeAttenuationFactor: {
-            value: Number.isFinite(sizeAttenuationFactor) ? sizeAttenuationFactor : 20,
-          },
-        };
+
+    let uniforms;
+    if (branch === POINT_SIZE_BRANCHES.PERSPECTIVE) {
+      uniforms = {
+        distanceAttenuationA: { value: attenuationParameters.a },
+        distanceAttenuationB: { value: attenuationParameters.b },
+        distanceAttenuationC: { value: attenuationParameters.c },
+        pointScaleFactor: {
+          value: Number.isFinite(pointScaleFactor) ? pointScaleFactor : 1,
+        },
+      };
+    } else if (branch === POINT_SIZE_BRANCHES.ORTHO_CARTOON) {
+      uniforms = {
+        parallelCartoonScale: {
+          value: Number.isFinite(parallelCartoonScale) ? parallelCartoonScale : 1,
+        },
+        pixelSizeNVCx: { value: safePixelSizeNVCx },
+      };
+    } else if (branch === POINT_SIZE_BRANCHES.PARALLEL) {
+      uniforms = {
+        pixelSizeNVCx: { value: safePixelSizeNVCx },
+      };
+    } else {
+      uniforms = {
+        sizeAttenuationFactor: {
+          value: Number.isFinite(sizeAttenuationFactor) ? sizeAttenuationFactor : 20,
+        },
+      };
+    }
     uniforms.minScreenPointSize = { value: screenClamp.min };
     uniforms.maxScreenPointSize = { value: screenClamp.max };
 
@@ -322,13 +269,13 @@ export function buildPointCloud(pointSeriesData, options = {}) {
 
     material = new THREE.ShaderMaterial({
       uniforms,
-      vertexShader: buildSizeVertexShader(hasColor, Boolean(attenuationParameters)),
+      vertexShader: buildSizeVertexShaderSource({ branch, hasColor }),
       fragmentShader: SIZE_FRAGMENT_SHADER,
       vertexColors: hasColor,
     });
   } else {
     material = new THREE.PointsMaterial({
-      color: colorFn ? 0xffffff : (color ?? 0xffcc00),
+      color: colorFn ? 0xffffff : color ?? 0xffcc00,
       vertexColors: Boolean(colorFn),
       size: Number.isFinite(size) ? size : 0.15,
       sizeAttenuation: true,
@@ -344,6 +291,12 @@ export function buildPointCloud(pointSeriesData, options = {}) {
   pointCloud.userData.distanceAttenuation = attenuationParameters
     ? { model: distanceAttenuation, ...attenuationParameters }
     : null;
+  pointCloud.userData.pointSizing = {
+    branch,
+    cameraParallel: usesMxrapAttenuation ? parallel : null,
+    model: usesMxrapAttenuation ? distanceAttenuation : null,
+    screenClamp: { ...screenClamp },
+  };
 
   return pointCloud;
 }
