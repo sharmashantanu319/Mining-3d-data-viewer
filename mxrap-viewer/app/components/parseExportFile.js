@@ -19,21 +19,12 @@
 //   ├── s1-mag-time-chart/...     图表类型 display（本版本跳过，非 MVP 范围）
 //   └── s2-3dview/config.json     另一个 display
 //
-// 范围说明 / Scope note:
-// 本版本只处理 series.type === "surface" 的数据（对应已经做好的
-// Surface 渲染逻辑）。Points / Text / Lines / Chart 类型的 series
-// 会被跳过（并在 console 里给出提示），因为这些不属于本轮任务范围，
-// 分别是 Lola/Warson 的任务。等他们的渲染逻辑做好后，可以在这里
-// 补上对应的解析分支，不需要重写整体架构。
-// This version only handles series.type === "surface" (matching the
-// existing Surface rendering logic). Points / Text / Lines / Chart
-// series types are skipped (with a console notice) since they're out
-// of scope for this task — they belong to Lola/Warson's tasks. Once
-// their rendering logic is ready, matching parse branches can be added
-// here without restructuring the whole thing.
+// Scope: handles series.type === "surface" and "points". Text / Lines /
+// Chart series are skipped with a console notice; they are follow-up tasks.
 
 import JSZip from "jszip";
 import Papa from "papaparse";
+import { buildPointSeries } from "./pointSeriesData";
 
 export async function parseExportFile(file) {
     const zip = await JSZip.loadAsync(file);
@@ -72,11 +63,15 @@ export async function parseExportFile(file) {
 
 async function parseDisplayConfig(zip, displayRef, config) {
     const surfaces = [];
+    const pointClouds = [];
 
     for (const series of config.series ?? []) {
         if (series.type === "surface") {
             const surface = await parseSurfaceSeries(zip, series);
             if (surface) surfaces.push(surface);
+        } else if (series.type === "points") {
+            const pointCloud = await parsePointSeries(zip, series);
+            if (pointCloud) pointClouds.push(pointCloud);
         } else {
             console.info(`Skipping series type "${series.type}" (out of scope)`);
         }
@@ -87,6 +82,7 @@ async function parseDisplayConfig(zip, displayRef, config) {
         title: displayRef.title ?? displayRef.folder,
         camera: parseCameraConfig(config.camera),
         surfaces,
+        pointClouds,
     };
 }
 
@@ -130,6 +126,16 @@ async function parseSurfaceSeries(zip, series) {
         vertices,
         faces,
     };
+}
+
+async function parsePointSeries(zip, series) {
+    const rows = await readCsv(zip, series.data);
+    if (!rows) {
+        console.warn(`Skipping point series with missing data: ${series.name}`);
+        return null;
+    }
+
+    return buildPointSeries(rows, series);
 }
 
 async function readCsv(zip, fileRef) {
