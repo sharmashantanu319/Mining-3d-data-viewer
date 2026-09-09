@@ -38,7 +38,17 @@ import Papa from "papaparse";
 export async function parseExportFile(file) {
     const zip = await JSZip.loadAsync(file);
 
-    const infoEntry = zip.file("info.json");
+    const root = zip.file("info.json")
+        ? ""
+        : zip.file("export/info.json")
+            ? "export/"
+            : null;
+
+    if (root === null) {
+        throw new Error("Could not find info.json in export.");
+    }
+
+    const infoEntry = zip.file(`${root}info.json`);
     if (!infoEntry) {
         throw new Error("Could not find top-level info.json");
     }
@@ -47,7 +57,7 @@ export async function parseExportFile(file) {
     const scenes = [];
     for (const slide of info.slides ?? []) {
         for (const displayRef of slide.displays ?? []) {
-            const configEntry = zip.file(`${displayRef.folder}/config.json`);
+            const configEntry = zip.file(`${root}${displayRef.folder}/config.json`);
             if (!configEntry) {
                 console.warn(`Skipping missing display: ${displayRef.folder}`);
                 continue;
@@ -59,7 +69,12 @@ export async function parseExportFile(file) {
                 continue;
             }
 
-            const scene = await parseDisplayConfig(zip, displayRef, config);
+            const scene = await parseDisplayConfig(
+                zip,
+                root,
+                displayRef,
+                config
+            );
             scenes.push(scene);
         }
     }
@@ -70,12 +85,21 @@ export async function parseExportFile(file) {
     };
 }
 
-async function parseDisplayConfig(zip, displayRef, config) {
+async function parseDisplayConfig(
+    zip,
+    root,
+    displayRef,
+    config
+) {
     const surfaces = [];
 
     for (const series of config.series ?? []) {
         if (series.type === "surface") {
-            const surface = await parseSurfaceSeries(zip, series);
+            const surface = await parseSurfaceSeries(
+                zip,
+                root,
+                series
+            );
             if (surface) surfaces.push(surface);
         } else {
             console.info(`Skipping series type "${series.type}" (out of scope)`);
@@ -103,12 +127,23 @@ function parseCameraConfig(camera) {
     };
 }
 
-async function parseSurfaceSeries(zip, series) {
-    const verticesCsv = await readCsv(zip, series["data-vertices"]);
-    const facesCsv = await readCsv(zip, series["data-faces"]);
+async function parseSurfaceSeries(zip, root, series) {
+    const verticesCsv = await readCsv(
+        zip,
+        root,
+        series["data-vertices"]
+    );
+
+    const facesCsv = await readCsv(
+        zip,
+        root,
+        series["data-faces"]
+    );
 
     if (!verticesCsv || !facesCsv) {
-        console.warn(`Skipping surface series with missing data: ${series.name}`);
+        console.warn(
+            `Skipping surface series with missing data: ${series.name}`
+        );
         return null;
     }
 
@@ -117,6 +152,9 @@ async function parseSurfaceSeries(zip, series) {
         x: row["Location X"],
         y: row["Location Y"],
         z: row["Location Z"],
+
+        // Preserve this for surface colouring later
+        materialValue: row["Material Marker Value"],
     }));
 
     const faces = facesCsv.map((row) => ({
@@ -125,23 +163,38 @@ async function parseSurfaceSeries(zip, series) {
         v3: row["V3"],
     }));
 
+    console.log(
+        `Parsed surface "${series.name}":`,
+        `${vertices.length} vertices,`,
+        `${faces.length} faces`
+    );
+
     return {
+        name: series.name ?? "Surface",
+        visible: series.visible ?? true,
+        colourMarker: series.colourMarker ?? null,
+        markerMenu: series.markerMenu ?? null,
+
         color: 0x4f8ef7,
+
         vertices,
         faces,
     };
 }
 
-async function readCsv(zip, fileRef) {
+async function readCsv(zip, root, fileRef) {
     if (!fileRef) return null;
 
-    const entry = zip.file(`data/${fileRef}.csv`);
+    const path = `${root}data/${fileRef}.csv`;
+    const entry = zip.file(path);
+
     if (!entry) {
-        console.warn(`CSV file not found: data/${fileRef}.csv`);
+        console.warn(`CSV file not found: ${path}`);
         return null;
     }
 
     const text = await entry.async("text");
+
     const parsed = Papa.parse(text, {
         header: true,
         dynamicTyping: true,

@@ -22,45 +22,101 @@ import * as THREE from "three";
  * @returns {THREE.BufferGeometry}
  */
 export function buildSurfaceGeometry(vertices, faces) {
-  // 第一步：建立 "顶点 ID → 数组下标" 的映射表
-  // Step 1: build an "ID -> array index" lookup map.
-  // 例如顶点 ID 是 [5, 10, 23]，映射后变成 [0, 1, 2]（数组下标）
+  if (!Array.isArray(vertices) || !Array.isArray(faces)) {
+    throw new Error(
+      "Surface requires vertices and faces arrays."
+    );
+  }
+
+  if (vertices.length === 0) {
+    throw new Error("Surface contains no vertices.");
+  }
+
   const idToIndex = new Map();
-  const positions = new Float32Array(vertices.length * 3);
+
+  const positions =
+    new Float32Array(vertices.length * 3);
+
+  const materialValues =
+    new Float32Array(vertices.length);
 
   vertices.forEach((vertex, index) => {
+    if (idToIndex.has(vertex.id)) {
+      console.warn(
+        `Duplicate vertex ID ${vertex.id}`
+      );
+    }
+
     idToIndex.set(vertex.id, index);
+
     positions[index * 3] = vertex.x;
     positions[index * 3 + 1] = vertex.y;
     positions[index * 3 + 2] = vertex.z;
+
+    materialValues[index] =
+      vertex.materialValue ?? 0;
   });
 
-  // 第二步：把 faces 里的顶点 ID，通过映射表转换成数组下标
-  // Step 2: convert each face's vertex IDs into array indices using the map.
   const indices = [];
+
   faces.forEach((face) => {
     const i1 = idToIndex.get(face.v1);
     const i2 = idToIndex.get(face.v2);
     const i3 = idToIndex.get(face.v3);
 
-    // 防御性检查：如果某个 ID 在顶点表里找不到，跳过这个面并给出警告
-    // Defensive check: if an ID isn't found in the vertex table, skip this face.
-    if (i1 === undefined || i2 === undefined || i3 === undefined) {
-      console.warn("Invalid vertex reference, face skipped:", face);
+    if (
+      i1 === undefined ||
+      i2 === undefined ||
+      i3 === undefined
+    ) {
+      console.warn(
+        "Invalid face skipped:",
+        face
+      );
       return;
     }
+
+    // Degenerate triangle
+    if (
+      i1 === i2 ||
+      i2 === i3 ||
+      i1 === i3
+    ) {
+      return;
+    }
+
     indices.push(i1, i2, i3);
   });
 
-  // 第三步：用整理好的数据创建 BufferGeometry
-  // Step 3: create the BufferGeometry from the processed data.
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-  geometry.setIndex(indices);
+  const geometry =
+    new THREE.BufferGeometry();
 
-  // 计算法线：让光照效果正确显示（否则表面看起来是平的、没有明暗层次）
-  // Compute normals so lighting renders correctly (otherwise surfaces look flat).
+  geometry.setAttribute(
+    "position",
+    new THREE.BufferAttribute(
+      positions,
+      3
+    )
+  );
+
+  geometry.setAttribute(
+    "materialValue",
+    new THREE.BufferAttribute(
+      materialValues,
+      1
+    )
+  );
+
+  geometry.setIndex(
+    new THREE.Uint32BufferAttribute(
+      indices,
+      1
+    )
+  );
+
   geometry.computeVertexNormals();
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
 
   return geometry;
 }
@@ -74,22 +130,42 @@ export function buildSurfaceGeometry(vertices, faces) {
  * @returns {THREE.Mesh}
  */
 export function buildSurfaceMesh(surfaceData) {
-  const geometry = buildSurfaceGeometry(surfaceData.vertices, surfaceData.faces);
+  const geometry =
+    buildSurfaceGeometry(
+      surfaceData.vertices,
+      surfaceData.faces
+    );
 
-  // 8.13 会议关键结论：MXRAP 里所有表面必须双面可见（不做背面剔除）
-  // Key finding from 8.13 meeting: MXRAP surfaces must always render
-  // from both sides (no back-face culling), because engineers need to
-  // inspect the model from any camera angle.
-  //
-  // 关于颜色 / About color:
-  // 目前先用简单的纯色材质占位。真正的"颜色渐变条插值"（color ramp
-  // interpolation）需要自定义 shader，属于后续 Warson 的任务
-  // (07.09 "Implement color interpolation")，这里先不实现，
-  // 但保留了 surfaceData.color 作为占位的输入通道。
-  const material = new THREE.MeshStandardMaterial({
-    color: surfaceData.color ?? 0x4f8ef7,
-    side: THREE.DoubleSide, // 关键设置：双面渲染
-  });
+  const material =
+    new THREE.MeshStandardMaterial({
+      color: surfaceData.color ?? 0x888888,
+      side: THREE.DoubleSide,
+    });
 
-  return new THREE.Mesh(geometry, material);
+  const mesh =
+    new THREE.Mesh(
+      geometry,
+      material
+    );
+
+  mesh.name =
+    surfaceData.name ?? "Surface";
+
+  mesh.visible =
+    surfaceData.visible ?? true;
+
+  mesh.userData = {
+    type: "surface",
+
+    vertexCount:
+      surfaceData.vertices.length,
+
+    faceCount:
+      surfaceData.faces.length,
+
+    colourMarker:
+      surfaceData.colourMarker,
+  };
+
+  return mesh;
 }

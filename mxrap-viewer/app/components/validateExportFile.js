@@ -44,9 +44,20 @@ export async function validateExportFile(file) {
         // zip 本身都打不开，后面所有检查都没有意义，直接返回
         return { valid: false, errors: ["File is not a valid zip archive."] };
     }
+    const root = zip.file("info.json")
+        ? ""
+        : zip.file("export/info.json")
+            ? "export/"
+            : null;
 
+    if (root === null) {
+        return {
+            valid: false,
+            errors: ["Could not find info.json in the export file."]
+        };
+    }
     // ---------- 第一层：结构完整性 ----------
-    const infoEntry = zip.file("info.json");
+    const infoEntry = zip.file(`${root}info.json`);
     if (!infoEntry) {
         errors.push("Missing top-level info.json.");
         // info.json 都没有，后面基于它的所有检查都做不了，直接返回
@@ -82,7 +93,9 @@ export async function validateExportFile(file) {
                 return;
             }
 
-            const configEntry = zip.file(`${folder}/config.json`);
+            const configEntry = zip.file(
+                `${root}${folder}/config.json`
+            );
             if (!configEntry) {
                 errors.push(`Display "${folder}" is missing its config.json.`);
                 return;
@@ -112,8 +125,18 @@ export async function validateExportFile(file) {
             if (series.type !== "surface") continue; // 同 parseExportFile.js，points/text 等暂不检查
 
             const seriesLabel = series.name ?? "unnamed series";
-            const verticesResult = await checkCsvExists(zip, series["data-vertices"], `${folder} > ${seriesLabel} vertices`);
-            const facesResult = await checkCsvExists(zip, series["data-faces"], `${folder} > ${seriesLabel} faces`);
+            const verticesResult = await checkCsvExists(
+                zip,
+                root,
+                series["data-vertices"],
+                `${folder} > ${seriesLabel} vertices`
+            );
+            const facesResult = await checkCsvExists(
+                zip,
+                root,
+                series["data-faces"],
+                `${folder} > ${seriesLabel} faces`
+            );
 
             errors.push(...verticesResult.errors);
             errors.push(...facesResult.errors);
@@ -133,27 +156,65 @@ export async function validateExportFile(file) {
  * 检查一个 CSV 引用是否存在、能否被正常解析。
  * @returns {Promise<{ rows: object[]|null, errors: string[] }>}
  */
-async function checkCsvExists(zip, fileRef, label) {
+async function checkCsvExists(
+    zip,
+    root,
+    fileRef,
+    label
+) {
     if (!fileRef) {
-        return { rows: null, errors: [`${label}: no data file referenced.`] };
+        return {
+            rows: null,
+            errors: [`${label}: no data file referenced.`]
+        };
     }
 
-    const entry = zip.file(`data/${fileRef}.csv`);
+    const path = `${root}data/${fileRef}.csv`;
+    const entry = zip.file(path);
+
     if (!entry) {
-        return { rows: null, errors: [`${label}: file "data/${fileRef}.csv" not found.`] };
+        return {
+            rows: null,
+            errors: [`${label}: file "${path}" not found.`]
+        };
     }
 
     const text = await entry.async("text");
-    const parsed = Papa.parse(text, { header: true, dynamicTyping: true, skipEmptyLines: true });
+
+    // FIRST create parsed
+    const parsed = Papa.parse(text, {
+        header: true,
+        dynamicTyping: true,
+        skipEmptyLines: true
+    });
+
+    // THEN use parsed
+    console.log(
+        label,
+        "rows:",
+        parsed.data.length,
+        "columns:",
+        Object.keys(parsed.data[0] ?? {})
+    );
 
     if (parsed.errors.length > 0) {
-        return { rows: null, errors: [`${label}: CSV parse error in "data/${fileRef}.csv".`] };
-    }
-    if (parsed.data.length === 0) {
-        return { rows: null, errors: [`${label}: "data/${fileRef}.csv" has no data rows.`] };
+        return {
+            rows: null,
+            errors: [`${label}: CSV parse error in "${path}".`]
+        };
     }
 
-    return { rows: parsed.data, errors: [] };
+    if (parsed.data.length === 0) {
+        return {
+            rows: null,
+            errors: [`${label}: "${path}" has no data rows.`]
+        };
+    }
+
+    return {
+        rows: parsed.data,
+        errors: []
+    };
 }
 
 /**
