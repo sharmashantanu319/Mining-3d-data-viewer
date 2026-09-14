@@ -1,4 +1,8 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import JSZip from "jszip";
+import Papa from "papaparse";
 import {
   createRangeFilter,
   createCategoryFilter,
@@ -163,5 +167,75 @@ describe("applyFilters", () => {
     const result = applyFilters(points, []);
     expect(result.includedCount).toBe(points.length);
     expect(result.excludedCount).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The synthetic tests above check the filter logic in isolation. These
+// exercise the same functions against real course data (the seismic events
+// and sensors tables from the visualiser-export-2 demo export), so the
+// distributions, attribute names, and CSV quirks (e.g. a multi-line quoted
+// header) are the real ones rather than hand-picked values.
+
+describe("dataFilters (real event/sensor data from visualiser-export-2)", () => {
+  let events;
+  let sensors;
+
+  beforeAll(async () => {
+    const zipPath = fileURLToPath(
+      new URL("../../../test-data/visualiser-export-2.zip", import.meta.url)
+    );
+    const zip = await JSZip.loadAsync(readFileSync(zipPath));
+
+    const parseCsv = async (path) => {
+      const text = await zip.file(path).async("text");
+      return Papa.parse(text, { header: true, dynamicTyping: true, skipEmptyLines: true }).data;
+    };
+
+    events = await parseCsv("data/s1-events.csv");
+    sensors = await parseCsv("data/s1-sensors.csv");
+  });
+
+  it("computes the ML domain across all 5,903 seismic events", () => {
+    expect(getAttributeDomain(events, "ML")).toEqual({ min: -2.41, max: 2.8, sampleCount: 5903 });
+  });
+
+  it("filters events by the report's own ML >= -1 threshold", () => {
+    // The demo export's mag-time-chart footer describes an "AboveThreshold"
+    // series as events with M_L >= -1; this checks the same split.
+    const filter = createRangeFilter({ input: "ML", min: -1 });
+    const result = applyFilters(events, [filter]);
+    expect(result.totalCount).toBe(5903);
+    expect(result.includedCount).toBe(678);
+    expect(result.excludedCount).toBe(5225);
+  });
+
+  it("filters sensors by a real categorical attribute (Configuration)", () => {
+    const filter = createCategoryFilter({ input: "Configuration", allowedValues: [1] });
+    const result = applyFilters(sensors, [filter]);
+    expect(result.totalCount).toBe(71);
+    expect(result.includedCount).toBe(45);
+  });
+
+  it("ANDs two real categorical filters together (Configuration + Type)", () => {
+    const filters = [
+      createCategoryFilter({ input: "Configuration", allowedValues: [1] }),
+      createCategoryFilter({ input: "Type", allowedValues: ["G"] }),
+    ];
+    const result = applyFilters(sensors, filters);
+    expect(result.includedCount).toBe(6);
+  });
+
+  it("handles a real CSV column whose header spans multiple quoted lines", () => {
+    // The sensors CSV header for natural frequency is a quoted multi-line
+    // field ("Natural\r\nFrequency\r\n[Hz]"); the parsed attribute name
+    // carries the embedded line breaks verbatim, and filtering by it still
+    // works.
+    const freqKey = Object.keys(sensors[0]).find((k) => k.includes("Frequency"));
+    expect(getAttributeDomain(sensors, freqKey)).toEqual({ min: 15, max: 50, sampleCount: 71 });
+
+    const filter = createRangeFilter({ input: freqKey, min: 20 });
+    const result = applyFilters(sensors, [filter]);
+    expect(result.includedCount).toBe(39);
   });
 });
