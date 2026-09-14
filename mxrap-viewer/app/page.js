@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import ThreeScene from "./components/ThreeScene";
 import { mockScenes } from "./components/mockScenes";
+import { validateExportFile } from "./components/validateExportFile";
 import { parseExportFile } from "./components/parseExportFile";
 import { createRangeFilter, applyFilters, getAttributeDomain } from "./components/dataFilters";
 
@@ -16,7 +17,7 @@ const FILTER_ATTRIBUTE = "ml";
 export default function Home() {
   const [scenes, setScenes] = useState(mockScenes); // 初始用 mock 数据占位，上传真实文件后会替换
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [error, setError] = useState(null);
+  const [errors, setErrors] = useState([]);
   const [fileName, setFileName] = useState(null);
   const [projectionMode, setProjectionMode] = useState("perspective");
   const [magnitudeRange, setMagnitudeRange] = useState(null); // null = unfiltered (full domain)
@@ -64,14 +65,25 @@ export default function Home() {
     if (!file) return;
 
     setFileName(file.name);
-    setError(null);
+    setErrors([]);
+
+    // 第一步：先做 Validate（只检查，不渲染）
+    // Step 1: validate first (checks only, no rendering).
+    const validation = await validateExportFile(file);
+    if (!validation.valid) {
+      setErrors(validation.errors);
+      return; // 检查不通过，不继续往下解析/渲染
+    }
+
+    // 第二步：Validate 通过后，才真正解析并渲染
+    // Step 2: only parse and render once validation passes.
     try {
       const parsed = await parseExportFile(file);
       setScenes(parsed.scenes);
       setCurrentIndex(0);
     } catch (err) {
       console.error(err);
-      setError(err.message);
+      setErrors([err.message]);
     }
   }
 
@@ -106,10 +118,6 @@ export default function Home() {
         </label>
       </header>
 
-      {/* Core Three.js scene setup — see mockScenes.js for placeholder
-          data used before a real file is uploaded. Once a file is
-          selected via the "Open export" button above, parseExportFile()
-          replaces it with real parsed scenes. */}
       <div style={{ position: "relative", flex: 1 }}>
         <div
           style={{
@@ -122,6 +130,7 @@ export default function Home() {
             borderRadius: 8,
             boxShadow: "0 1px 4px rgba(0,0,0,0.2)",
             fontFamily: "Arial, sans-serif",
+            maxWidth: 420,
           }}
         >
           {fileName && (
@@ -130,7 +139,18 @@ export default function Home() {
             </div>
           )}
 
-          {error && <div style={{ color: "red", marginBottom: 8 }}>Error: {error}</div>}
+          {errors.length > 0 && (
+            <div style={{ marginBottom: 8, color: "red", fontSize: 13 }}>
+              <div style={{ fontWeight: "bold", marginBottom: 4 }}>
+                This file could not be loaded ({errors.length} issue{errors.length > 1 ? "s" : ""}):
+              </div>
+              <ul style={{ margin: 0, paddingLeft: 18 }}>
+                {errors.map((e, i) => (
+                  <li key={i}>{e}</li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           <div style={{ marginBottom: 8 }}>
             Current scene: <strong>{currentScene.title}</strong>
