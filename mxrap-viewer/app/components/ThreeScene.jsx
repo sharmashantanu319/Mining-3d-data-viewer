@@ -115,7 +115,7 @@ function getDemoRenderOptions(pointSeriesData, sizing = {}) {
   };
 }
 
-const ThreeScene = forwardRef(function ThreeScene({ sceneData }, ref) {
+const ThreeScene = forwardRef(function ThreeScene({ sceneData, projectionMode = "perspective" }, ref) {
   const containerRef = useRef(null);
   const cameraRef = useRef(null);
   const controlsRef = useRef(null);
@@ -249,8 +249,7 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData }, ref) {
     function handleResize() {
       const width = container.clientWidth;
       const height = container.clientHeight;
-      camera.aspect = width / height;
-      camera.updateProjectionMatrix();
+      updateCameraAspect(camera, width, height);
       renderer.setSize(width, height);
     }
     window.addEventListener("resize", handleResize);
@@ -290,7 +289,7 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData }, ref) {
       cameraRef.current = null;
       controlsRef.current = null;
     };
-  }, [sceneData]); // 关键：依赖 sceneData，变化时触发完整的清空+重建
+  }, [sceneData, projectionMode]); // Key: re-run the full teardown/rebuild whenever sceneData or projectionMode changes
 
   return <div ref={containerRef} style={{ width: "100%", height: "100%" }} />;
 });
