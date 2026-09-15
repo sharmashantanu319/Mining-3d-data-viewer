@@ -7,8 +7,6 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 
 const POLAR_ANGLE_EPSILON = 0.001;
 
-
-
 // Field of view used for the perspective camera, and re-used to size the
 // orthographic frustum so switching projection mode doesn't change the
 // apparent scale of the model.
@@ -84,6 +82,15 @@ export function updateCameraAspect(camera, width, height) {
   camera.updateProjectionMatrix();
 }
 
+/**
+ * Create and configure OrbitControls for a scene's camera.
+ * Zoom limits scale with the scene's own starting camera distance, so the
+ * same defaults work whether the model spans a few metres or kilometres.
+ *
+ * @param {THREE.Camera} camera
+ * @param {HTMLElement} domElement
+ * @param {THREE.Vector3} target point the camera orbits around
+ */
 export function createCameraControls(camera, domElement, target) {
   const controls = new OrbitControls(camera, domElement);
   controls.target.copy(target);

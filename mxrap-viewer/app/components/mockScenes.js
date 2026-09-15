@@ -52,10 +52,11 @@ const scene1 = {
       faces: [{ v1: 101, v2: 102, v3: 103 }],
     },
   ],
+  // 模拟 events 点云：对应真实导出数据里 events/data.csv 的 X/Y/Z 列
   // Mock "events" point cloud, standing in for events/data.csv's X/Y/Z columns.
   pointClouds: [
     {
-      color: 0xffcc00, // yellow, representing seismic events
+      color: 0xffcc00, // 黄色，代表地震事件（events）
       size: 0.12,
       distanceAttenuation: "cartoon",
       points: [
@@ -100,10 +101,11 @@ const scene2 = {
       ],
     },
   ],
+  // 模拟 sensors 点云：对应真实导出数据里 sensors/data.csv 的 X/Y/Z 列
   // Mock "sensors" point cloud, standing in for sensors/data.csv's X/Y/Z columns.
   pointClouds: [
     {
-      color: 0x33cc66, // green, representing sensors
+      color: 0x33cc66, // 绿色，代表传感器（sensors）
       size: 0.1,
       distanceAttenuation: "cartoon",
       points: [
