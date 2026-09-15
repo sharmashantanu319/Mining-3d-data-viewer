@@ -114,6 +114,47 @@ describe("parseExportFile (full-scale real export: visualiser-export-2)", () => 
     expect(s1.pointClouds[1].colourMarker).toBe("Configuration");
   });
 
+  it("loads each point series' marker-defs (markers.json + ramp CSVs) from marker-defs/<markerMenu>", () => {
+    const s1 = result.scenes.find((s) => s.id === "s1-3dview");
+    const [events, sensors] = s1.pointClouds;
+
+    // events/markers.json has 4 entries: 3 colour (Mag/Spheres, Event Date,
+    // Moment) + 1 size (ML) — see marker-defs/events/markers.json.
+    expect(events.markerDefinitions.map((d) => d.name)).toEqual([
+      "Mag/Spheres",
+      "Event Date",
+      "Moment",
+      "ML",
+    ]);
+    const magSpheres = events.markerDefinitions.find((d) => d.name === "Mag/Spheres");
+    expect(magSpheres.ramp).toBe("magnitude.csv");
+    expect(magSpheres.rampCsv).toContain("Up to");
+    expect(magSpheres.rampCsv).toContain("Symbol");
+
+    // sensors/markers.json has just "Configuration" (colour, ramp: config.csv).
+    expect(sensors.markerDefinitions.map((d) => d.name)).toEqual(["Configuration"]);
+    expect(sensors.markerDefinitions[0].rampCsv).toContain("Up to");
+  });
+
+  it("resolves real per-point colour/size from the loaded marker-defs via pointMarkerResolver", async () => {
+    const { resolveMarkerRenderOptions } = await import("../pointMarkerResolver");
+    const s1 = result.scenes.find((s) => s.id === "s1-3dview");
+    const [events] = s1.pointClouds;
+
+    const options = resolveMarkerRenderOptions(events);
+    expect(options).not.toBeNull();
+    expect(options.colorFn).toBeInstanceOf(Function);
+    expect(options.sizeFn).toBeInstanceOf(Function);
+
+    for (const point of events.points.slice(0, 50)) {
+      const colour = options.colorFn(point);
+      expect(Number.isFinite(colour.r)).toBe(true);
+      expect(Number.isFinite(colour.g)).toBe(true);
+      expect(Number.isFinite(colour.b)).toBe(true);
+      expect(Number.isFinite(options.sizeFn(point))).toBe(true);
+    }
+  });
+
   it("skips the lines series in the second display, keeping its surface and no point clouds", () => {
     const s2 = result.scenes.find((s) => s.id === "s2-3dview");
     // s2-3dview declares RMQ Intervals (lines) and Geometry Model (surface).
@@ -192,6 +233,93 @@ describe("parseExportFile (error and skip branches)", () => {
     expect(result.scenes).toHaveLength(1);
     expect(result.scenes[0].surfaces).toEqual([]);
     expect(result.scenes[0].pointClouds).toEqual([]);
+  });
+
+  it("a points series with no markerMenu gets an empty markerDefinitions array", async () => {
+    const info = {
+      title: "No marker menu",
+      slides: [{ displays: [{ folder: "s1-3dview", title: "View" }] }],
+    };
+    const config = {
+      type: "3dview",
+      camera: {},
+      series: [{ name: "Events", type: "points", data: "events" }],
+    };
+    const zip = await makeZip({
+      "info.json": JSON.stringify(info),
+      "s1-3dview/config.json": JSON.stringify(config),
+      "data/events.csv": "X,Y,Z\n1,2,3\n",
+    });
+    const result = await parseExportFile(zip);
+    expect(result.scenes[0].pointClouds[0].markerDefinitions).toEqual([]);
+  });
+
+  it("a points series whose markerMenu doesn't resolve to a real markers.json degrades to an empty array", async () => {
+    const info = {
+      title: "Broken marker menu",
+      slides: [{ displays: [{ folder: "s1-3dview", title: "View" }] }],
+    };
+    const config = {
+      type: "3dview",
+      camera: {},
+      series: [
+        { name: "Events", type: "points", data: "events", markerMenu: "missing/markers" },
+      ],
+    };
+    const zip = await makeZip({
+      "info.json": JSON.stringify(info),
+      "s1-3dview/config.json": JSON.stringify(config),
+      "data/events.csv": "X,Y,Z\n1,2,3\n",
+    });
+    const result = await parseExportFile(zip);
+    expect(result.scenes[0].pointClouds[0].markerDefinitions).toEqual([]);
+  });
+
+  it("a marker definition whose ramp CSV is missing still loads, with rampCsv null", async () => {
+    const info = {
+      title: "Missing ramp",
+      slides: [{ displays: [{ folder: "s1-3dview", title: "View" }] }],
+    };
+    const config = {
+      type: "3dview",
+      camera: {},
+      series: [
+        { name: "Events", type: "points", data: "events", markerMenu: "events/markers" },
+      ],
+    };
+    const markers = [{ name: "Mag/Spheres", type: "colour", input: "ML", ramp: "missing.csv" }];
+    const zip = await makeZip({
+      "info.json": JSON.stringify(info),
+      "s1-3dview/config.json": JSON.stringify(config),
+      "data/events.csv": "X,Y,Z\n1,2,3\n",
+      "marker-defs/events/markers.json": JSON.stringify(markers),
+    });
+    const result = await parseExportFile(zip);
+    const [def] = result.scenes[0].pointClouds[0].markerDefinitions;
+    expect(def.name).toBe("Mag/Spheres");
+    expect(def.rampCsv).toBeNull();
+  });
+
+  it("a malformed markers.json (invalid JSON) degrades to an empty markerDefinitions array", async () => {
+    const info = {
+      title: "Bad markers.json",
+      slides: [{ displays: [{ folder: "s1-3dview", title: "View" }] }],
+    };
+    const config = {
+      type: "3dview",
+      camera: {},
+      series: [
+        { name: "Events", type: "points", data: "events", markerMenu: "events/markers" },
+      ],
+    };
+    const zip = await makeZip({
+      "info.json": JSON.stringify(info),
+      "s1-3dview/config.json": JSON.stringify(config),
+      "data/events.csv": "X,Y,Z\n1,2,3\n",
+      "marker-defs/events/markers.json": "{ not valid json",
+    });
+    const result = await parseExportFile(zip);
+    expect(result.scenes[0].pointClouds[0].markerDefinitions).toEqual([]);
   });
 
   it("skips a surface series whose vertices or faces CSV is missing", async () => {

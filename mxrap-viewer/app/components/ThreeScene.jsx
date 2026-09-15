@@ -21,6 +21,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import * as THREE from "three";
 import { buildSurfaceMesh } from "./geometryBuilder";
 import { buildPointCloud, getHardwarePointSizeRange } from "./pointsBuilder";
+import { resolveMarkerRenderOptions } from "./pointMarkerResolver";
 import {
   orthoParallelScaleFromCamera,
   parallelCartoonScale as computeParallelCartoonScale,
@@ -41,37 +42,40 @@ const DEFAULT_CAMERA = {
   up: { x: 0, y: 1, z: 0 },
 };
 
-// Temporary demo adapter used to exercise the point renderer's per-point
-// colour and size paths. The parser remains plain serialisable data; the
-// dedicated colour-interpolation task will replace this adapter later.
-//
-// `sizing` carries the renderer/camera-dependent inputs to the customer
-// point-size model (see pointSizing.js): which projection the camera uses,
-// the drawing-buffer-derived `pixelSizeNVCx`, the orthographic
+// The renderer/camera-dependent inputs to the customer point-size model
+// (see pointSizing.js), shared by every point cloud regardless of whether
+// it's rendered via getDemoRenderOptions (mock data) or
+// resolveMarkerRenderOptions (real marker-defs data): which projection the
+// camera uses, the drawing-buffer-derived `pixelSizeNVCx`, the orthographic
 // `parallelCartoonScale`, and the GPU's real point-size range. ThreeScene
-// computes it and refreshes the orthographic values every frame.
-function getDemoRenderOptions(pointSeriesData, sizing = {}) {
+// computes `sizing` and refreshes the orthographic values every frame.
+function buildSharedPointSizing(sizing = {}) {
   // renderWindowDPI / 72, with renderWindowDPI approximated as
   // 96 * devicePixelRatio and the ratio capped at 2 (an earlier safety
   // decision for very high-DPR displays). Perspective branch only.
   const pointScaleFactor = Math.min(window.devicePixelRatio, 2) * (96 / 72);
 
-  // Final screen-size safety clamp (framebuffer pixels). 2px floor rather
-  // than 1px: a literal 1px floor did not render reliably in a software
-  // WebGL context. The 96px ceiling is further intersected with the GPU's
-  // real ALIASED_POINT_SIZE_RANGE inside buildPointCloud when
-  // `hardwarePointSizeRange` is supplied.
-  const screenClamp = { minScreenPointSize: 2, maxScreenPointSize: 96 };
-
-  const sharedSizing = {
+  return {
     pointScaleFactor,
     cameraParallel: sizing.cameraParallel ?? 0,
     pixelSizeNVCx: sizing.pixelSizeNVCx,
     parallelCartoonScale: sizing.parallelCartoonScale,
     hardwarePointSizeRange: sizing.hardwarePointSizeRange ?? null,
-    ...screenClamp,
+    // Final screen-size safety clamp (framebuffer pixels). 2px floor rather
+    // than 1px: a literal 1px floor did not render reliably in a software
+    // WebGL context. The 96px ceiling is further intersected with the GPU's
+    // real ALIASED_POINT_SIZE_RANGE inside buildPointCloud when
+    // `hardwarePointSizeRange` is supplied.
+    minScreenPointSize: 2,
+    maxScreenPointSize: 96,
   };
+}
 
+// Temporary demo adapter used to exercise the point renderer's per-point
+// colour and size paths for mock scenes (no real marker-defs data). Real
+// scenes go through resolveMarkerRenderOptions instead; see the forEach
+// below.
+function getDemoRenderOptions(pointSeriesData) {
   if (!pointSeriesData.points?.[0] || pointSeriesData.points[0].ml === undefined) {
     // No per-point value to map from, so no colour/size-by-value. Still route
     // through the shader clamp path with a flat, calibrated size (mid-range of
@@ -83,7 +87,6 @@ function getDemoRenderOptions(pointSeriesData, sizing = {}) {
       minPointSize: 0.3,
       maxPointSize: 1.2,
       distanceAttenuation: pointSeriesData.distanceAttenuation,
-      ...sharedSizing,
     };
   }
 
@@ -111,7 +114,6 @@ function getDemoRenderOptions(pointSeriesData, sizing = {}) {
     minPointSize: 0.3,
     maxPointSize: 1.2,
     distanceAttenuation: pointSeriesData.distanceAttenuation,
-    ...sharedSizing,
   };
 }
 
@@ -215,7 +217,12 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData, projectionMode = 
 
     const pointClouds = [];
     (sceneData.pointClouds ?? []).forEach((pointSeriesData) => {
-      const renderOptions = getDemoRenderOptions(pointSeriesData, currentPointSizing());
+      // Real marker-defs data (parsed from the export's markers.json) takes
+      // priority; mock scenes with no marker definitions fall back to the
+      // ml-based demo adapter.
+      const contentOptions =
+        resolveMarkerRenderOptions(pointSeriesData) ?? getDemoRenderOptions(pointSeriesData);
+      const renderOptions = { ...contentOptions, ...buildSharedPointSizing(currentPointSizing()) };
       const pointCloud = buildPointCloud(pointSeriesData, renderOptions);
       scene.add(pointCloud);
       pointClouds.push(pointCloud);
