@@ -19,6 +19,7 @@
 
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import * as THREE from "three";
+import { buildAnnotation, disposeAnnotation } from "./annotationsBuilder";
 import { buildSurfaceMesh } from "./geometryBuilder";
 import { buildPointCloud, getHardwarePointSizeRange } from "./pointsBuilder";
 import {
@@ -221,6 +222,14 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData, projectionMode = 
       pointClouds.push(pointCloud);
     });
 
+    const annotations = [];
+    (sceneData.annotations ?? []).forEach((annotationData) => {
+      if (!annotationData?.text) return;
+      const annotation = buildAnnotation(annotationData);
+      scene.add(annotation);
+      annotations.push(annotation);
+    });
+
     // Keep the orthographic point-size uniforms in step with zoom / resize.
     // Perspective materials don't declare these uniforms, so they're skipped;
     // currentPointSizing() is only recomputed when an orthographic material
@@ -279,6 +288,8 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData, projectionMode = 
         pointCloud.geometry.dispose();
         pointCloud.material.dispose();
       });
+
+      annotations.forEach(disposeAnnotation);
 
       controls.dispose();
       renderer.dispose();

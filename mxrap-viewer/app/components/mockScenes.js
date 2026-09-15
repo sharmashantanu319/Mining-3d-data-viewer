@@ -52,6 +52,19 @@ const scene1 = {
       faces: [{ v1: 101, v2: 102, v3: 103 }],
     },
   ],
+  annotations: [
+    {
+      text: "Default annotation",
+      x: 0,
+      y: 1.8,
+      z: 0.1,
+      color: "#020202",
+      background: "rgba(237, 247, 238, 0.95)",
+      faceCamera: true,
+      render2d: false,
+      scale: 0.5,
+    },
+  ],
   // Mock "events" point cloud, standing in for events/data.csv's X/Y/Z columns.
   pointClouds: [
     {
