@@ -11,6 +11,8 @@ import {
   applyNullVisibility,
   inferFilterFields,
 } from "./components/dataFilters";
+import ColourLegendPanel from "./components/ColourLegendPanel";
+import { buildSceneColourLegends } from "./components/colourLegend";
 
 function colourMarkerInput(series) {
   if (!series?.colourMarker || !Array.isArray(series.markerDefinitions)) return null;
@@ -29,6 +31,7 @@ export default function Home() {
   const [nullVisibility, setNullVisibility] = useState({});
   const [annotationsVisible, setAnnotationsVisible] = useState(true);
   const [annotationScale, setAnnotationScale] = useState(1);
+  const [legendsVisible, setLegendsVisible] = useState(true);
   const threeSceneRef = useRef(null);
 
   const currentScene = scenes[currentIndex];
@@ -68,6 +71,11 @@ export default function Home() {
     missingCount: 0,
     invalidCount: 0,
   };
+
+  const colourLegends = useMemo(
+    () => buildSceneColourLegends(visiblePointClouds),
+    [visiblePointClouds]
+  );
 
   async function handleFileChange(event) {
     const file = event.target.files?.[0];
@@ -188,6 +196,16 @@ export default function Home() {
             {projectionMode === "perspective" ? "Switch to Orthographic" : "Switch to Perspective"}
           </button>
 
+          {colourLegends.length > 0 && (
+            <button
+              onClick={() => setLegendsVisible((visible) => !visible)}
+              style={{ padding: "6px 12px", cursor: "pointer", marginTop: 8 }}
+              aria-pressed={legendsVisible}
+            >
+              {legendsVisible ? "Hide colour legend" : "Show colour legend"}
+            </button>
+          )}
+
           <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #ddd" }}>
             <button
               onClick={() => setAnnotationsVisible((visible) => !visible)}
@@ -253,6 +271,7 @@ export default function Home() {
           annotationsVisible={annotationsVisible}
           annotationScale={annotationScale}
         />
+        {legendsVisible && <ColourLegendPanel legends={colourLegends} />}
       </div>
     </main>
   );

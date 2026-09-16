@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveMarkerRenderOptions } from "../pointMarkerResolver";
+import { resolveColourMarker, resolveMarkerRenderOptions } from "../pointMarkerResolver";
 import { rampCsv, rampRow } from "./fixtures/ramps";
 
 // A markers.json `type: "colour"` entry (see events/markers.json), with its
@@ -47,6 +47,13 @@ const SERIES = {
 };
 
 describe("resolveMarkerRenderOptions", () => {
+  it("exposes the same normalized colour marker used by rendering", () => {
+    const marker = resolveColourMarker(SERIES);
+    expect(marker.valid).toBe(true);
+    expect(marker.input).toBe("ML");
+    expect(marker.legend.stops.length).toBeGreaterThan(1);
+  });
+
   it("returns null when the series has no marker definitions (mock data)", () => {
     expect(resolveMarkerRenderOptions({ ...SERIES, markerDefinitions: [] })).toBeNull();
     expect(resolveMarkerRenderOptions({ ...SERIES, markerDefinitions: undefined })).toBeNull();
