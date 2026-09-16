@@ -25,9 +25,13 @@ function readCoord(row, keys) {
 /**
  * @param {object[]} rows  parsed rows of the series' data CSV
  * @param {object} series  the series entry from a display's config.json
+ * @param {object[]} [markerDefinitions]  the series' markerMenu entries
+ *   (markers.json, with each def's ramp CSV text attached as `rampCsv` by
+ *   parseExportFile.js), used by pointMarkerResolver.js to resolve real
+ *   per-point colour/size. Empty for mock data / series with no markerMenu.
  * @returns {PointSeries}
  */
-export function buildPointSeries(rows, series) {
+export function buildPointSeries(rows, series, markerDefinitions = []) {
   const s = series ?? {};
   const source = Array.isArray(rows)
     ? rows.filter((r) => r && typeof r === "object")
@@ -60,6 +64,7 @@ export function buildPointSeries(rows, series) {
     visible: s.visible !== false,
     legend: s.legend === true,
     clipping: s.clipping === true,
+    markerDefinitions: Array.isArray(markerDefinitions) ? markerDefinitions : [],
     points,
     stats: { totalRows: source.length, rendered: points.length, droppedNoXYZ },
   };

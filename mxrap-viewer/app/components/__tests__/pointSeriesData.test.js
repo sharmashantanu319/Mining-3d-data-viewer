@@ -90,7 +90,19 @@ describe("buildPointSeries", () => {
       legend: false,
       clipping: false,
       showNullColours: false,
+      markerDefinitions: [],
     });
+  });
+
+  it("carries markerDefinitions through when supplied", () => {
+    const defs = [{ name: "Mag/Spheres", type: "colour" }];
+    const series = buildPointSeries(eventRows(), EVENTS_SERIES, defs);
+    expect(series.markerDefinitions).toBe(defs);
+  });
+
+  it("defaults markerDefinitions to an empty array when omitted or invalid", () => {
+    expect(buildPointSeries(eventRows(), EVENTS_SERIES).markerDefinitions).toEqual([]);
+    expect(buildPointSeries(eventRows(), EVENTS_SERIES, null).markerDefinitions).toEqual([]);
   });
 
   it("handles a non-array rows argument without throwing", () => {
