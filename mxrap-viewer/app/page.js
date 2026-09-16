@@ -2,17 +2,20 @@
 
 import { useMemo, useRef, useState } from "react";
 import ThreeScene from "./components/ThreeScene";
+import FilterPanel from "./components/FilterPanel";
 import { mockScenes } from "./components/mockScenes";
 import { validateExportFile } from "./components/validateExportFile";
 import { parseExportFile } from "./components/parseExportFile";
-import { createRangeFilter, applyFilters, getAttributeDomain } from "./components/dataFilters";
+import {
+  applyFiltersWithStats,
+  applyNullVisibility,
+  inferFilterFields,
+} from "./components/dataFilters";
 
-// DEMO-ONLY: filters by "ml" (magnitude), the one per-point attribute the
-// mock event data carries. Once the parser's points/markers branch lands
-// (see parseExportFile.js), this should read the series' real marker
-// attributes instead of hard-coding "ml" — dataFilters.js itself is already
-// attribute-agnostic, only this wiring is scoped to the demo data.
-const FILTER_ATTRIBUTE = "ml";
+function colourMarkerInput(series) {
+  if (!series?.colourMarker || !Array.isArray(series.markerDefinitions)) return null;
+  return series.markerDefinitions.find((definition) => definition?.name === series.colourMarker)?.input ?? null;
+}
 
 export default function Home() {
   const [scenes, setScenes] = useState(mockScenes); // 初始用 mock 数据占位，上传真实文件后会替换
@@ -20,45 +23,49 @@ export default function Home() {
   const [errors, setErrors] = useState([]);
   const [fileName, setFileName] = useState(null);
   const [projectionMode, setProjectionMode] = useState("perspective");
-  const [magnitudeRange, setMagnitudeRange] = useState(null); // null = unfiltered (full domain)
-  // Tracks which scene `magnitudeRange` was picked for, so switching scenes
-  // can reset it (a range picked for one scene's magnitude domain is not
-  // meaningful against another's) without an effect — adjusting state
-  // during render, per React's guidance for resetting state on prop change.
-  const [magnitudeRangeSceneIndex, setMagnitudeRangeSceneIndex] = useState(currentIndex);
+  const [filtersBySeries, setFiltersBySeries] = useState({});
+  const [selectedSeries, setSelectedSeries] = useState(0);
+  const [seriesVisibility, setSeriesVisibility] = useState({});
+  const [nullVisibility, setNullVisibility] = useState({});
   const threeSceneRef = useRef(null);
 
-  if (magnitudeRangeSceneIndex !== currentIndex) {
-    setMagnitudeRangeSceneIndex(currentIndex);
-    setMagnitudeRange(null);
-  }
-
   const currentScene = scenes[currentIndex];
+  const pointSeries = useMemo(() => currentScene.pointClouds ?? [], [currentScene]);
+  const safeSelectedSeries = Math.min(selectedSeries, Math.max(0, pointSeries.length - 1));
 
-  const magnitudeDomain = useMemo(() => {
-    const allPoints = (currentScene.pointClouds ?? []).flatMap((pc) => pc.points ?? []);
-    return getAttributeDomain(allPoints, FILTER_ATTRIBUTE);
-  }, [currentScene]);
+  const filterResults = useMemo(
+    () =>
+      pointSeries.map((series, index) => {
+        const filtered = applyFiltersWithStats(series.points ?? [], filtersBySeries[index] ?? []);
+        const showNullValues = nullVisibility[index] ?? series.showNullColours !== false;
+        return applyNullVisibility(filtered, colourMarkerInput(series), showNullValues);
+      }),
+    [pointSeries, filtersBySeries, nullVisibility]
+  );
 
-  const filterable = Number.isFinite(magnitudeDomain.min) && Number.isFinite(magnitudeDomain.max);
-
-  const displayedScene = useMemo(() => {
-    if (!filterable || !magnitudeRange) return currentScene;
-
-    const filter = createRangeFilter({
-      input: FILTER_ATTRIBUTE,
-      min: magnitudeRange.min,
-      max: magnitudeRange.max,
-    });
-
-    return {
-      ...currentScene,
-      pointClouds: (currentScene.pointClouds ?? []).map((pointCloud) => ({
-        ...pointCloud,
-        points: applyFilters(pointCloud.points ?? [], [filter]).included,
+  const visiblePointClouds = useMemo(
+    () =>
+      pointSeries.map((series, index) => ({
+        ...series,
+        points:
+          (seriesVisibility[index] ?? series.visible !== false)
+            ? filterResults[index].included
+            : [],
       })),
-    };
-  }, [currentScene, magnitudeRange, filterable]);
+    [pointSeries, filterResults, seriesVisibility]
+  );
+
+  const selectedFields = useMemo(
+    () => inferFilterFields(pointSeries[safeSelectedSeries]?.points ?? []),
+    [pointSeries, safeSelectedSeries]
+  );
+
+  const selectedStats = filterResults[safeSelectedSeries] ?? {
+    totalCount: 0,
+    visibleCount: 0,
+    missingCount: 0,
+    invalidCount: 0,
+  };
 
   async function handleFileChange(event) {
     const file = event.target.files?.[0];
@@ -81,6 +88,10 @@ export default function Home() {
       const parsed = await parseExportFile(file);
       setScenes(parsed.scenes);
       setCurrentIndex(0);
+      setSelectedSeries(0);
+      setFiltersBySeries({});
+      setSeriesVisibility({});
+      setNullVisibility({});
     } catch (err) {
       console.error(err);
       setErrors([err.message]);
@@ -93,6 +104,10 @@ export default function Home() {
 
   function goToNextScene() {
     setCurrentIndex((prev) => (prev + 1) % scenes.length);
+    setSelectedSeries(0);
+    setFiltersBySeries({});
+    setSeriesVisibility({});
+    setNullVisibility({});
   }
 
   return (
@@ -171,49 +186,46 @@ export default function Home() {
             {projectionMode === "perspective" ? "Switch to Orthographic" : "Switch to Perspective"}
           </button>
 
-          {filterable && (
-            <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #ddd" }}>
-              <div style={{ marginBottom: 4, fontSize: 13, color: "#555" }}>
-                Magnitude filter: {(magnitudeRange?.min ?? magnitudeDomain.min).toFixed(2)} to{" "}
-                {(magnitudeRange?.max ?? magnitudeDomain.max).toFixed(2)}
-              </div>
-              <input
-                type="range"
-                min={magnitudeDomain.min}
-                max={magnitudeDomain.max}
-                step={(magnitudeDomain.max - magnitudeDomain.min) / 100 || 1}
-                value={magnitudeRange?.min ?? magnitudeDomain.min}
-                onChange={(event) => {
-                  const min = Number(event.target.value);
-                  const max = magnitudeRange?.max ?? magnitudeDomain.max;
-                  setMagnitudeRange({ min: Math.min(min, max), max });
-                }}
-                style={{ width: "100%" }}
-              />
-              <input
-                type="range"
-                min={magnitudeDomain.min}
-                max={magnitudeDomain.max}
-                step={(magnitudeDomain.max - magnitudeDomain.min) / 100 || 1}
-                value={magnitudeRange?.max ?? magnitudeDomain.max}
-                onChange={(event) => {
-                  const max = Number(event.target.value);
-                  const min = magnitudeRange?.min ?? magnitudeDomain.min;
-                  setMagnitudeRange({ min, max: Math.max(max, min) });
-                }}
-                style={{ width: "100%" }}
-              />
-              <button
-                onClick={() => setMagnitudeRange(null)}
-                style={{ padding: "4px 10px", cursor: "pointer", fontSize: 12 }}
-              >
-                Reset filter
-              </button>
-            </div>
-          )}
         </div>
 
-        <ThreeScene ref={threeSceneRef} sceneData={displayedScene} projectionMode={projectionMode} />
+        {pointSeries.length > 0 && (
+          <FilterPanel
+            series={pointSeries}
+            selectedSeries={safeSelectedSeries}
+            onSelectSeries={setSelectedSeries}
+            fields={selectedFields}
+            filters={filtersBySeries[safeSelectedSeries] ?? []}
+            stats={selectedStats}
+            seriesVisible={
+              seriesVisibility[safeSelectedSeries] ??
+              pointSeries[safeSelectedSeries]?.visible !== false
+            }
+            onSeriesVisibleChange={(visible) =>
+              setSeriesVisibility((current) => ({ ...current, [safeSelectedSeries]: visible }))
+            }
+            hasNullVisibility={Boolean(colourMarkerInput(pointSeries[safeSelectedSeries]))}
+            showNullValues={
+              nullVisibility[safeSelectedSeries] ??
+              pointSeries[safeSelectedSeries]?.showNullColours !== false
+            }
+            onShowNullValuesChange={(visible) =>
+              setNullVisibility((current) => ({ ...current, [safeSelectedSeries]: visible }))
+            }
+            onChange={(filters) =>
+              setFiltersBySeries((current) => ({ ...current, [safeSelectedSeries]: filters }))
+            }
+            onReset={() =>
+              setFiltersBySeries((current) => ({ ...current, [safeSelectedSeries]: [] }))
+            }
+          />
+        )}
+
+        <ThreeScene
+          ref={threeSceneRef}
+          sceneData={currentScene}
+          visiblePointClouds={visiblePointClouds}
+          projectionMode={projectionMode}
+        />
       </div>
     </main>
   );

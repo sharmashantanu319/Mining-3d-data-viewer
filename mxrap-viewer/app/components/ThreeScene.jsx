@@ -118,12 +118,20 @@ function getDemoRenderOptions(pointSeriesData) {
   };
 }
 
-const ThreeScene = forwardRef(function ThreeScene({ sceneData, projectionMode = "perspective" }, ref) {
+const ThreeScene = forwardRef(function ThreeScene(
+  { sceneData, visiblePointClouds = null, projectionMode = "perspective" },
+  ref
+) {
   const containerRef = useRef(null);
   const cameraRef = useRef(null);
   const controlsRef = useRef(null);
   const homeViewRef = useRef(null); // { position, target } to return to on reset
   const cancelAnimationRef = useRef(null);
+  const sceneRef = useRef(null);
+  const pointCloudsRef = useRef([]);
+  const buildPointCloudRef = useRef(null);
+  const visiblePointCloudsRef = useRef(visiblePointClouds);
+  visiblePointCloudsRef.current = visiblePointClouds;
 
   useImperativeHandle(ref, () => ({
     resetView() {
@@ -144,6 +152,7 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData, projectionMode = 
     // ---------- 1. Scene / Camera / Renderer ----------
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0xf0f0f0);
+    sceneRef.current = scene;
 
     const camPos = sceneData.camera?.position ?? DEFAULT_CAMERA.position;
     const camFocal = sceneData.camera?.focal ?? DEFAULT_CAMERA.focal;
@@ -216,8 +225,7 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData, projectionMode = 
       meshes.push(mesh);
     });
 
-    const pointClouds = [];
-    (sceneData.pointClouds ?? []).forEach((pointSeriesData) => {
+    function createPointCloud(pointSeriesData) {
       // Real marker-defs data (parsed from the export's markers.json) takes
       // priority; mock scenes with no marker definitions fall back to the
       // ml-based demo adapter.
@@ -225,9 +233,20 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData, projectionMode = 
         resolveMarkerRenderOptions(pointSeriesData) ?? getDemoRenderOptions(pointSeriesData);
       const renderOptions = { ...contentOptions, ...buildSharedPointSizing(currentPointSizing()) };
       const pointCloud = buildPointCloud(pointSeriesData, renderOptions);
+      return pointCloud;
+    }
+
+    const pointClouds = [];
+    const initialPointCloudData = Array.isArray(visiblePointCloudsRef.current)
+      ? visiblePointCloudsRef.current
+      : sceneData.pointClouds ?? [];
+    initialPointCloudData.forEach((pointSeriesData) => {
+      const pointCloud = createPointCloud(pointSeriesData);
       scene.add(pointCloud);
       pointClouds.push(pointCloud);
     });
+    pointCloudsRef.current = pointClouds;
+    buildPointCloudRef.current = createPointCloud;
 
     const annotations = [];
     (sceneData.annotations ?? []).forEach((annotationData) => {
@@ -243,7 +262,7 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData, projectionMode = 
     // is actually present.
     function refreshOrthographicPointSizing() {
       let sizing = null;
-      for (const pointCloud of pointClouds) {
+      for (const pointCloud of pointCloudsRef.current) {
         const uniforms = pointCloud.material?.uniforms;
         if (!uniforms) continue;
         if (!uniforms.pixelSizeNVCx && !uniforms.parallelCartoonScale) continue;
@@ -291,7 +310,7 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData, projectionMode = 
         mesh.material.dispose();
       });
 
-      pointClouds.forEach((pointCloud) => {
+      pointCloudsRef.current.forEach((pointCloud) => {
         pointCloud.geometry.dispose();
         pointCloud.material.dispose();
       });
@@ -306,8 +325,31 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData, projectionMode = 
 
       cameraRef.current = null;
       controlsRef.current = null;
+      sceneRef.current = null;
+      pointCloudsRef.current = [];
+      buildPointCloudRef.current = null;
     };
   }, [sceneData, projectionMode]); // Key: re-run the full teardown/rebuild whenever sceneData or projectionMode changes
+
+  // Filtering replaces point-cloud geometry only. The scene, camera,
+  // controls, surfaces and current view remain intact while the visible
+  // rows change.
+  useEffect(() => {
+    const scene = sceneRef.current;
+    const createPointCloud = buildPointCloudRef.current;
+    if (!scene || !createPointCloud || !Array.isArray(visiblePointClouds)) return;
+
+    const currentPointClouds = pointCloudsRef.current;
+    const nextPointClouds = visiblePointClouds.map((seriesData) => createPointCloud(seriesData));
+
+    currentPointClouds.forEach((pointCloud) => {
+      scene.remove(pointCloud);
+      pointCloud.geometry.dispose();
+      pointCloud.material.dispose();
+    });
+    nextPointClouds.forEach((pointCloud) => scene.add(pointCloud));
+    pointCloudsRef.current = nextPointClouds;
+  }, [visiblePointClouds]);
 
   return <div ref={containerRef} style={{ width: "100%", height: "100%" }} />;
 });
