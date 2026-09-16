@@ -45,6 +45,26 @@ const DEMO_MAGNITUDE_MARKER = {
   rampCsv: DEMO_MAGNITUDE_RAMP,
 };
 
+const DEMO_MAGNITUDE_DISCRETE_MARKER = {
+  ...DEMO_MAGNITUDE_MARKER,
+  name: "Magnitude bands",
+  legend: {
+    title: "Magnitude bands [ML]",
+    numberOfDecimals: 1,
+  },
+  rampCsv: DEMO_MAGNITUDE_RAMP.replace("linear,,0", "linear,5,0"),
+};
+
+const DEMO_MAGNITUDE_SIZE_MARKER = {
+  name: "Magnitude size",
+  type: "size",
+  input: "ml",
+  inputType: "number",
+  scale: "linear",
+  minimum: -3,
+  maximum: 3,
+};
+
 const scene1 = {
   id: "scene1",
   title: "Scene 1 - Triangle (focal offset to the side)",
@@ -99,7 +119,11 @@ const scene1 = {
       nullSizes: 0.3,
       showNullColours: true,
       legend: true,
-      markerDefinitions: [DEMO_MAGNITUDE_MARKER],
+      markerDefinitions: [
+        DEMO_MAGNITUDE_MARKER,
+        DEMO_MAGNITUDE_DISCRETE_MARKER,
+        DEMO_MAGNITUDE_SIZE_MARKER,
+      ],
       points: [
         { id: 201, x: -0.6, y: 0.3, z: 0.4, ml: -2.4 },
         { id: 202, x: 0.2, y: 0.6, z: -0.3, ml: -0.8 },

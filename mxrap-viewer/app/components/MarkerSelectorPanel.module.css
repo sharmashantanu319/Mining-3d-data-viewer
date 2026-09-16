@@ -1,0 +1,39 @@
+.panel {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #dfe5e0;
+}
+
+.heading {
+  margin-bottom: 8px;
+  color: #526057;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.field {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+  color: #526057;
+  font-size: 11px;
+}
+
+.field select {
+  width: 100%;
+  min-height: 32px;
+  padding: 5px 28px 5px 8px;
+  border: 1px solid #cbd4cd;
+  border-radius: 6px;
+  background: #fff;
+  color: #17211a;
+  font: inherit;
+  font-size: 12px;
+}
+
+.field select:focus-visible {
+  outline: 2px solid #79a832;
+  outline-offset: 1px;
+}
