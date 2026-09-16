@@ -226,7 +226,50 @@ async function parsePointSeries(zip, series, root) {
         return null;
     }
 
-    return buildPointSeries(rows, series);
+    const markerDefinitions = await loadMarkerDefinitions(zip, series.markerMenu);
+    return buildPointSeries(rows, series, markerDefinitions);
+}
+
+// Loads marker-defs/<markerMenu>.json (an array of colour/size marker
+// definitions) plus each definition's ramp CSV, found alongside it in the
+// same marker-defs folder. Missing/malformed marker-defs degrade to no
+// definitions (the series still renders, just without real colour/size
+// mapping) rather than failing the whole parse.
+async function loadMarkerDefinitions(zip, markerMenu) {
+    if (!markerMenu) return [];
+
+    const jsonEntry = zip.file(`marker-defs/${markerMenu}.json`);
+    if (!jsonEntry) {
+        console.warn(`Marker definitions not found: marker-defs/${markerMenu}.json`);
+        return [];
+    }
+
+    let defs;
+    try {
+        defs = JSON.parse(await jsonEntry.async("text"));
+    } catch (err) {
+        console.warn(`Could not parse marker-defs/${markerMenu}.json: ${err.message}`);
+        return [];
+    }
+    if (!Array.isArray(defs)) return [];
+
+    const folder = markerMenu.split("/").slice(0, -1).join("/");
+    const resolved = [];
+    for (const def of defs) {
+        if (!def || typeof def !== "object") continue;
+
+        let rampCsv = null;
+        if (def.ramp) {
+            const rampEntry = zip.file(`marker-defs/${folder}/${def.ramp}`);
+            if (rampEntry) {
+                rampCsv = await rampEntry.async("text");
+            } else {
+                console.warn(`Marker ramp CSV not found: marker-defs/${folder}/${def.ramp}`);
+            }
+        }
+        resolved.push({ ...def, rampCsv });
+    }
+    return resolved;
 }
 
 async function readCsv(zip, fileRef, root = "") {
