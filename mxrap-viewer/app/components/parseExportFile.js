@@ -25,6 +25,7 @@
 import JSZip from "jszip";
 import Papa from "papaparse";
 import { buildPointSeries } from "./pointSeriesData";
+import { parseColourRampCsv } from "./colourMapping";
 
 export async function parseExportFile(file) {
     const zip = await JSZip.loadAsync(file);
@@ -226,7 +227,7 @@ async function parsePointSeries(zip, series, root) {
         return null;
     }
 
-    const markerDefinitions = await loadMarkerDefinitions(zip, series.markerMenu);
+    const markerDefinitions = await loadMarkerDefinitions(zip, series.markerMenu, root);
     return buildPointSeries(rows, series, markerDefinitions);
 }
 
@@ -235,7 +236,15 @@ async function parsePointSeries(zip, series, root) {
 // same marker-defs folder. Missing/malformed marker-defs degrade to no
 // definitions (the series still renders, just without real colour/size
 // mapping) rather than failing the whole parse.
-async function loadMarkerDefinitions(zip, markerMenu) {
+function imageMimeType(fileName) {
+    const extension = String(fileName).split(".").pop()?.toLowerCase();
+    if (extension === "jpg" || extension === "jpeg") return "image/jpeg";
+    if (extension === "webp") return "image/webp";
+    if (extension === "gif") return "image/gif";
+    return "image/png";
+}
+
+async function loadMarkerDefinitions(zip, markerMenu, root = "") {
     if (!markerMenu) return [];
 
     const jsonEntry = zip.file(`marker-defs/${markerMenu}.json`);
@@ -254,20 +263,57 @@ async function loadMarkerDefinitions(zip, markerMenu) {
     if (!Array.isArray(defs)) return [];
 
     const folder = markerMenu.split("/").slice(0, -1).join("/");
+    const imageCache = new Map();
+
+    async function loadSymbolAsset(fileName) {
+        if (!fileName) return null;
+        if (imageCache.has(fileName)) return imageCache.get(fileName);
+
+        const candidates = [
+            `${root}marker-images/${fileName}`,
+            `${root}marker-defs/${folder}/${fileName}`,
+        ];
+        const entry = candidates.map((path) => zip.file(path)).find(Boolean);
+        if (!entry) {
+            console.warn(`Marker symbol image not found: ${fileName}`);
+            imageCache.set(fileName, null);
+            return null;
+        }
+
+        const base64 = await entry.async("base64");
+        const dataUrl = `data:${imageMimeType(fileName)};base64,${base64}`;
+        imageCache.set(fileName, dataUrl);
+        return dataUrl;
+    }
+
     const resolved = [];
     for (const def of defs) {
         if (!def || typeof def !== "object") continue;
 
         let rampCsv = null;
         if (def.ramp) {
-            const rampEntry = zip.file(`marker-defs/${folder}/${def.ramp}`);
+            const rampEntry = zip.file(`${root}marker-defs/${folder}/${def.ramp}`);
             if (rampEntry) {
                 rampCsv = await rampEntry.async("text");
             } else {
                 console.warn(`Marker ramp CSV not found: marker-defs/${folder}/${def.ramp}`);
             }
         }
-        resolved.push({ ...def, rampCsv });
+
+        const symbolNames = new Set();
+        if (def.nullSymbol) symbolNames.add(def.nullSymbol);
+        if (rampCsv) {
+            for (const segment of parseColourRampCsv(rampCsv).segments) {
+                if (segment.symbol) symbolNames.add(segment.symbol);
+            }
+        }
+        const symbolAssets = {};
+        for (const symbolName of symbolNames) {
+            const dataUrl = await loadSymbolAsset(symbolName);
+            if (dataUrl) symbolAssets[symbolName] = dataUrl;
+        }
+
+        resolved.push({ ...def, rampCsv, symbolAssets });
     }
     return resolved;
 }

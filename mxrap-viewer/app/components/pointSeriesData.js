@@ -39,7 +39,8 @@ export function buildPointSeries(rows, series, markerDefinitions = []) {
 
   const points = [];
   let droppedNoXYZ = 0;
-  for (const row of source) {
+  for (let sourceIndex = 0; sourceIndex < source.length; sourceIndex += 1) {
+    const row = source[sourceIndex];
     const x = readCoord(row, X_KEYS);
     const y = readCoord(row, Y_KEYS);
     const z = readCoord(row, Z_KEYS);
@@ -47,7 +48,7 @@ export function buildPointSeries(rows, series, markerDefinitions = []) {
       droppedNoXYZ += 1;
       continue;
     }
-    points.push({ ...row, x, y, z });
+    points.push({ ...row, x, y, z, sourceIndex });
   }
 
   return {

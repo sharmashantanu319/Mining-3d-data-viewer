@@ -72,16 +72,6 @@ export function resolveColourMarker(pointSeriesData) {
   });
 }
 
-function resolveColourFn(pointSeriesData) {
-  const marker = resolveColourMarker(pointSeriesData);
-  if (!marker?.valid) return null;
-
-  return (point) => {
-    const colour = mapColour(point?.[marker.input], marker);
-    return { r: colour.r, g: colour.g, b: colour.b };
-  };
-}
-
 function resolveSizeMarker(pointSeriesData) {
   const { markerDefinitions, sizeMarker, points, sizeMinimum, sizeMaximum, nullSizes } =
     pointSeriesData;
@@ -113,7 +103,17 @@ export function resolveMarkerRenderOptions(pointSeriesData) {
   const s = pointSeriesData ?? {};
   if (!Array.isArray(s.markerDefinitions) || s.markerDefinitions.length === 0) return null;
 
-  const colorFn = resolveColourFn(s);
+  const colourMarker = resolveColourMarker(s);
+  const colorFn = colourMarker?.valid
+    ? (point) => {
+        const colour = mapColour(point?.[colourMarker.input], colourMarker);
+        return { r: colour.r, g: colour.g, b: colour.b };
+      }
+    : null;
+  const symbolFn = colourMarker?.valid
+    ? (point) => mapColour(point?.[colourMarker.input], colourMarker).symbol ?? null
+    : null;
+  const colourDefinition = findMarkerDef(s.markerDefinitions, s.colourMarker);
   const sizeMarker = resolveSizeMarker(s);
 
   const minPointSize = Number.isFinite(sizeMarker.sizeMinimum) ? sizeMarker.sizeMinimum : 2;
@@ -123,6 +123,8 @@ export function resolveMarkerRenderOptions(pointSeriesData) {
 
   return {
     ...(colorFn ? { colorFn } : {}),
+    ...(symbolFn ? { symbolFn } : {}),
+    symbolAssets: colourDefinition?.symbolAssets ?? {},
     sizeFn: (point) => mapSize(point?.[sizeMarker.input], sizeMarker),
     minPointSize,
     maxPointSize,
