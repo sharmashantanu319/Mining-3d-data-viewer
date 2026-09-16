@@ -27,6 +27,8 @@ export default function Home() {
   const [selectedSeries, setSelectedSeries] = useState(0);
   const [seriesVisibility, setSeriesVisibility] = useState({});
   const [nullVisibility, setNullVisibility] = useState({});
+  const [annotationsVisible, setAnnotationsVisible] = useState(true);
+  const [annotationScale, setAnnotationScale] = useState(1);
   const threeSceneRef = useRef(null);
 
   const currentScene = scenes[currentIndex];
@@ -186,6 +188,29 @@ export default function Home() {
             {projectionMode === "perspective" ? "Switch to Orthographic" : "Switch to Perspective"}
           </button>
 
+          <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #ddd" }}>
+            <button
+              onClick={() => setAnnotationsVisible((visible) => !visible)}
+              style={{ padding: "6px 12px", cursor: "pointer" }}
+              aria-pressed={annotationsVisible}
+            >
+              {annotationsVisible ? "Hide annotations" : "Show annotations"}
+            </button>
+            <label style={{ display: "block", marginTop: 8, fontSize: 13 }}>
+              Annotation size: {annotationScale.toFixed(1)}x
+              <input
+                type="range"
+                min="0.5"
+                max="2"
+                step="0.1"
+                value={annotationScale}
+                onChange={(event) => setAnnotationScale(Number(event.target.value))}
+                style={{ display: "block", width: "100%" }}
+                aria-label="Annotation size"
+              />
+            </label>
+          </div>
+
         </div>
 
         {pointSeries.length > 0 && (
@@ -225,6 +250,8 @@ export default function Home() {
           sceneData={currentScene}
           visiblePointClouds={visiblePointClouds}
           projectionMode={projectionMode}
+          annotationsVisible={annotationsVisible}
+          annotationScale={annotationScale}
         />
       </div>
     </main>
