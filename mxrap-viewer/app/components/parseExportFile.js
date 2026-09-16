@@ -19,15 +19,8 @@
 //   ├── s1-mag-time-chart/...     图表类型 display（本版本跳过，非 MVP 范围）
 //   └── s2-3dview/config.json     另一个 display
 //
-// Scope: handles series.type === "surface" and "points". Text / Lines /
-// Chart series are skipped with a console notice; they are follow-up tasks.
-//
-// A points series also carries a `markerMenu` (e.g. "events/markers"),
-// pointing at marker-defs/<markerMenu>.json — the real colour/size marker
-// definitions (ramp CSVs + thresholds) that pointMarkerResolver.js turns
-// into real per-point colour/size, via colourMapping.js/sizeMapping.js.
-// This is loaded for points series only; surfaces still render with a flat
-// colour (their own colourMarker wiring is a separate follow-up).
+// Scope: handles series.type === "surface", "points", and "text".
+// Lines and chart series remain outside the viewer scope.
 
 import JSZip from "jszip";
 import Papa from "papaparse";
@@ -35,8 +28,9 @@ import { buildPointSeries } from "./pointSeriesData";
 
 export async function parseExportFile(file) {
     const zip = await JSZip.loadAsync(file);
+    const root = findArchiveRoot(zip);
 
-    const infoEntry = zip.file("info.json");
+    const infoEntry = zip.file(`${root}info.json`);
     if (!infoEntry) {
         throw new Error("Could not find top-level info.json");
     }
@@ -45,7 +39,7 @@ export async function parseExportFile(file) {
     const scenes = [];
     for (const slide of info.slides ?? []) {
         for (const displayRef of slide.displays ?? []) {
-            const configEntry = zip.file(`${displayRef.folder}/config.json`);
+            const configEntry = zip.file(`${root}${displayRef.folder}/config.json`);
             if (!configEntry) {
                 console.warn(`Skipping missing display: ${displayRef.folder}`);
                 continue;
@@ -57,7 +51,7 @@ export async function parseExportFile(file) {
                 continue;
             }
 
-            const scene = await parseDisplayConfig(zip, displayRef, config);
+            const scene = await parseDisplayConfig(zip, displayRef, config, root);
             scenes.push(scene);
         }
     }
@@ -68,17 +62,21 @@ export async function parseExportFile(file) {
     };
 }
 
-async function parseDisplayConfig(zip, displayRef, config) {
+async function parseDisplayConfig(zip, displayRef, config, root) {
     const surfaces = [];
     const pointClouds = [];
+    const annotations = parseDisplayAnnotations(config.annotations, displayRef.folder);
 
     for (const series of config.series ?? []) {
         if (series.type === "surface") {
-            const surface = await parseSurfaceSeries(zip, series);
+            const surface = await parseSurfaceSeries(zip, series, root);
             if (surface) surfaces.push(surface);
         } else if (series.type === "points") {
-            const pointCloud = await parsePointSeries(zip, series);
+            const pointCloud = await parsePointSeries(zip, series, root);
             if (pointCloud) pointClouds.push(pointCloud);
+        } else if (series.type === "text" || series.type === "annotation") {
+            const seriesAnnotations = await parseAnnotationSeries(zip, series, root);
+            annotations.push(...seriesAnnotations);
         } else {
             console.info(`Skipping series type "${series.type}" (out of scope)`);
         }
@@ -90,7 +88,93 @@ async function parseDisplayConfig(zip, displayRef, config) {
         camera: parseCameraConfig(config.camera),
         surfaces,
         pointClouds,
+        annotations,
     };
+}
+
+function parseDisplayAnnotations(rawAnnotations, displayName) {
+    if (!Array.isArray(rawAnnotations)) return [];
+
+    return rawAnnotations.flatMap((rawAnnotation, index) => {
+        const location = rawAnnotation?.location;
+        const text = rawAnnotation?.text;
+        if (
+            !Array.isArray(location) ||
+            location.length < 3 ||
+            !location.slice(0, 3).every(Number.isFinite) ||
+            text === undefined ||
+            String(text).trim() === ""
+        ) {
+            console.warn(`Skipping invalid annotation ${index + 1} in display: ${displayName}`);
+            return [];
+        }
+
+        return [{
+            text: String(text),
+            x: location[0],
+            y: location[1],
+            z: location[2],
+            color: rawAnnotation.colour ?? rawAnnotation.color,
+            faceCamera: true,
+            render2d: false,
+        }];
+    });
+}
+
+async function parseAnnotationSeries(zip, series, root) {
+    const rows = await readCsv(zip, series.data, root);
+    if (!rows) {
+        console.warn(`Skipping annotation series with missing data: ${series.name}`);
+        return [];
+    }
+
+    return rows.flatMap((row) => {
+        const x = firstFinite(row, ["X", "Location X", "x"]);
+        const y = firstFinite(row, ["Y", "Location Y", "y"]);
+        const z = firstFinite(row, ["Z", "Location Z", "z"]);
+        const text = firstValue(row, ["Text", "Label", "Annotation", "Name", "Value"]);
+
+        if (![x, y, z].every(Number.isFinite) || text === undefined || text === "") {
+            console.warn(`Skipping invalid annotation row in series: ${series.name ?? "unnamed"}`);
+            return [];
+        }
+
+        const annotation = {
+            text: String(text),
+            x,
+            y,
+            z,
+            render2d: series.render2d === true,
+            faceCamera: series.faceCamera === true,
+        };
+
+        const dip = firstFinite(row, ["Dip", "dip"]);
+        const dipDirection = firstFinite(row, ["Dip Direction", "DipDirection", "dipDirection"]);
+        const rake = firstFinite(row, ["Rake", "rake"]);
+
+        if (Number.isFinite(dip)) annotation.dip = dip;
+        if (Number.isFinite(dipDirection)) annotation.dipDirection = dipDirection;
+        if (Number.isFinite(rake)) annotation.rake = rake;
+        if (series.color !== undefined) annotation.color = series.color;
+        if (series.background !== undefined) annotation.background = series.background;
+        if (Number.isFinite(series.scale)) annotation.scale = series.scale;
+
+        return [annotation];
+    });
+}
+
+function firstValue(row, keys) {
+    return keys.map((key) => row[key]).find((value) => value !== undefined && value !== null);
+}
+
+function firstFinite(row, keys) {
+    return keys.map((key) => row[key]).find(Number.isFinite);
+}
+
+function findArchiveRoot(zip) {
+    if (zip.file("info.json")) return "";
+    if (zip.file("export/info.json")) return "export/";
+    return "";
 }
 
 function parseCameraConfig(camera) {
@@ -106,9 +190,9 @@ function parseCameraConfig(camera) {
     };
 }
 
-async function parseSurfaceSeries(zip, series) {
-    const verticesCsv = await readCsv(zip, series["data-vertices"]);
-    const facesCsv = await readCsv(zip, series["data-faces"]);
+async function parseSurfaceSeries(zip, series, root) {
+    const verticesCsv = await readCsv(zip, series["data-vertices"], root);
+    const facesCsv = await readCsv(zip, series["data-faces"], root);
 
     if (!verticesCsv || !facesCsv) {
         console.warn(`Skipping surface series with missing data: ${series.name}`);
@@ -135,8 +219,8 @@ async function parseSurfaceSeries(zip, series) {
     };
 }
 
-async function parsePointSeries(zip, series) {
-    const rows = await readCsv(zip, series.data);
+async function parsePointSeries(zip, series, root) {
+    const rows = await readCsv(zip, series.data, root);
     if (!rows) {
         console.warn(`Skipping point series with missing data: ${series.name}`);
         return null;
@@ -188,12 +272,12 @@ async function loadMarkerDefinitions(zip, markerMenu) {
     return resolved;
 }
 
-async function readCsv(zip, fileRef) {
+async function readCsv(zip, fileRef, root = "") {
     if (!fileRef) return null;
 
-    const entry = zip.file(`data/${fileRef}.csv`);
+    const entry = zip.file(`${root}data/${fileRef}.csv`);
     if (!entry) {
-        console.warn(`CSV file not found: data/${fileRef}.csv`);
+        console.warn(`CSV file not found: ${root}data/${fileRef}.csv`);
         return null;
     }
 
