@@ -1,19 +1,16 @@
 .panel {
-  position: absolute;
-  top: 16px;
-  right: 16px;
-  z-index: 12;
-  width: min(340px, calc(100vw - 32px));
-  max-height: calc(100% - 32px);
-  overflow: auto;
-  padding: 18px;
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 12px;
+  padding: 14px 0 0;
   border: 1px solid rgba(15, 23, 42, 0.1);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.16);
+  border-width: 1px 0 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
   color: #172033;
   font-family: Arial, sans-serif;
-  backdrop-filter: blur(12px);
 }
 
 .headingRow {
@@ -194,11 +191,6 @@
 
 @media (max-width: 760px) {
   .panel {
-    top: auto;
-    bottom: 12px;
-    right: 12px;
-    left: 12px;
-    width: auto;
-    max-height: 45%;
+    width: 100%;
   }
 }
