@@ -116,12 +116,30 @@ function getDemoRenderOptions(pointSeriesData, sizing = {}) {
   };
 }
 
-const ThreeScene = forwardRef(function ThreeScene({ sceneData, projectionMode = "perspective" }, ref) {
+const ThreeScene = forwardRef(function ThreeScene(
+  {
+    sceneData,
+    projectionMode = "perspective",
+    annotationsVisible = true,
+    annotationScale = 1,
+  },
+  ref
+) {
   const containerRef = useRef(null);
   const cameraRef = useRef(null);
   const controlsRef = useRef(null);
   const homeViewRef = useRef(null); // { position, target } to return to on reset
   const cancelAnimationRef = useRef(null);
+  const annotationsRef = useRef([]);
+  const annotationSettingsRef = useRef({ annotationsVisible, annotationScale });
+  annotationSettingsRef.current = { annotationsVisible, annotationScale };
+
+  useEffect(() => {
+    annotationsRef.current.forEach(({ object, baseScale }) => {
+      object.visible = annotationsVisible;
+      object.scale.setScalar(baseScale * annotationScale);
+    });
+  }, [annotationsVisible, annotationScale]);
 
   useImperativeHandle(ref, () => ({
     resetView() {
@@ -227,7 +245,15 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData, projectionMode = 
       if (!annotationData?.text) return;
       const annotation = buildAnnotation(annotationData);
       scene.add(annotation);
-      annotations.push(annotation);
+      annotations.push({
+        object: annotation,
+        baseScale: Number.isFinite(annotationData.scale) ? annotationData.scale : 10,
+      });
+    });
+    annotationsRef.current = annotations;
+    annotationsRef.current.forEach(({ object, baseScale }) => {
+      object.visible = annotationSettingsRef.current.annotationsVisible;
+      object.scale.setScalar(baseScale * annotationSettingsRef.current.annotationScale);
     });
 
     // Keep the orthographic point-size uniforms in step with zoom / resize.
@@ -289,7 +315,8 @@ const ThreeScene = forwardRef(function ThreeScene({ sceneData, projectionMode = 
         pointCloud.material.dispose();
       });
 
-      annotations.forEach(disposeAnnotation);
+      annotations.forEach(({ object }) => disposeAnnotation(object));
+      annotationsRef.current = [];
 
       controls.dispose();
       renderer.dispose();
