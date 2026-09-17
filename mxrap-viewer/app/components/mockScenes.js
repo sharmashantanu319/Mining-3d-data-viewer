@@ -26,6 +26,25 @@
 // code path is actually working is visually obvious at a glance,
 // rather than requiring a math-verification script to confirm.
 
+const DEMO_MAGNITUDE_RAMP = `Up to,Symbol,Start Colour (H),Start Colour (S),Start Colour (V),End Colour (H),End Colour (S),End Colour (V),Colour Ramp,Number of Colours,Transparency [0..100],Colour Space,Start Colour Colour Space,End Colour Colour Space,End Transparency [0..100]
+,,0.667,0.9,0.72,0,0.82,0.95,linear,,0,HSV,HSV,HSV,0`;
+
+const DEMO_MAGNITUDE_MARKER = {
+  name: "Magnitude colour",
+  type: "colour",
+  input: "ml",
+  inputType: "number",
+  scale: "linear",
+  minimum: -3,
+  maximum: 3,
+  nullColour: [0.45, 0.45, 0.45],
+  legend: {
+    title: "Magnitude [ML]",
+    numberOfDecimals: 1,
+  },
+  rampCsv: DEMO_MAGNITUDE_RAMP,
+};
+
 const scene1 = {
   id: "scene1",
   title: "Scene 1 - Triangle (focal offset to the side)",
@@ -69,9 +88,18 @@ const scene1 = {
   // Mock "events" point cloud, standing in for events/data.csv's X/Y/Z columns.
   pointClouds: [
     {
+      name: "Events",
       color: 0xffcc00, // 黄色，代表地震事件（events）
       size: 0.12,
       distanceAttenuation: "cartoon",
+      colourMarker: "Magnitude colour",
+      sizeMarker: null,
+      sizeMinimum: 0.3,
+      sizeMaximum: 1.2,
+      nullSizes: 0.3,
+      showNullColours: true,
+      legend: true,
+      markerDefinitions: [DEMO_MAGNITUDE_MARKER],
       points: [
         { id: 201, x: -0.6, y: 0.3, z: 0.4, ml: -2.4 },
         { id: 202, x: 0.2, y: 0.6, z: -0.3, ml: -0.8 },

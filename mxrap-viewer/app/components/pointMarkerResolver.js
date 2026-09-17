@@ -57,7 +57,7 @@ function dataDomain(points, input, inputType) {
   return { dataMin, dataMax };
 }
 
-function resolveColourFn(pointSeriesData) {
+export function resolveColourMarker(pointSeriesData) {
   const { markerDefinitions, colourMarker, points, showNullColours } = pointSeriesData;
   const def = findMarkerDef(markerDefinitions, colourMarker);
   if (!def) return null;
@@ -65,15 +65,19 @@ function resolveColourFn(pointSeriesData) {
   const inputType = def.inputType === "date" ? "date" : "number";
   const { dataMin, dataMax } = dataDomain(points, def.input, inputType);
   const ramp = parseColourRampCsv(def.rampCsv);
-  const marker = normalizeColourMarker(def, ramp, {
+  return normalizeColourMarker(def, ramp, {
     dataMin,
     dataMax,
     showNullColours: showNullColours === true,
   });
-  if (!marker.valid) return null;
+}
+
+function resolveColourFn(pointSeriesData) {
+  const marker = resolveColourMarker(pointSeriesData);
+  if (!marker?.valid) return null;
 
   return (point) => {
-    const colour = mapColour(point?.[def.input], marker);
+    const colour = mapColour(point?.[marker.input], marker);
     return { r: colour.r, g: colour.g, b: colour.b };
   };
 }
