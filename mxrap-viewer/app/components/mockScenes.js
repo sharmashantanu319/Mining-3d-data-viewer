@@ -18,13 +18,9 @@
 // data's config.json "camera" field (Position / Focal / Up as three
 // separate vectors).
 //
-// 两个 scene 都故意把 focal 设置得离几何体本身有明显距离/角度差异，
-// up 向量也故意设置得比较夸张，这样代码有没有正确生效，
-// 肉眼一眼就能看出来，不用靠猜测或者数学验证脚本才能确认。
-// Both scenes intentionally use a focal point clearly offset from the
-// geometry, and a noticeably tilted up vector — so whether the new
-// code path is actually working is visually obvious at a glance,
-// rather than requiring a math-verification script to confirm.
+// Scene 1 uses a centred focal point so the default product view opens with
+// its content clearly visible. Scene 2 keeps a deliberately tilted up vector
+// to exercise camera orientation without making the initial screen confusing.
 
 const DEMO_MAGNITUDE_RAMP = `Up to,Symbol,Start Colour (H),Start Colour (S),Start Colour (V),End Colour (H),End Colour (S),End Colour (V),Colour Ramp,Number of Colours,Transparency [0..100],Colour Space,Start Colour Colour Space,End Colour Colour Space,End Transparency [0..100]
 ,,0.667,0.9,0.72,0,0.82,0.95,linear,,0,HSV,HSV,HSV,0`;
@@ -67,17 +63,10 @@ const DEMO_MAGNITUDE_SIZE_MARKER = {
 
 const scene1 = {
   id: "scene1",
-  title: "Scene 1 - Triangle (focal offset to the side)",
+  title: "Scene 1 - Triangle",
   camera: {
     position: { x: 3, y: 2, z: 6 },
-    // focal 故意设成 (4, 0.5, 0)，明显偏离三角形本身
-    // （三角形顶点在 x: -1~1 之间），这样一打开画面，
-    // 三角形应该明显不在正中央，而是偏向一侧。
-    // focal is intentionally set to (4, 0.5, 0), clearly offset from
-    // the triangle itself (whose vertices sit around x: -1 to 1) —
-    // so on load, the triangle should visibly sit off-center rather
-    // than dead in the middle.
-    focal: { x: 4, y: 0.5, z: 0 },
+    focal: { x: 0, y: 0.5, z: 0 },
     up: { x: 0, y: 1, z: 0 },
   },
   surfaces: [
