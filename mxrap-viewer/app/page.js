@@ -13,6 +13,8 @@ import {
 } from "./components/dataFilters";
 import ColourLegendPanel from "./components/ColourLegendPanel";
 import { buildSceneColourLegends } from "./components/colourLegend";
+import MarkerSelectorPanel from "./components/MarkerSelectorPanel";
+import { applyMarkerSelections } from "./components/markerSelection";
 
 function colourMarkerInput(series) {
   if (!series?.colourMarker || !Array.isArray(series.markerDefinitions)) return null;
@@ -32,8 +34,9 @@ export default function Home() {
   const [annotationsVisible, setAnnotationsVisible] = useState(true);
   const [annotationScale, setAnnotationScale] = useState(1);
   const [legendsVisible, setLegendsVisible] = useState(true);
+  const [markerSelections, setMarkerSelections] = useState({});
+  const [markerSeriesIndex, setMarkerSeriesIndex] = useState(0);
   const threeSceneRef = useRef(null);
-
   const currentScene = scenes[currentIndex];
   const pointSeries = useMemo(() => currentScene.pointClouds ?? [], [currentScene]);
   const safeSelectedSeries = Math.min(selectedSeries, Math.max(0, pointSeries.length - 1));
@@ -72,9 +75,14 @@ export default function Home() {
     invalidCount: 0,
   };
 
+  const renderedPointClouds = useMemo(
+    () => applyMarkerSelections(visiblePointClouds, markerSelections),
+    [visiblePointClouds, markerSelections]
+  );
+
   const colourLegends = useMemo(
-    () => buildSceneColourLegends(visiblePointClouds),
-    [visiblePointClouds]
+    () => buildSceneColourLegends(renderedPointClouds),
+    [renderedPointClouds]
   );
 
   async function handleFileChange(event) {
@@ -102,6 +110,8 @@ export default function Home() {
       setFiltersBySeries({});
       setSeriesVisibility({});
       setNullVisibility({});
+      setMarkerSelections({});
+      setMarkerSeriesIndex(0);
     } catch (err) {
       console.error(err);
       setErrors([err.message]);
@@ -118,6 +128,8 @@ export default function Home() {
     setFiltersBySeries({});
     setSeriesVisibility({});
     setNullVisibility({});
+    setMarkerSelections({});
+    setMarkerSeriesIndex(0);
   }
 
   return (
@@ -206,6 +218,19 @@ export default function Home() {
             </button>
           )}
 
+          <MarkerSelectorPanel
+            series={visiblePointClouds}
+            selectedSeries={markerSeriesIndex}
+            onSelectSeries={setMarkerSeriesIndex}
+            selections={markerSelections}
+            onSelectionChange={(seriesIndex, change) =>
+              setMarkerSelections((current) => ({
+                ...current,
+                [seriesIndex]: { ...current[seriesIndex], ...change },
+              }))
+            }
+          />
+
           <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #ddd" }}>
             <button
               onClick={() => setAnnotationsVisible((visible) => !visible)}
@@ -266,7 +291,7 @@ export default function Home() {
         <ThreeScene
           ref={threeSceneRef}
           sceneData={currentScene}
-          visiblePointClouds={visiblePointClouds}
+          visiblePointClouds={renderedPointClouds}
           projectionMode={projectionMode}
           annotationsVisible={annotationsVisible}
           annotationScale={annotationScale}
