@@ -10,6 +10,9 @@ import {
   pointMatchesFilter,
   pointMatchesFilters,
   applyFilters,
+  applyFiltersWithStats,
+  applyNullVisibility,
+  inferFilterFields,
 } from "../dataFilters";
 
 // These are deterministic unit tests of pure functions. They do not render
@@ -167,6 +170,100 @@ describe("applyFilters", () => {
     const result = applyFilters(points, []);
     expect(result.includedCount).toBe(points.length);
     expect(result.excludedCount).toBe(0);
+  });
+});
+
+describe("applyFiltersWithStats", () => {
+  it("reports visible rows, source indices, missing, invalid, and mismatches", () => {
+    const rows = [
+      { value: 2 },
+      { value: null },
+      { value: Number.NaN },
+      { value: 20 },
+    ];
+    const filter = createRangeFilter({ input: "value", min: 0, max: 10 });
+    const result = applyFiltersWithStats(rows, [filter]);
+
+    expect(result.included).toEqual([rows[0]]);
+    expect(result.sourceIndices).toEqual([0]);
+    expect(result).toMatchObject({
+      totalCount: 4,
+      visibleCount: 1,
+      missingCount: 1,
+      invalidCount: 1,
+      mismatchCount: 1,
+    });
+  });
+
+  it("uses invalid over missing precedence independently of filter order", () => {
+    const row = { value: null, date: "bad" };
+    const missing = createRangeFilter({ input: "value", min: 0 });
+    const invalid = createRangeFilter({ input: "date", min: "2023-01-01", inputType: "date" });
+
+    const first = applyFiltersWithStats([row], [missing, invalid]);
+    const second = applyFiltersWithStats([row], [invalid, missing]);
+    expect(first).toEqual(second);
+    expect(first.invalidCount).toBe(1);
+    expect(first.missingCount).toBe(0);
+  });
+
+  it("keeps all source indices when no filters are active", () => {
+    const result = applyFiltersWithStats(points, []);
+    expect(result.visibleCount).toBe(points.length);
+    expect(result.sourceIndices).toEqual([0, 1, 2, 3, 4, 5]);
+  });
+});
+
+describe("applyNullVisibility", () => {
+  it("removes null marker values and preserves matching source indices", () => {
+    const rows = [{ ml: 1 }, { ml: null }, { ml: 3 }, {}];
+    const filtered = applyFiltersWithStats(rows, []);
+    const result = applyNullVisibility(filtered, "ml", false);
+
+    expect(result.included).toEqual([rows[0], rows[2]]);
+    expect(result.sourceIndices).toEqual([0, 2]);
+    expect(result.visibleCount).toBe(2);
+    expect(result.missingCount).toBe(2);
+  });
+
+  it("returns the existing result when null values are visible", () => {
+    const result = applyFiltersWithStats(points, []);
+    expect(applyNullVisibility(result, "ml", true)).toBe(result);
+  });
+});
+
+describe("inferFilterFields", () => {
+  it("infers numeric, date, and compact categorical attributes", () => {
+    const rows = [
+      { id: 1, x: 1, grade: 2, DateTime: "2023-01-01", material: "ore" },
+      { id: 2, x: 2, grade: 5, DateTime: "2023-01-02", material: "waste" },
+      { id: 3, x: 3, grade: null, DateTime: "bad", material: "ore" },
+    ];
+    const fields = inferFilterFields(rows);
+
+    expect(fields.find((field) => field.input === "x")).toBeUndefined();
+    expect(fields.find((field) => field.input === "id")).toBeUndefined();
+    expect(fields.find((field) => field.input === "grade")).toMatchObject({
+      kind: "range",
+      inputType: "number",
+      min: 2,
+      max: 5,
+      missingCount: 1,
+    });
+    expect(fields.find((field) => field.input === "DateTime")).toMatchObject({
+      kind: "range",
+      inputType: "date",
+      invalidCount: 1,
+    });
+    expect(fields.find((field) => field.input === "material")).toMatchObject({
+      kind: "category",
+      values: ["ore", "waste"],
+    });
+  });
+
+  it("does not offer high-cardinality text as a category filter", () => {
+    const rows = Array.from({ length: 25 }, (_, index) => ({ label: `item-${index}` }));
+    expect(inferFilterFields(rows)).toEqual([]);
   });
 });
 

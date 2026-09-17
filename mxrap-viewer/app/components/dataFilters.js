@@ -25,10 +25,16 @@
 
 import { parseCustomerDate } from "./customerDate";
 
+const NON_ANALYTICAL_FIELDS = new Set(["id", "index", "uuid", "guid", "sourceindex"]);
+
 function resolveBound(value, inputType) {
   if (value === null || value === undefined) return null;
   if (inputType === "date") return parseCustomerDate(value);
   return Number.isFinite(value) ? value : null;
+}
+
+function isMissing(value) {
+  return value === null || value === undefined || value === "";
 }
 
 /**
@@ -217,4 +223,184 @@ export function applyFilters(points, filters) {
     includedCount: included.length,
     excludedCount: excluded.length,
   };
+}
+
+/**
+ * Apply filters while retaining source indices and deterministic exclusion
+ * statistics for the UI. Invalid values take precedence over missing values
+ * when a row fails more than one active criterion.
+ */
+export function applyFiltersWithStats(points, filters) {
+  if (!Array.isArray(points)) {
+    return {
+      included: [],
+      sourceIndices: [],
+      totalCount: 0,
+      visibleCount: 0,
+      missingCount: 0,
+      invalidCount: 0,
+      mismatchCount: 0,
+    };
+  }
+
+  const activeFilters = (Array.isArray(filters) ? filters : []).filter(
+    (filter) => filter?.valid !== false && filter?.enabled !== false
+  );
+  const included = [];
+  const sourceIndices = [];
+  let missingCount = 0;
+  let invalidCount = 0;
+  let mismatchCount = 0;
+
+  points.forEach((point, sourceIndex) => {
+    let hasMissing = false;
+    let hasInvalid = false;
+    let hasMismatch = false;
+
+    for (const filter of activeFilters) {
+      const raw = point?.[filter.input];
+      if (isMissing(raw)) {
+        if (!filter.includeMissing) hasMissing = true;
+        continue;
+      }
+
+      if (filter.kind === "range") {
+        const value = resolveBound(raw, filter.inputType);
+        if (value === null) {
+          hasInvalid = true;
+        } else if (
+          (filter.min !== null && value < filter.min) ||
+          (filter.max !== null && value > filter.max)
+        ) {
+          hasMismatch = true;
+        }
+      } else if (filter.kind === "category" && !filter.allowedValues.has(String(raw))) {
+        hasMismatch = true;
+      }
+    }
+
+    if (!hasInvalid && !hasMissing && !hasMismatch) {
+      included.push(point);
+      sourceIndices.push(sourceIndex);
+    } else if (hasInvalid) {
+      invalidCount += 1;
+    } else if (hasMissing) {
+      missingCount += 1;
+    } else {
+      mismatchCount += 1;
+    }
+  });
+
+  return {
+    included,
+    sourceIndices,
+    totalCount: points.length,
+    visibleCount: included.length,
+    missingCount,
+    invalidCount,
+    mismatchCount,
+  };
+}
+
+/** Exclude null marker inputs while retaining filter statistics and indices. */
+export function applyNullVisibility(result, markerInput, showNullValues) {
+  if (showNullValues || !markerInput) return result;
+
+  const included = [];
+  const sourceIndices = [];
+  let hiddenNulls = 0;
+  result.included.forEach((point, index) => {
+    const value = point?.[markerInput];
+    if (isMissing(value)) {
+      hiddenNulls += 1;
+    } else {
+      included.push(point);
+      sourceIndices.push(result.sourceIndices[index]);
+    }
+  });
+
+  return {
+    ...result,
+    included,
+    sourceIndices,
+    visibleCount: included.length,
+    missingCount: result.missingCount + hiddenNulls,
+  };
+}
+
+/**
+ * Infer useful filter controls from one point series. Coordinates and private
+ * fields are excluded because they describe geometry rather than attributes.
+ */
+export function inferFilterFields(points, { maxCategories = 20 } = {}) {
+  const rows = Array.isArray(points) ? points.filter((point) => point && typeof point === "object") : [];
+  const names = new Set();
+  rows.forEach((point) => Object.keys(point).forEach((name) => names.add(name)));
+
+  return [...names]
+    .filter((name) => {
+      const normalized = name.replace(/[\s_-]/g, "").toLowerCase();
+      return (
+        !["x", "y", "z"].includes(normalized) &&
+        !name.startsWith("_") &&
+        !NON_ANALYTICAL_FIELDS.has(normalized)
+      );
+    })
+    .map((input) => {
+      const present = rows.map((point) => point[input]).filter((value) => !isMissing(value));
+      if (present.length === 0) return null;
+
+      const numericValues = present.filter(Number.isFinite);
+      if (numericValues.length > 0 && numericValues.length >= present.length / 2) {
+        const min = Math.min(...numericValues);
+        const max = Math.max(...numericValues);
+        return {
+          input,
+          label: input,
+          kind: "range",
+          inputType: "number",
+          min,
+          max,
+          validCount: numericValues.length,
+          missingCount: rows.length - present.length,
+          invalidCount: present.length - numericValues.length,
+        };
+      }
+
+      const dateLikeName = /date|time|timestamp/i.test(input);
+      const dateValues = dateLikeName
+        ? present.map(parseCustomerDate).filter(Number.isFinite)
+        : [];
+      if (dateValues.length > 0) {
+        return {
+          input,
+          label: input,
+          kind: "range",
+          inputType: "date",
+          min: Math.min(...dateValues),
+          max: Math.max(...dateValues),
+          validCount: dateValues.length,
+          missingCount: rows.length - present.length,
+          invalidCount: present.length - dateValues.length,
+        };
+      }
+
+      const values = [...new Set(present.map(String))].sort((a, b) =>
+        a.localeCompare(b, undefined, { numeric: true })
+      );
+      if (values.length <= maxCategories) {
+        return {
+          input,
+          label: input,
+          kind: "category",
+          values,
+          validCount: present.length,
+          missingCount: rows.length - present.length,
+          invalidCount: 0,
+        };
+      }
+      return null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.label.localeCompare(b.label));
 }
