@@ -125,6 +125,9 @@ const ThreeScene = forwardRef(function ThreeScene(
     projectionMode = "perspective",
     annotationsVisible = true,
     annotationScale = 1,
+    selectedPoint = null,
+    onPointHover = null,
+    onPointSelect = null,
   },
   ref
 ) {
@@ -141,6 +144,11 @@ const ThreeScene = forwardRef(function ThreeScene(
   const annotationsRef = useRef([]);
   const annotationSettingsRef = useRef({ annotationsVisible, annotationScale });
   annotationSettingsRef.current = { annotationsVisible, annotationScale };
+  const pointCallbacksRef = useRef({ onPointHover, onPointSelect });
+  pointCallbacksRef.current = { onPointHover, onPointSelect };
+  const selectedPointRef = useRef(selectedPoint);
+  selectedPointRef.current = selectedPoint;
+  const syncSelectedHighlightRef = useRef(null);
 
   useEffect(() => {
     annotationsRef.current.forEach(({ object, baseScale }) => {
@@ -194,6 +202,38 @@ const ThreeScene = forwardRef(function ThreeScene(
     renderer.setSize(container.clientWidth, container.clientHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     container.appendChild(renderer.domElement);
+
+    const raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2();
+
+    function createSelectionRing(colour) {
+      const canvas = document.createElement("canvas");
+      canvas.width = 64;
+      canvas.height = 64;
+      const context = canvas.getContext("2d");
+      context.clearRect(0, 0, 64, 64);
+      context.strokeStyle = colour;
+      context.lineWidth = 7;
+      context.beginPath();
+      context.arc(32, 32, 24, 0, Math.PI * 2);
+      context.stroke();
+      const texture = new THREE.CanvasTexture(canvas);
+      const material = new THREE.SpriteMaterial({
+        map: texture,
+        transparent: true,
+        depthTest: false,
+        sizeAttenuation: false,
+      });
+      const sprite = new THREE.Sprite(material);
+      sprite.scale.setScalar(0.065);
+      sprite.renderOrder = 1000;
+      sprite.visible = false;
+      scene.add(sprite);
+      return sprite;
+    }
+
+    const hoverRing = createSelectionRing("#ffffff");
+    const selectionRing = createSelectionRing("#111111");
 
     // ---------- 1b. Camera controls (rotate / zoom / tilt / pan) ----------
     const orbitTarget = new THREE.Vector3(camFocal.x, camFocal.y, camFocal.z);
@@ -308,13 +348,108 @@ const ThreeScene = forwardRef(function ThreeScene(
     const initialPointCloudData = Array.isArray(visiblePointCloudsRef.current)
       ? visiblePointCloudsRef.current
       : sceneData.pointClouds ?? [];
-    initialPointCloudData.forEach((pointSeriesData) => {
+    initialPointCloudData.forEach((pointSeriesData, seriesIndex) => {
       const pointCloud = createPointCloud(pointSeriesData);
+      forEachPointObject(pointCloud, (points) => {
+        points.userData.seriesIndex = seriesIndex;
+      });
       scene.add(pointCloud);
       pointClouds.push(pointCloud);
     });
     pointCloudsRef.current = pointClouds;
     buildPointCloudRef.current = createPointCloud;
+
+    function inspectIntersection(intersection) {
+      const points = intersection?.object;
+      const point = points?.geometry?.userData?.points?.[intersection.index];
+      if (!point) return null;
+      return {
+        point,
+        sourceIndex: Number.isInteger(point.sourceIndex)
+          ? point.sourceIndex
+          : points.geometry.userData.sourceIndices?.[intersection.index] ?? intersection.index,
+        seriesIndex: points.userData.seriesIndex ?? 0,
+        position: intersection.point.clone(),
+      };
+    }
+
+    function pickPoint(event) {
+      const rect = renderer.domElement.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return null;
+      pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+      raycaster.params.Points.threshold = Math.max(0.02, camera.position.distanceTo(controls.target) * 0.008);
+      const intersections = raycaster.intersectObjects(pointCloudsRef.current, true);
+      return inspectIntersection(intersections[0]);
+    }
+
+    // Click reuses the most recent hover's intersection rather than
+    // re-raycasting from the click event: `click`'s MouseEvent.clientX/Y are
+    // integer-rounded (unlike `pointermove`'s fractional coordinates), and
+    // that sub-pixel rounding was enough to turn a hit into a miss at the
+    // edge of a point's small raycast threshold. Reusing the hover result
+    // also matches user intent more directly — clicking selects whatever the
+    // ring is currently showing.
+    let lastHoverKey = null;
+    let lastInspected = null;
+    function handlePointerMove(event) {
+      const inspected = pickPoint(event);
+      lastInspected = inspected;
+      hoverRing.visible = Boolean(inspected);
+      if (inspected) hoverRing.position.copy(inspected.position);
+      renderer.domElement.style.cursor = inspected ? "pointer" : "grab";
+      const nextHoverKey = inspected ? `${inspected.seriesIndex}:${inspected.sourceIndex}` : null;
+      if (nextHoverKey !== lastHoverKey) {
+        lastHoverKey = nextHoverKey;
+        pointCallbacksRef.current.onPointHover?.(inspected);
+      }
+    }
+
+    function handlePointerLeave() {
+      hoverRing.visible = false;
+      renderer.domElement.style.cursor = "grab";
+      lastInspected = null;
+      if (lastHoverKey !== null) {
+        lastHoverKey = null;
+        pointCallbacksRef.current.onPointHover?.(null);
+      }
+    }
+
+    function handleClick(event) {
+      const inspected = lastInspected ?? pickPoint(event);
+      selectionRing.visible = Boolean(inspected);
+      if (inspected) selectionRing.position.copy(inspected.position);
+      pointCallbacksRef.current.onPointSelect?.(inspected);
+    }
+
+    function syncSelectedHighlight(selection) {
+      selectionRing.visible = false;
+      if (!selection) return;
+      for (const pointObject of pointCloudsRef.current) {
+        let found = false;
+        forEachPointObject(pointObject, (points) => {
+          if (found || points.userData.seriesIndex !== selection.seriesIndex) return;
+          const pointIndex = points.geometry.userData.sourceIndices?.indexOf(selection.sourceIndex) ?? -1;
+          if (pointIndex < 0) return;
+          const position = points.geometry.getAttribute("position");
+          selectionRing.position.set(
+            position.getX(pointIndex),
+            position.getY(pointIndex),
+            position.getZ(pointIndex)
+          );
+          selectionRing.visible = true;
+          found = true;
+        });
+        if (found) break;
+      }
+    }
+
+    syncSelectedHighlightRef.current = syncSelectedHighlight;
+    renderer.domElement.addEventListener("pointermove", handlePointerMove);
+    renderer.domElement.addEventListener("pointerleave", handlePointerLeave);
+    renderer.domElement.addEventListener("click", handleClick);
+    syncSelectedHighlight(selectedPointRef.current);
 
     const annotations = [];
     (sceneData.annotations ?? []).forEach((annotationData) => {
@@ -382,6 +517,9 @@ const ThreeScene = forwardRef(function ThreeScene(
       cancelAnimationFrame(animationId);
       cancelAnimationRef.current?.();
       window.removeEventListener("resize", handleResize);
+      renderer.domElement.removeEventListener("pointermove", handlePointerMove);
+      renderer.domElement.removeEventListener("pointerleave", handlePointerLeave);
+      renderer.domElement.removeEventListener("click", handleClick);
 
       meshes.forEach((mesh) => {
         mesh.geometry.dispose();
@@ -391,6 +529,11 @@ const ThreeScene = forwardRef(function ThreeScene(
       pointCloudsRef.current.forEach(disposePointObject);
       textureCache.forEach((texture) => texture.dispose());
       textureCache.clear();
+      [hoverRing, selectionRing].forEach((ring) => {
+        ring.material.map?.dispose();
+        ring.material.dispose();
+        scene.remove(ring);
+      });
 
       annotations.forEach(({ object }) => disposeAnnotation(object));
       annotationsRef.current = [];
@@ -406,6 +549,7 @@ const ThreeScene = forwardRef(function ThreeScene(
       sceneRef.current = null;
       pointCloudsRef.current = [];
       buildPointCloudRef.current = null;
+      syncSelectedHighlightRef.current = null;
     };
   }, [sceneData, projectionMode]); // Key: re-run the full teardown/rebuild whenever sceneData or projectionMode changes
 
@@ -418,7 +562,13 @@ const ThreeScene = forwardRef(function ThreeScene(
     if (!scene || !createPointCloud || !Array.isArray(visiblePointClouds)) return;
 
     const currentPointClouds = pointCloudsRef.current;
-    const nextPointClouds = visiblePointClouds.map((seriesData) => createPointCloud(seriesData));
+    const nextPointClouds = visiblePointClouds.map((seriesData, seriesIndex) => {
+      const pointObject = createPointCloud(seriesData);
+      pointObject.traverse((child) => {
+        if (child.isPoints) child.userData.seriesIndex = seriesIndex;
+      });
+      return pointObject;
+    });
 
     currentPointClouds.forEach((pointObject) => {
       scene.remove(pointObject);
@@ -431,6 +581,10 @@ const ThreeScene = forwardRef(function ThreeScene(
     nextPointClouds.forEach((pointCloud) => scene.add(pointCloud));
     pointCloudsRef.current = nextPointClouds;
   }, [visiblePointClouds]);
+
+  useEffect(() => {
+    syncSelectedHighlightRef.current?.(selectedPoint);
+  }, [selectedPoint, visiblePointClouds]);
 
   return <div ref={containerRef} style={{ width: "100%", height: "100%" }} />;
 });

@@ -204,6 +204,7 @@ export function buildPointCloud(pointSeriesData, options = {}) {
   geometry.userData.sourceIndices = validPoints.map((point, index) =>
     Number.isInteger(point.sourceIndex) ? point.sourceIndex : index
   );
+  geometry.userData.points = validPoints;
 
   if (colorFn) {
     const colors = new Float32Array(validPoints.length * 3);
