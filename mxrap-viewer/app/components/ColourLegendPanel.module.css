@@ -6,16 +6,16 @@
   max-height: 100%;
   overflow: auto;
   padding: 16px;
-  border-left: 1px solid rgba(23, 33, 26, 0.12);
-  background: #fff;
+  border-left: 1px solid var(--color-border);
+  background: var(--color-panel);
   box-shadow: -4px 0 18px rgba(23, 33, 26, 0.06);
-  color: #17211a;
+  color: var(--color-fg);
   font-family: Arial, sans-serif;
 }
 
 .panelTitle {
   margin-bottom: 10px;
-  color: #526057;
+  color: var(--color-fg-muted);
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -25,7 +25,7 @@
 .card + .card {
   margin-top: 14px;
   padding-top: 14px;
-  border-top: 1px solid #e3e8e4;
+  border-top: 1px solid var(--color-border);
 }
 
 .cardHeader {
@@ -47,7 +47,7 @@
 
 .meta {
   margin-top: 2px;
-  color: #68756c;
+  color: var(--color-fg-muted);
   font-size: 11px;
 }
 
@@ -57,7 +57,7 @@
   grid-auto-columns: 1fr;
   height: 18px;
   overflow: hidden;
-  border: 1px solid rgba(23, 33, 26, 0.2);
+  border: 1px solid var(--color-border-strong);
   border-radius: 5px;
 }
 
@@ -69,7 +69,7 @@
   position: relative;
   height: 28px;
   margin: 4px 2px 8px;
-  color: #526057;
+  color: var(--color-fg-muted);
   font-size: 10px;
 }
 
@@ -98,7 +98,7 @@
   align-items: center;
   gap: 7px;
   min-height: 18px;
-  color: #364139;
+  color: var(--color-fg-dim);
   font-size: 11px;
 }
 
@@ -106,23 +106,23 @@
   width: 14px;
   height: 14px;
   flex: 0 0 auto;
-  border: 1px solid rgba(23, 33, 26, 0.24);
+  border: 1px solid var(--color-border-strong);
   border-radius: 3px;
 }
 
 .hidden {
   margin-left: auto;
-  color: #7d8980;
+  color: var(--color-fg-muted);
   font-style: italic;
 }
 
 .error {
   margin-bottom: 9px;
   padding: 8px;
-  border: 1px solid #e7b7b7;
+  border: 1px solid var(--color-danger-border);
   border-radius: 6px;
-  background: #fff1f1;
-  color: #8b2424;
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
   font-size: 11px;
 }
 
@@ -130,7 +130,7 @@
   .panel {
     width: auto;
     max-height: none;
-    border-top: 1px solid rgba(23, 33, 26, 0.12);
+    border-top: 1px solid var(--color-border);
     border-left: 0;
   }
 }

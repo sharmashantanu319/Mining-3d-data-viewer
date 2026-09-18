@@ -159,13 +159,13 @@ export default function Home() {
       <div className={styles.workspace}>
         <aside className={styles.controlPanel} aria-label="Viewer controls">
           {fileName && (
-            <div style={{ marginBottom: 8, fontSize: 13, color: "#555" }}>
+            <div style={{ marginBottom: 8, fontSize: 13, color: "var(--color-fg-muted)" }}>
               Loaded: {fileName}
             </div>
           )}
 
           {errors.length > 0 && (
-            <div style={{ marginBottom: 8, color: "red", fontSize: 13 }}>
+            <div style={{ marginBottom: 8, color: "var(--color-danger)", fontSize: 13 }}>
               <div style={{ fontWeight: "bold", marginBottom: 4 }}>
                 This file could not be loaded ({errors.length} issue{errors.length > 1 ? "s" : ""}):
               </div>
@@ -219,7 +219,7 @@ export default function Home() {
             }
           />
 
-          <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #ddd" }}>
+          <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--color-border)" }}>
             <button
               onClick={() => setAnnotationsVisible((visible) => !visible)}
               style={{ padding: "6px 12px", cursor: "pointer" }}

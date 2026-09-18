@@ -1,3 +1,27 @@
+/* Light-theme design tokens, shared by page.module.css and every panel's
+   CSS module (FilterPanel, MarkerSelectorPanel, ColourLegendPanel). One
+   token set instead of two ad hoc palettes (a green-grey one and an
+   unrelated slate-blue one) that used to clash across panels. */
+:root {
+  --color-bg: #eef1ec;
+  --color-panel: #ffffff;
+  --color-surface: #f5f7f4;
+  --color-surface-accent: #eaf3e0;
+  --color-border: #dfe4dc;
+  --color-border-strong: #c3ccbe;
+  --color-fg: #1a2318;
+  --color-fg-dim: #3c4a3a;
+  --color-fg-muted: #68756c;
+  --color-fg-disabled: #9aa398;
+  --color-accent: #4f7a2f;
+  --color-accent-strong: #3c5d22;
+  --color-accent-border: #a3c785;
+  --color-brand: #b6e36c;
+  --color-danger: #c0392b;
+  --color-danger-bg: #fdeceb;
+  --color-danger-border: #f0b8b2;
+}
+
 .header {
   height: 72px;
   padding: 0 24px;
@@ -6,7 +30,7 @@
   align-items: center;
   justify-content: space-between;
 
-  background-color: #17211a;
+  background-color: var(--color-fg);
   color: white;
   border-bottom: 1px solid #344139;
 }
@@ -25,8 +49,8 @@
   align-items: center;
   justify-content: center;
 
-  background-color: #b6e36c;
-  color: #17211a;
+  background-color: var(--color-brand);
+  color: var(--color-fg);
 
   border-radius: 6px;
   font-weight: bold;
@@ -46,8 +70,8 @@
 .open-file-button {
   padding: 10px 16px;
 
-  background-color: #b6e36c;
-  color: #17211a;
+  background-color: var(--color-brand);
+  color: var(--color-fg);
 
   border-radius: 6px;
   font-size: 14px;

@@ -4,12 +4,12 @@
   width: 100%;
   margin-top: 12px;
   padding: 14px 0 0;
-  border: 1px solid rgba(15, 23, 42, 0.1);
+  border: 1px solid var(--color-border);
   border-width: 1px 0 0;
   border-radius: 0;
   background: transparent;
   box-shadow: none;
-  color: #172033;
+  color: var(--color-fg);
   font-family: Arial, sans-serif;
 }
 
@@ -26,7 +26,7 @@
 }
 
 .eyebrow {
-  color: #64748b;
+  color: var(--color-fg-muted);
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.12em;
@@ -36,13 +36,13 @@
 .resetButton {
   border: 0;
   background: transparent;
-  color: #285ea8;
+  color: var(--color-accent);
   cursor: pointer;
   font-weight: 700;
 }
 
 .resetButton:disabled {
-  color: #94a3b8;
+  color: var(--color-fg-disabled);
   cursor: default;
 }
 
@@ -50,7 +50,7 @@
   display: grid;
   gap: 5px;
   margin-top: 16px;
-  color: #475569;
+  color: var(--color-fg-dim);
   font-size: 12px;
   font-weight: 700;
 }
@@ -58,11 +58,11 @@
 .seriesPicker select,
 .rangeGrid input {
   width: 100%;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--color-border-strong);
   border-radius: 7px;
-  background: white;
+  background: var(--color-panel);
   padding: 7px 8px;
-  color: #172033;
+  color: var(--color-fg);
 }
 
 .visibilityControls {
@@ -70,15 +70,15 @@
   gap: 8px;
   margin-top: 14px;
   padding: 10px 0;
-  border-top: 1px solid #e2e8f0;
-  border-bottom: 1px solid #e2e8f0;
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .visibilityControls label {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #334155;
+  color: var(--color-fg-dim);
   font-size: 13px;
   font-weight: 600;
 }
@@ -91,31 +91,31 @@
   margin: 16px 0;
   padding: 12px;
   border-radius: 10px;
-  background: #eef5ff;
+  background: var(--color-surface-accent);
 }
 
 .summary strong {
-  color: #174f95;
+  color: var(--color-accent-strong);
   font-size: 22px;
 }
 
 .summary span {
-  color: #475569;
+  color: var(--color-fg-dim);
   font-size: 13px;
 }
 
 .summary small {
   grid-column: 1 / -1;
-  color: #64748b;
+  color: var(--color-fg-muted);
 }
 
 .emptyState {
   margin-bottom: 12px;
-  border: 1px solid #fecaca;
+  border: 1px solid var(--color-danger-border);
   border-radius: 8px;
-  background: #fff1f2;
+  background: var(--color-danger-bg);
   padding: 10px;
-  color: #9f1239;
+  color: var(--color-danger);
   font-size: 13px;
 }
 
@@ -125,7 +125,7 @@
 }
 
 .field {
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--color-border);
   border-radius: 10px;
   padding: 10px;
 }
@@ -140,7 +140,7 @@
 }
 
 .fieldToggle small {
-  color: #94a3b8;
+  color: var(--color-fg-disabled);
   font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
@@ -156,13 +156,13 @@
 .rangeGrid label {
   display: grid;
   gap: 4px;
-  color: #64748b;
+  color: var(--color-fg-muted);
   font-size: 11px;
 }
 
 .domain {
   grid-column: 1 / -1;
-  color: #94a3b8;
+  color: var(--color-fg-disabled);
   font-size: 10px;
 }
 
@@ -179,13 +179,13 @@
   gap: 6px;
   min-width: 0;
   overflow-wrap: anywhere;
-  color: #475569;
+  color: var(--color-fg-dim);
   font-size: 12px;
 }
 
 .muted {
   margin: 0;
-  color: #64748b;
+  color: var(--color-fg-muted);
   font-size: 13px;
 }
 
