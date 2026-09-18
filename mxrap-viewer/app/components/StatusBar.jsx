@@ -1,6 +1,17 @@
 import { IconDot, IconCrosshair } from "./icons";
 
-export function StatusBar({ dataState, hoveredPoint, selectedPoint, visibleCount, totalCount, viewMode, currentScene, errorMessage }) {
+export function StatusBar({
+  dataState,
+  hoveredPoint,
+  selectedPoint,
+  visibleCount,
+  totalCount,
+  surfaceCount,
+  activeFilterCount,
+  viewMode,
+  currentScene,
+  errorMessage,
+}) {
   const active = hoveredPoint ?? selectedPoint;
   const activePoint = active?.point;
 
@@ -74,6 +85,16 @@ export function StatusBar({ dataState, hoveredPoint, selectedPoint, visibleCount
           <span style={{ color: "var(--color-fg-disabled)" }}> / {totalCount.toLocaleString()}</span>
           <span style={{ color: "var(--color-fg-muted)" }}> pts</span>
         </span>
+        {Number.isFinite(surfaceCount) && surfaceCount > 0 && (
+          <span style={{ fontSize: 10, color: "var(--color-fg-muted)" }}>
+            <span style={{ fontFamily: "var(--font-mono)", color: "var(--color-fg-dim)" }}>{surfaceCount}</span> surf
+          </span>
+        )}
+        {Number.isFinite(activeFilterCount) && activeFilterCount > 0 && (
+          <span style={{ fontSize: 10, color: "var(--color-fg-muted)" }}>
+            <span style={{ fontFamily: "var(--font-mono)", color: "var(--color-lime)" }}>{activeFilterCount}</span> filter{activeFilterCount === 1 ? "" : "s"}
+          </span>
+        )}
         <span style={{ fontSize: 10, letterSpacing: "0.04em", textTransform: "uppercase", color: "var(--color-fg-disabled)" }}>
           {viewMode === "perspective" ? "PERSP" : "ORTHO"}
         </span>

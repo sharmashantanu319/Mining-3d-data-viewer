@@ -9,20 +9,25 @@
   --color-hover:          #1F3028;
   --color-active:         #263C30;
   --color-border:         #283C35;
-  --color-border-strong:  #384F46;
-  --color-fg:             #B8D4BE;
-  --color-fg-dim:         #7EA890;
-  --color-fg-muted:       #4A6558;
-  --color-fg-disabled:    #314040;
-  --color-lime:           #84CC16;
-  --color-lime-dim:       #5E9010;
+  --color-border-strong:  #445A51;
+  /* Light grey, not green-tinted: reserves the brand lime exclusively for
+     active states, selection, and primary actions (below) rather than
+     "everything readable is slightly green". Chosen to clear WCAG AA
+     (4.5:1) against --color-base/--color-panel at each level: fg ~13.5:1,
+     fg-dim ~8.5:1, fg-muted ~5.3:1. */
+  --color-fg:             #E7ECEA;
+  --color-fg-dim:         #B7C1BD;
+  --color-fg-muted:       #8A9490;
+  --color-fg-disabled:    #566058;
+  --color-lime:           #9FE83A;
+  --color-lime-dim:       #6FA827;
   --color-lime-bg:        #1A2E0A;
   --color-brand:          #1F6438;
   --color-brand-dim:      #153F26;
-  --color-danger:         #EF4444;
-  --color-danger-bg:      rgba(239, 68, 68, 0.1);
-  --color-danger-border:  rgba(239, 68, 68, 0.3);
-  --color-warn:           #F59E0B;
+  --color-danger:         #F87171;
+  --color-danger-bg:      rgba(239, 68, 68, 0.12);
+  --color-danger-border:  rgba(239, 68, 68, 0.35);
+  --color-warn:           #FBBF24;
   --color-info:           #38BDF8;
 
   --font-sans: 'Inter', system-ui, sans-serif;

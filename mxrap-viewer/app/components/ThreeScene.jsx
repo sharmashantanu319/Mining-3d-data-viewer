@@ -265,7 +265,10 @@ const ThreeScene = forwardRef(function ThreeScene(
 
     // ---------- 1. Scene / Camera / Renderer ----------
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x090d0b);
+    // Slightly lighter blue-black than the panel chrome's near-black
+    // (--color-base #0C1110), so the model reads as sitting "in" the
+    // viewport rather than blending into it.
+    scene.background = new THREE.Color(0x121a20);
     sceneRef.current = scene;
 
     const camPos = sceneData.camera?.position ?? DEFAULT_CAMERA.position;
@@ -373,12 +376,20 @@ const ThreeScene = forwardRef(function ThreeScene(
     }
 
     // ---------- 2. Lights ----------
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    // Stronger than the light-theme defaults, and a second fill light from
+    // the opposite side: against the dark viewport background, flatter
+    // lighting made surfaces/points harder to read as 3D shapes rather than
+    // silhouettes.
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.85);
     scene.add(ambientLight);
 
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 1.2);
     directionalLight.position.set(5, 10, 7);
     scene.add(directionalLight);
+
+    const fillLight = new THREE.DirectionalLight(0xffffff, 0.4);
+    fillLight.position.set(-6, -4, -8);
+    scene.add(fillLight);
 
     // ---------- 3. 根据 sceneData 加载真实内容 ----------
     const meshes = [];

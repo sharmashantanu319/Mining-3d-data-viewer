@@ -9,10 +9,14 @@ export default function Header({ fileName, currentScene, isLoadingExport, onFile
         borderBottom: "1px solid var(--color-border)",
         display: "flex",
         alignItems: "center",
-        paddingInline: 12,
+        // Safe padding on both edges — the right-side "Open Export" button
+        // was sitting flush against the viewport edge with only 12px, and
+        // could read as clipped depending on window/scrollbar width.
+        paddingInline: 16,
         gap: 0,
         flexShrink: 0,
         zIndex: 10,
+        boxSizing: "border-box",
       }}
     >
       {/* Brand */}
@@ -73,12 +77,19 @@ export default function Header({ fileName, currentScene, isLoadingExport, onFile
           )}
         </div>
       ) : (
-        <div style={{ flex: 1, fontSize: 11, color: "var(--color-fg-muted)" }}>No file loaded</div>
+        // "No file loaded" was inaccurate — the mock demo scene is always
+        // showing something, never a true empty state.
+        <div style={{ flex: 1, fontSize: 11, color: "var(--color-fg-muted)" }}>Demo data</div>
       )}
 
       {/* Right actions */}
-      <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: "auto" }}>
-        <label className="btn btn-lime" style={{ fontSize: 11 }} aria-disabled={isLoadingExport}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: "auto", flexShrink: 0 }}>
+        <label
+          className="btn btn-lime"
+          style={{ fontSize: 11, flexShrink: 0, whiteSpace: "nowrap" }}
+          aria-disabled={isLoadingExport}
+          title="Open an mXrap export file"
+        >
           {isLoadingExport ? "Loading…" : "Open Export"}
           <input type="file" accept=".zip,.json" onChange={onFileChange} disabled={isLoadingExport} style={{ display: "none" }} />
         </label>

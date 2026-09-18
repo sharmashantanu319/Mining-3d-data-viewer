@@ -2,8 +2,8 @@ import { useMemo, useState } from "react";
 import {
   IconChevronLeft, IconChevronRight, IconChevronDown, IconChevronUp,
   IconEye, IconEyeOff, IconLayers, IconMap, IconFilter,
-  IconFitView, IconRefresh, IconSearch, IconX,
-  IconPerspective, IconOrtho, IconSurface, IconDot, IconTag, IconSettings,
+  IconRefresh, IconSearch, IconX,
+  IconSurface, IconDot, IconTag, IconSettings,
 } from "./icons";
 import { createCategoryFilter, createRangeFilter } from "./dataFilters";
 
@@ -58,9 +58,6 @@ export function LeftSidebar({
   onSceneChange,
   onPrev,
   onNext,
-  viewMode,
-  onViewModeToggle,
-  onFitScene,
   layers,
   onLayerToggle,
   markerSeriesOptions,
@@ -88,7 +85,7 @@ export function LeftSidebar({
   totalCount,
 }) {
   const [open_, setOpen] = useState({
-    scene: true, layers: true, markers: false, annotations: false, filters: true,
+    scene: true, layers: true, markers: true, annotations: false, filters: false,
   });
   const [filterSearch, setFilterSearch] = useState("");
   const toggle = (k) => setOpen((prev) => ({ ...prev, [k]: !prev[k] }));
@@ -119,10 +116,10 @@ export function LeftSidebar({
           <IconChevronRight size={14} />
         </button>
         <div style={{ width: 1, height: 8 }} />
-        <button className="strip-btn" title="Scenes"><IconMap size={13} /></button>
-        <button className="strip-btn" title="Layers"><IconLayers size={13} /></button>
-        <button className="strip-btn" title="Markers"><IconDot size={13} /></button>
-        <button className="strip-btn" title="Filters"><IconFilter size={13} /></button>
+        <button className="strip-btn" onClick={onToggle} title="Scene — expand sidebar"><IconMap size={13} /></button>
+        <button className="strip-btn" onClick={onToggle} title="Layers — expand sidebar"><IconLayers size={13} /></button>
+        <button className="strip-btn" onClick={onToggle} title="Marker Style — expand sidebar"><IconDot size={13} /></button>
+        <button className="strip-btn" onClick={onToggle} title="Filters — expand sidebar"><IconFilter size={13} /></button>
       </div>
     );
   }
@@ -179,28 +176,16 @@ export function LeftSidebar({
                 ))}
               </select>
 
-              <div style={{ display: "flex", gap: 4, marginBottom: 6 }}>
-                <button className="btn btn-ghost" onClick={onPrev} style={{ flex: 1, gap: 3 }}>
+              <div style={{ display: "flex", gap: 4 }} title="Previous / next scene">
+                <button className="btn btn-ghost" onClick={onPrev} style={{ flex: 1, gap: 3 }} title="Previous scene">
                   <IconChevronLeft size={11} /> Prev
                 </button>
-                <button className="btn btn-ghost" onClick={onNext} style={{ flex: 1, gap: 3 }}>
+                <button className="btn btn-ghost" onClick={onNext} style={{ flex: 1, gap: 3 }} title="Next scene">
                   Next <IconChevronRight size={11} />
                 </button>
               </div>
-
-              <div style={{ display: "flex", gap: 4 }}>
-                <button className="btn btn-ghost" onClick={onFitScene} style={{ flex: 1, gap: 3, fontSize: 10 }}>
-                  <IconFitView size={11} /> Fit Scene
-                </button>
-                <button
-                  className={`btn btn-surface ${viewMode === "orthographic" ? "active" : ""}`}
-                  onClick={onViewModeToggle}
-                  style={{ flex: 1, gap: 3, fontSize: 10 }}
-                  title={viewMode === "perspective" ? "Switch to Orthographic" : "Switch to Perspective"}
-                >
-                  {viewMode === "perspective" ? <><IconPerspective size={11} /> Persp</> : <><IconOrtho size={11} /> Ortho</>}
-                </button>
-              </div>
+              {/* Camera controls (Fit Scene, Perspective/Orthographic) live
+                  once, in the viewport toolbar — not duplicated here. */}
             </div>
           )}
         </div>
@@ -218,13 +203,19 @@ export function LeftSidebar({
           {open_.layers && (
             <div style={{ paddingBottom: 4 }}>
               {layers.map((layer) => (
-                <div key={layer.id} className="ctrl-row" style={{ cursor: "pointer" }} onClick={() => onLayerToggle(layer.id)}>
-                  <div style={{ color: layer.color, flexShrink: 0 }}>{layerIcon(layer.type)}</div>
+                <div
+                  key={layer.id}
+                  className="ctrl-row"
+                  style={{ cursor: "pointer" }}
+                  onClick={() => onLayerToggle(layer.id)}
+                  title={`${layer.visible ? "Hide" : "Show"} ${layer.name}`}
+                >
+                  <div style={{ color: "var(--color-fg-dim)", flexShrink: 0 }}>{layerIcon(layer.type)}</div>
                   <span className="ctrl-label" style={{ opacity: layer.visible ? 1 : 0.45 }}>{layer.name}</span>
                   <span style={{ fontSize: 10, color: "var(--color-fg-muted)", flexShrink: 0, fontFamily: "var(--font-mono)" }}>
                     {layer.count}
                   </span>
-                  <div style={{ flexShrink: 0, color: layer.visible ? "var(--color-fg-dim)" : "var(--color-fg-disabled)" }}>
+                  <div style={{ flexShrink: 0, color: layer.visible ? "var(--color-lime)" : "var(--color-fg-disabled)" }}>
                     {layer.visible ? <IconEye size={12} /> : <IconEyeOff size={12} />}
                   </div>
                 </div>
@@ -414,6 +405,7 @@ export function LeftSidebar({
                             <button
                               style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: "var(--color-fg-muted)", display: "flex" }}
                               onClick={() => removeFilter(field.input)}
+                              title={`Remove ${field.label} filter`}
                             >
                               <IconX size={10} />
                             </button>

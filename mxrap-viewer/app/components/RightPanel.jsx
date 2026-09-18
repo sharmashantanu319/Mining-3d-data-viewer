@@ -64,14 +64,18 @@ export function RightPanel({ open, onToggle, inspection, kind, onClear, legends 
           <IconChevronLeft size={14} />
         </button>
         <div style={{ width: 1, height: 8 }} />
-        <button className="strip-btn" title="Legend"><IconLegend size={13} /></button>
-        <button className="strip-btn" title="Selection"><IconInfo size={13} /></button>
+        <button className="strip-btn" onClick={onToggle} title="Legend — expand panel"><IconLegend size={13} /></button>
+        <button className="strip-btn" onClick={onToggle} title="Selection — expand panel"><IconInfo size={13} /></button>
       </div>
     );
   }
 
+  // Narrow and legend-focused when nothing is selected; wider once a point
+  // is selected/hovered, so its attribute rows have room to breathe.
+  const width = inspection?.point ? 300 : 240;
+
   return (
-    <div style={{ width: 260, flexShrink: 0, background: "var(--color-panel)", borderLeft: "1px solid var(--color-border)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+    <div style={{ width, flexShrink: 0, background: "var(--color-panel)", borderLeft: "1px solid var(--color-border)", display: "flex", flexDirection: "column", overflow: "hidden", transition: "width 0.15s ease" }}>
       <div style={{ height: 32, display: "flex", alignItems: "center", justifyContent: "space-between", paddingInline: 10, borderBottom: "1px solid var(--color-border)", flexShrink: 0 }}>
         <button className="strip-btn" onClick={onToggle} title="Collapse" style={{ width: 22, height: 22 }}>
           <IconChevronRight size={12} />
@@ -120,9 +124,13 @@ function LegendCard({ legend }) {
   const gradientId = `grad-${(legend.markerName ?? legend.input ?? "ramp").replace(/[^a-zA-Z0-9_-]/g, "-")}`;
   return (
     <div style={{ marginBottom: 14 }} aria-label={`${legend.title} legend`}>
-      <div style={{ fontSize: 10, color: "var(--color-fg-muted)", marginBottom: 5 }}>
+      <div style={{ fontSize: 11, fontWeight: 600, color: "var(--color-fg)", marginBottom: 1 }}>
         {legend.title}
-        {legend.units ? ` (${legend.units})` : ""}
+        {legend.units ? <span style={{ fontWeight: 400, color: "var(--color-fg-muted)" }}> ({legend.units})</span> : null}
+      </div>
+      <div style={{ fontSize: 9, color: "var(--color-fg-muted)", marginBottom: 5 }}>
+        {legend.seriesName}
+        {legend.input ? ` · ${legend.input}` : ""}
       </div>
 
       {legend.kind === "error" && (
@@ -170,8 +178,18 @@ function LegendCard({ legend }) {
       {legend.kind !== "error" && (
         <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
           <span className="swatch" style={{ backgroundColor: legend.nullEntry.colour }} />
-          <span style={{ fontSize: 10, color: "var(--color-fg-dim)" }}>{legend.nullEntry.label}</span>
+          <span style={{ fontSize: 10, color: "var(--color-fg-dim)" }}>
+            {legend.nullEntry.label}
+            {Number.isFinite(legend.missingCount) ? ` (${legend.missingCount.toLocaleString()})` : ""}
+          </span>
           {!legend.nullEntry.visible && <span style={{ fontSize: 9, color: "var(--color-fg-muted)", fontStyle: "italic" }}>hidden</span>}
+        </div>
+      )}
+
+      {(legend.sizeLabel || legend.symbolLabel) && (
+        <div style={{ marginTop: 6, fontSize: 9, color: "var(--color-fg-muted)", display: "flex", flexDirection: "column", gap: 2 }}>
+          {legend.sizeLabel && <span>Size: {legend.sizeLabel}</span>}
+          {legend.symbolLabel && <span>Symbol: {legend.symbolLabel}</span>}
         </div>
       )}
     </div>

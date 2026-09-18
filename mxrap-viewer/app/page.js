@@ -14,9 +14,10 @@ import {
   applyNullVisibility,
   inferFilterFields,
 } from "./components/dataFilters";
-import { buildSceneColourLegends } from "./components/colourLegend";
+import { buildColourLegend } from "./components/colourLegend";
 import { getMarkerChoices, applyMarkerSelections } from "./components/markerSelection";
 import { resolveMarkerRenderOptions } from "./components/pointMarkerResolver";
+import { IconFitView, IconPerspective, IconOrtho, IconRefresh } from "./components/icons";
 
 function colourMarkerInput(series) {
   if (!series?.colourMarker || !Array.isArray(series.markerDefinitions)) return null;
@@ -88,8 +89,31 @@ export default function Home() {
     [visiblePointClouds, markerSelections]
   );
 
+  // Enriches each rendered legend with the specific per-series info the
+  // right panel wants beyond the ramp/ticks (missing-value count, and the
+  // size/symbol scheme actually in effect) — colourLegend.js only ever
+  // needed the colour ramp, so this is computed alongside it rather than
+  // added there.
   const colourLegends = useMemo(
-    () => buildSceneColourLegends(renderedPointClouds),
+    () =>
+      renderedPointClouds
+        .filter((series) => series?.legend === true)
+        .map((series) => {
+          const legend = buildColourLegend(series);
+          if (!legend) return null;
+          const missingCount = (series.points ?? []).filter((point) => {
+            const value = point?.[legend.input];
+            return (
+              value === null ||
+              value === undefined ||
+              value === "" ||
+              (typeof value === "number" && !Number.isFinite(value))
+            );
+          }).length;
+          const symbolLabel = resolveMarkerRenderOptions(series)?.symbolFn ? "From colour ramp" : "None";
+          return { ...legend, missingCount, sizeLabel: series.sizeMarker || "Constant", symbolLabel };
+        })
+        .filter(Boolean),
     [renderedPointClouds]
   );
 
@@ -111,6 +135,11 @@ export default function Home() {
     () => pointSeries.reduce((total, series) => total + (series.points?.length ?? 0), 0),
     [pointSeries]
   );
+  const surfaceCount = currentScene.surfaces?.length ?? 0;
+  const activeFilterCount = useMemo(
+    () => Object.values(filtersBySeries).reduce((total, filters) => total + (filters?.length ?? 0), 0),
+    [filtersBySeries]
+  );
 
   // "Layers": point series + surfaces + annotations, synthesised for the
   // Layers panel — the underlying data model doesn't have a first-class
@@ -122,7 +151,10 @@ export default function Home() {
       type: "event",
       visible: seriesVisibility[index] ?? series.visible !== false,
       count: series.points?.length ?? 0,
-      color: "var(--color-lime)",
+      // Category icon colour — lime is reserved for active/selection
+      // states (the eye icon itself signals visibility), not used
+      // decoratively here.
+      color: "var(--color-fg-dim)",
     }));
     const surfaceCount = currentScene.surfaces?.length ?? 0;
     const annotationCount = currentScene.annotations?.length ?? 0;
@@ -217,10 +249,6 @@ export default function Home() {
     setSelectedPoint(null);
   }
 
-  function toggleProjectionMode() {
-    setProjectionMode((mode) => (mode === "perspective" ? "orthographic" : "perspective"));
-  }
-
   const dataState = errors.length > 0 ? "error" : isLoadingExport ? "loading" : "loaded";
 
   return (
@@ -241,9 +269,6 @@ export default function Home() {
           onSceneChange={switchToScene}
           onPrev={() => switchToScene((currentIndex - 1 + scenes.length) % scenes.length)}
           onNext={() => switchToScene((currentIndex + 1) % scenes.length)}
-          viewMode={projectionMode}
-          onViewModeToggle={toggleProjectionMode}
-          onFitScene={() => threeSceneRef.current?.fitScene()}
           layers={layers}
           onLayerToggle={handleLayerToggle}
           markerSeriesOptions={pointSeries.map((series, index) => series.name || `Series ${index + 1}`)}
@@ -298,28 +323,42 @@ export default function Home() {
             onPointSelect={setSelectedPoint}
           />
 
-          {/* Viewport toolbar, matching the design reference's Viewport3D overlay */}
+          {/* Viewport toolbar — the single place camera controls live (not
+              duplicated in the sidebar). A real segmented pair for
+              Perspective/Orthographic, not one button that swaps its own
+              label. */}
           <div style={{ position: "absolute", top: 10, left: 10, zIndex: 5, display: "flex", gap: 4 }}>
-            <button className="vp-btn" onClick={() => threeSceneRef.current?.fitScene()} title="Fit Scene">
-              ⤢
+            <button className="vp-btn" onClick={() => threeSceneRef.current?.fitScene()} title="Fit Scene — frame the currently visible data">
+              <IconFitView size={14} />
             </button>
-            <button
-              className={`vp-btn ${projectionMode === "orthographic" ? "active" : ""}`}
-              onClick={toggleProjectionMode}
-              title={projectionMode === "perspective" ? "Perspective" : "Orthographic"}
-            >
-              {projectionMode === "perspective" ? "P" : "O"}
+            <button className="vp-btn" onClick={() => threeSceneRef.current?.resetView()} title="Reset View — return to the export's original camera">
+              <IconRefresh size={14} />
             </button>
-            <button className="vp-btn" onClick={() => threeSceneRef.current?.resetView()} title="Reset View">
-              ⟲
-            </button>
+            <div style={{ display: "flex", border: "1px solid var(--color-border)", borderRadius: "var(--radius-sm)", overflow: "hidden" }}>
+              <button
+                className={`vp-btn ${projectionMode === "perspective" ? "active" : ""}`}
+                onClick={() => setProjectionMode("perspective")}
+                title="Perspective projection"
+                style={{ border: "none", borderRadius: 0 }}
+              >
+                <IconPerspective size={14} />
+              </button>
+              <button
+                className={`vp-btn ${projectionMode === "orthographic" ? "active" : ""}`}
+                onClick={() => setProjectionMode("orthographic")}
+                title="Orthographic projection"
+                style={{ border: "none", borderRadius: 0, borderLeft: "1px solid var(--color-border)" }}
+              >
+                <IconOrtho size={14} />
+              </button>
+            </div>
           </div>
           <div
             style={{
               position: "absolute", top: 10, right: 10, zIndex: 5,
               padding: "3px 8px", background: "rgba(18,25,24,0.85)", border: "1px solid var(--color-border)",
               borderRadius: 4, fontSize: 10, fontWeight: 500, letterSpacing: "0.06em",
-              color: "var(--color-fg-muted)", backdropFilter: "blur(4px)",
+              color: "var(--color-fg-dim)", backdropFilter: "blur(4px)",
             }}
           >
             {projectionMode === "perspective" ? "PERSPECTIVE" : "ORTHOGRAPHIC"}
@@ -353,6 +392,8 @@ export default function Home() {
         selectedPoint={activeSelectedPoint}
         visibleCount={totalVisibleCount}
         totalCount={totalPointCount}
+        surfaceCount={surfaceCount}
+        activeFilterCount={activeFilterCount}
         viewMode={projectionMode}
         currentScene={currentScene}
         errorMessage={errors[0]}
