@@ -191,33 +191,34 @@ export default function Home() {
           <div style={{ marginBottom: 8 }}>
             Current scene: <strong>{currentScene.title}</strong>
           </div>
-          <button onClick={goToNextScene} style={{ padding: "6px 12px", cursor: "pointer" }}>
-            Next Scene
-          </button>
-          <button
-            onClick={() => threeSceneRef.current?.resetView()}
-            style={{ padding: "6px 12px", cursor: "pointer", marginLeft: 8 }}
-          >
-            Reset View
-          </button>
-          <button
-            onClick={toggleProjectionMode}
-            style={{ padding: "6px 12px", cursor: "pointer", marginLeft: 8 }}
-          >
-            {projectionMode === "perspective" ? "Switch to Orthographic" : "Switch to Perspective"}
-          </button>
+          <div className={styles.actionRow}>
+            <button onClick={goToNextScene} className={styles.actionButton}>
+              Next Scene
+            </button>
+            <button
+              onClick={() => threeSceneRef.current?.resetView()}
+              className={styles.actionButton}
+            >
+              Reset View
+            </button>
+            <button onClick={toggleProjectionMode} className={styles.actionButton}>
+              {projectionMode === "perspective" ? "Switch to Orthographic" : "Switch to Perspective"}
+            </button>
+          </div>
           <div style={{ marginTop: 6, fontSize: 12, color: "#68756c" }}>
             Camera mode: {projectionMode === "perspective" ? "Perspective" : "Orthographic"}
           </div>
 
           {colourLegends.length > 0 && (
-            <button
-              onClick={() => setLegendsVisible((visible) => !visible)}
-              style={{ padding: "6px 12px", cursor: "pointer", marginTop: 8 }}
-              aria-pressed={legendsVisible}
-            >
-              {legendsVisible ? "Hide colour legend" : "Show colour legend"}
-            </button>
+            <div className={styles.actionRow} style={{ marginTop: 8 }}>
+              <button
+                onClick={() => setLegendsVisible((visible) => !visible)}
+                className={styles.actionButton}
+                aria-pressed={legendsVisible}
+              >
+                {legendsVisible ? "Hide colour legend" : "Show colour legend"}
+              </button>
+            </div>
           )}
 
           <MarkerSelectorPanel
@@ -236,7 +237,7 @@ export default function Home() {
           <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #ddd" }}>
             <button
               onClick={() => setAnnotationsVisible((visible) => !visible)}
-              style={{ padding: "6px 12px", cursor: "pointer" }}
+              className={styles.actionButton}
               aria-pressed={annotationsVisible}
             >
               {annotationsVisible ? "Hide annotations" : "Show annotations"}
