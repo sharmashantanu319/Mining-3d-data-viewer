@@ -109,6 +109,11 @@ export function getHardwarePointSizeRange(renderer) {
   }
 }
 
+// Symbol (textured) points render the texture's own colour untouched
+// (client decision: symbol colour should reflect the data file, not the
+// active colour marker) — only the alpha channel is used, to discard
+// transparent pixels. Untextured points keep the existing per-vertex/flat
+// colour driven by the active colour marker.
 export function buildPointFragmentShaderSource({ hasTexture = false } = {}) {
   return `
     varying vec3 vColor;
@@ -119,7 +124,7 @@ export function buildPointFragmentShaderSource({ hasTexture = false } = {}) {
         hasTexture
           ? `vec4 texel = texture2D(pointTexture, gl_PointCoord);
       if (texel.a < 0.05) discard;
-      gl_FragColor = vec4(vColor * texel.rgb, texel.a);`
+      gl_FragColor = vec4(texel.rgb, texel.a);`
           : `vec2 coord = gl_PointCoord - vec2(0.5);
       if (length(coord) > 0.5) discard;
       gl_FragColor = vec4(vColor, 1.0);`
@@ -290,14 +295,19 @@ export function buildPointCloud(pointSeriesData, options = {}) {
       transparent: Boolean(pointTexture),
     });
   } else {
+    const hasTexture = Boolean(pointTexture);
     material = new THREE.PointsMaterial({
-      color: colorFn ? 0xffffff : color ?? 0xffcc00,
-      vertexColors: Boolean(colorFn),
+      // Symbol images show their own original colours from the data file
+      // and are never tinted by the active colour marker (client decision).
+      // Points with no symbol (circle fallback) keep the existing
+      // vertex-colour behaviour.
+      color: hasTexture || colorFn ? 0xffffff : color ?? 0xffcc00,
+      vertexColors: hasTexture ? false : Boolean(colorFn),
       size: Number.isFinite(size) ? size : 0.15,
       sizeAttenuation: true,
       map: pointTexture,
-      transparent: Boolean(pointTexture),
-      alphaTest: pointTexture ? 0.05 : 0,
+      transparent: hasTexture,
+      alphaTest: hasTexture ? 0.05 : 0,
     });
   }
 

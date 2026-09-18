@@ -13,6 +13,34 @@ describe("point symbol rendering", () => {
     expect(circular).toContain("length(coord) > 0.5");
   });
 
+  it("shows the symbol texture's own colour, never tinted by the colour marker", () => {
+    // Client decision: symbol colour must reflect the data file regardless
+    // of the active colour marker, so the fragment shader must not multiply
+    // texel.rgb by vColor.
+    const textured = buildPointFragmentShaderSource({ hasTexture: true });
+    expect(textured).toContain("gl_FragColor = vec4(texel.rgb, texel.a)");
+    expect(textured).not.toContain("vColor * texel");
+  });
+
+  it("disables vertex-colour tinting on the PointsMaterial fallback when a symbol texture is present", () => {
+    const texture = new THREE.Texture();
+    const cloud = buildPointCloud(
+      {
+        points: [{ x: 1, y: 2, z: 3 }],
+      },
+      {
+        colorFn: () => ({ r: 1, g: 0, b: 0 }),
+        pointTexture: texture,
+      }
+    );
+    expect(cloud.material).toBeInstanceOf(THREE.PointsMaterial);
+    expect(cloud.material.vertexColors).toBe(false);
+    expect(cloud.material.color.getHex()).toBe(0xffffff);
+    cloud.geometry.dispose();
+    cloud.material.dispose();
+    texture.dispose();
+  });
+
   it("keeps source row indices aligned with filtered point attributes", () => {
     const texture = new THREE.Texture();
     const cloud = buildPointCloud(
