@@ -41,6 +41,11 @@ export default function Home() {
   const currentScene = scenes[currentIndex];
   const pointSeries = useMemo(() => currentScene.pointClouds ?? [], [currentScene]);
   const safeSelectedSeries = Math.min(selectedSeries, Math.max(0, pointSeries.length - 1));
+  const sceneSurfaceCount = currentScene.surfaces?.length ?? 0;
+  const sceneTotalPointCount = useMemo(
+    () => pointSeries.reduce((total, series) => total + (series.points?.length ?? 0), 0),
+    [pointSeries]
+  );
 
   const filterResults = useMemo(
     () =>
@@ -123,14 +128,18 @@ export default function Home() {
     setProjectionMode((mode) => (mode === "perspective" ? "orthographic" : "perspective"));
   }
 
-  function goToNextScene() {
-    setCurrentIndex((prev) => (prev + 1) % scenes.length);
+  function switchToScene(index) {
+    setCurrentIndex(index);
     setSelectedSeries(0);
     setFiltersBySeries({});
     setSeriesVisibility({});
     setNullVisibility({});
     setMarkerSelections({});
     setMarkerSeriesIndex(0);
+  }
+
+  function goToNextScene() {
+    switchToScene((currentIndex + 1) % scenes.length);
   }
 
   return (
@@ -177,8 +186,23 @@ export default function Home() {
             </div>
           )}
 
-          <div style={{ marginBottom: 8 }}>
-            Current scene: <strong>{currentScene.title}</strong>
+          <label style={{ display: "block", marginBottom: 4, fontSize: 13, fontWeight: "bold" }}>
+            Scene
+            <select
+              value={currentIndex}
+              onChange={(event) => switchToScene(Number(event.target.value))}
+              style={{ display: "block", width: "100%", marginTop: 4, padding: "6px 8px", fontSize: 13 }}
+            >
+              {scenes.map((scene, index) => (
+                <option key={scene.id ?? index} value={index}>
+                  {scene.title}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div style={{ marginBottom: 8, fontSize: 12, color: "#68756c" }}>
+            {sceneTotalPointCount} point{sceneTotalPointCount === 1 ? "" : "s"} · {sceneSurfaceCount} surface
+            {sceneSurfaceCount === 1 ? "" : "s"}
           </div>
           <button onClick={goToNextScene} style={{ padding: "6px 12px", cursor: "pointer" }}>
             Next Scene
