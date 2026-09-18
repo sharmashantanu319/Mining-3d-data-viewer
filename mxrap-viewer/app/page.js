@@ -217,6 +217,13 @@ export default function Home() {
                 [seriesIndex]: { ...current[seriesIndex], ...change },
               }))
             }
+            onRestoreDefaults={(seriesIndex) =>
+              setMarkerSelections((current) => {
+                const next = { ...current };
+                delete next[seriesIndex];
+                return next;
+              })
+            }
           />
 
           <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #ddd" }}>
