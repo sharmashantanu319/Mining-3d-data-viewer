@@ -86,8 +86,6 @@ const scene1 = {
       x: 0,
       y: 1.8,
       z: 0.1,
-      color: "#020202",
-      background: "rgba(237, 247, 238, 0.95)",
       faceCamera: true,
       render2d: false,
       scale: 0.5,
