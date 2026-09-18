@@ -118,6 +118,20 @@ function getDemoRenderOptions(pointSeriesData) {
   };
 }
 
+// A THREE.Sprite's geometry is always a unit square, unlike the
+// PlaneGeometry-based fixed-orientation labels, so scaling it uniformly
+// squashes/stretches the label's real aspect ratio, distorting and
+// blurring the text. Scale it per-axis using the aspect ratio
+// annotationsBuilder.js stores on the sprite instead.
+function applyAnnotationScale(object, factor) {
+  if (object.isSprite) {
+    const aspect = object.userData.aspectRatio ?? 1;
+    object.scale.set(aspect * factor, factor, 1);
+  } else {
+    object.scale.setScalar(factor);
+  }
+}
+
 const ThreeScene = forwardRef(function ThreeScene(
   {
     sceneData,
@@ -145,7 +159,7 @@ const ThreeScene = forwardRef(function ThreeScene(
   useEffect(() => {
     annotationsRef.current.forEach(({ object, baseScale }) => {
       object.visible = annotationsVisible;
-      object.scale.setScalar(baseScale * annotationScale);
+      applyAnnotationScale(object, baseScale * annotationScale);
     });
   }, [annotationsVisible, annotationScale]);
 
@@ -329,7 +343,7 @@ const ThreeScene = forwardRef(function ThreeScene(
     annotationsRef.current = annotations;
     annotationsRef.current.forEach(({ object, baseScale }) => {
       object.visible = annotationSettingsRef.current.annotationsVisible;
-      object.scale.setScalar(baseScale * annotationSettingsRef.current.annotationScale);
+      applyAnnotationScale(object, baseScale * annotationSettingsRef.current.annotationScale);
     });
 
     // Keep the orthographic point-size uniforms in step with zoom / resize.
