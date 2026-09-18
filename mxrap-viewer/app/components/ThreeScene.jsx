@@ -210,6 +210,23 @@ const ThreeScene = forwardRef(function ThreeScene(
     // frame in the animation loop. See pointSizing.js for the customer model.
     const hardwarePointSizeRange = getHardwarePointSizeRange(renderer);
     const drawingBufferSize = new THREE.Vector2();
+    const textureCache = new Map();
+
+    function getSymbolTexture(dataUrl) {
+      if (!dataUrl) return null;
+      if (textureCache.has(dataUrl)) return textureCache.get(dataUrl);
+      const texture = new THREE.TextureLoader().load(
+        dataUrl,
+        undefined,
+        undefined,
+        () => {
+          texture.userData.loadFailed = true;
+        }
+      );
+      texture.colorSpace = THREE.SRGBColorSpace;
+      textureCache.set(dataUrl, texture);
+      return texture;
+    }
 
     function currentPointSizing() {
       renderer.getDrawingBufferSize(drawingBufferSize);
@@ -248,8 +265,43 @@ const ThreeScene = forwardRef(function ThreeScene(
       const contentOptions =
         resolveMarkerRenderOptions(pointSeriesData) ?? getDemoRenderOptions(pointSeriesData);
       const renderOptions = { ...contentOptions, ...buildSharedPointSizing(currentPointSizing()) };
-      const pointCloud = buildPointCloud(pointSeriesData, renderOptions);
-      return pointCloud;
+      if (!contentOptions.symbolFn) {
+        return buildPointCloud(pointSeriesData, renderOptions);
+      }
+
+      const batches = new Map();
+      for (const point of pointSeriesData.points ?? []) {
+        const symbol = contentOptions.symbolFn(point);
+        const dataUrl = symbol ? contentOptions.symbolAssets?.[symbol] : null;
+        const batchKey = dataUrl ?? "__circle_fallback__";
+        if (!batches.has(batchKey)) batches.set(batchKey, { dataUrl, points: [] });
+        batches.get(batchKey).points.push(point);
+      }
+
+      const group = new THREE.Group();
+      for (const batch of batches.values()) {
+        const pointTexture = getSymbolTexture(batch.dataUrl);
+        const points = buildPointCloud(
+          { ...pointSeriesData, points: batch.points },
+          { ...renderOptions, pointTexture }
+        );
+        group.add(points);
+      }
+      group.userData.symbolBatchCount = batches.size;
+      return group;
+    }
+
+    function forEachPointObject(object, callback) {
+      object?.traverse((child) => {
+        if (child.isPoints) callback(child);
+      });
+    }
+
+    function disposePointObject(object) {
+      forEachPointObject(object, (pointCloud) => {
+        pointCloud.geometry.dispose();
+        pointCloud.material.dispose();
+      });
     }
 
     const pointClouds = [];
@@ -286,17 +338,19 @@ const ThreeScene = forwardRef(function ThreeScene(
     // is actually present.
     function refreshOrthographicPointSizing() {
       let sizing = null;
-      for (const pointCloud of pointCloudsRef.current) {
-        const uniforms = pointCloud.material?.uniforms;
-        if (!uniforms) continue;
-        if (!uniforms.pixelSizeNVCx && !uniforms.parallelCartoonScale) continue;
-        if (!sizing) sizing = currentPointSizing();
-        if (uniforms.pixelSizeNVCx) {
-          uniforms.pixelSizeNVCx.value = sizing.pixelSizeNVCx;
-        }
-        if (uniforms.parallelCartoonScale) {
-          uniforms.parallelCartoonScale.value = sizing.parallelCartoonScale;
-        }
+      for (const pointObject of pointCloudsRef.current) {
+        forEachPointObject(pointObject, (pointCloud) => {
+          const uniforms = pointCloud.material?.uniforms;
+          if (!uniforms) return;
+          if (!uniforms.pixelSizeNVCx && !uniforms.parallelCartoonScale) return;
+          if (!sizing) sizing = currentPointSizing();
+          if (uniforms.pixelSizeNVCx) {
+            uniforms.pixelSizeNVCx.value = sizing.pixelSizeNVCx;
+          }
+          if (uniforms.parallelCartoonScale) {
+            uniforms.parallelCartoonScale.value = sizing.parallelCartoonScale;
+          }
+        });
       }
     }
 
@@ -334,10 +388,9 @@ const ThreeScene = forwardRef(function ThreeScene(
         mesh.material.dispose();
       });
 
-      pointCloudsRef.current.forEach((pointCloud) => {
-        pointCloud.geometry.dispose();
-        pointCloud.material.dispose();
-      });
+      pointCloudsRef.current.forEach(disposePointObject);
+      textureCache.forEach((texture) => texture.dispose());
+      textureCache.clear();
 
       annotations.forEach(({ object }) => disposeAnnotation(object));
       annotationsRef.current = [];
@@ -367,10 +420,13 @@ const ThreeScene = forwardRef(function ThreeScene(
     const currentPointClouds = pointCloudsRef.current;
     const nextPointClouds = visiblePointClouds.map((seriesData) => createPointCloud(seriesData));
 
-    currentPointClouds.forEach((pointCloud) => {
-      scene.remove(pointCloud);
-      pointCloud.geometry.dispose();
-      pointCloud.material.dispose();
+    currentPointClouds.forEach((pointObject) => {
+      scene.remove(pointObject);
+      pointObject.traverse((child) => {
+        if (!child.isPoints) return;
+        child.geometry.dispose();
+        child.material.dispose();
+      });
     });
     nextPointClouds.forEach((pointCloud) => scene.add(pointCloud));
     pointCloudsRef.current = nextPointClouds;

@@ -73,6 +73,27 @@ describe("resolveMarkerRenderOptions", () => {
     expect(Number.isFinite(atMin.b)).toBe(true);
   });
 
+  it("resolves per-point symbols and their cached assets", () => {
+    const symbolDefinition = {
+      ...ML_COLOUR_DEF,
+      rampCsv: rampCsv([
+        rampRow({
+          upTo: "",
+          symbol: "event.png",
+          start: [0, 1, 1],
+          end: [0.667, 1, 1],
+        }),
+      ]),
+      symbolAssets: { "event.png": "data:image/png;base64,abc" },
+    };
+    const options = resolveMarkerRenderOptions({
+      ...SERIES,
+      markerDefinitions: [symbolDefinition, ML_SIZE_DEF],
+    });
+    expect(options.symbolFn(SERIES.points[0])).toBe("event.png");
+    expect(options.symbolAssets).toEqual({ "event.png": "data:image/png;base64,abc" });
+  });
+
   it("omits colorFn when colourMarker names a definition that isn't there", () => {
     const options = resolveMarkerRenderOptions({ ...SERIES, colourMarker: "Nonexistent" });
     expect(options.colorFn).toBeUndefined();

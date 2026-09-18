@@ -361,7 +361,7 @@ describe("parseExportFile (error and skip branches)", () => {
 });
 
 // Build a minimal export zip in memory (no customer files committed).
-async function buildZip({ config, files = {} }) {
+async function buildZip({ config, files = {}, archiveFiles = {} }) {
   const zip = new JSZip();
   zip.file(
     "info.json",
@@ -374,6 +374,9 @@ async function buildZip({ config, files = {} }) {
   zip.file("s1-3dview/config.json", JSON.stringify(config));
   for (const [name, content] of Object.entries(files)) {
     zip.file(`data/${name}.csv`, content);
+  }
+  for (const [path, content] of Object.entries(archiveFiles)) {
+    zip.file(path, content, { base64: path.match(/\.(png|jpg|jpeg|webp)$/i) != null });
   }
   return zip.generateAsync({ type: "uint8array" });
 }
@@ -465,6 +468,40 @@ describe("parseExportFile - point series", () => {
     });
     const result = await parseExportFile(buf);
     expect(result.scenes[0].pointClouds).toEqual([]);
+  });
+
+  it("loads marker symbol images once and exposes them as data URLs", async () => {
+    const ramp = [
+      "Up to,Symbol,Start Colour (H),Start Colour (S),Start Colour (V),End Colour (H),End Colour (S),End Colour (V),Colour Ramp,Number of Colours,Transparency [0..100],Colour Space,Start Colour Colour Space,End Colour Colour Space,End Transparency [0..100]",
+      ",event.png,0,1,1,0.6,1,1,linear,,0,HSV,HSV,HSV,0",
+    ].join("\n");
+    const definitions = JSON.stringify([
+      {
+        name: "Mag/Spheres",
+        type: "colour",
+        input: "ML",
+        inputType: "number",
+        minimum: -4,
+        maximum: 4,
+        ramp: "magnitude.csv",
+        nullSymbol: "event.png",
+      },
+    ]);
+    const onePixelPng =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+XwYAAAAASUVORK5CYII=";
+    const buffer = await buildZip({
+      config: POINTS_CONFIG,
+      files: { events: EVENTS_CSV },
+      archiveFiles: {
+        "marker-defs/events/markers.json": definitions,
+        "marker-defs/events/magnitude.csv": ramp,
+        "marker-images/event.png": onePixelPng,
+      },
+    });
+    const result = await parseExportFile(buffer);
+    const definition = result.scenes[0].pointClouds[0].markerDefinitions[0];
+    expect(definition.symbolAssets["event.png"]).toMatch(/^data:image\/png;base64,/);
+    expect(Object.keys(definition.symbolAssets)).toEqual(["event.png"]);
   });
 });
 

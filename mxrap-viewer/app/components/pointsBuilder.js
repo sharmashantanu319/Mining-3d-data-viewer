@@ -109,15 +109,29 @@ export function getHardwarePointSizeRange(renderer) {
   }
 }
 
-const SIZE_FRAGMENT_SHADER = `
-  varying vec3 vColor;
+// Symbol (textured) points render the texture's own colour untouched
+// (client decision: symbol colour should reflect the data file, not the
+// active colour marker) — only the alpha channel is used, to discard
+// transparent pixels. Untextured points keep the existing per-vertex/flat
+// colour driven by the active colour marker.
+export function buildPointFragmentShaderSource({ hasTexture = false } = {}) {
+  return `
+    varying vec3 vColor;
+    ${hasTexture ? "uniform sampler2D pointTexture;" : ""}
 
-  void main() {
-    vec2 coord = gl_PointCoord - vec2(0.5);
-    if (length(coord) > 0.5) discard;
-    gl_FragColor = vec4(vColor, 1.0);
-  }
-`;
+    void main() {
+      ${
+        hasTexture
+          ? `vec4 texel = texture2D(pointTexture, gl_PointCoord);
+      if (texel.a < 0.05) discard;
+      gl_FragColor = vec4(texel.rgb, texel.a);`
+          : `vec2 coord = gl_PointCoord - vec2(0.5);
+      if (length(coord) > 0.5) discard;
+      gl_FragColor = vec4(vColor, 1.0);`
+      }
+    }
+  `;
+}
 
 /**
  * Build one THREE.Points object for a point series.
@@ -130,6 +144,7 @@ const SIZE_FRAGMENT_SHADER = `
  * @param {object} [options]
  * @param {Function} [options.colorFn] - point -> {r,g,b} in 0..1
  * @param {Function} [options.sizeFn] - point -> per-point marker size
+ * @param {THREE.Texture|null} [options.pointTexture] - shared symbol texture for this batch
  * @param {string} [options.distanceAttenuation] - "cartoon" | "real" | "fixed"
  * @param {number} [options.cameraParallel] - 0 perspective (default), 1 orthographic
  * @param {number} [options.pointScaleFactor] - renderWindowDPI / 72 (perspective branch)
@@ -158,6 +173,7 @@ export function buildPointCloud(pointSeriesData, options = {}) {
     hardwarePointSizeRange = null,
     minScreenPointSize,
     maxScreenPointSize,
+    pointTexture = null,
   } = options;
 
   const minimumSize = Number.isFinite(minPointSize) ? minPointSize : 2;
@@ -185,6 +201,9 @@ export function buildPointCloud(pointSeriesData, options = {}) {
 
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geometry.userData.sourceIndices = validPoints.map((point, index) =>
+    Number.isInteger(point.sourceIndex) ? point.sourceIndex : index
+  );
 
   if (colorFn) {
     const colors = new Float32Array(validPoints.length * 3);
@@ -259,6 +278,7 @@ export function buildPointCloud(pointSeriesData, options = {}) {
     }
     uniforms.minScreenPointSize = { value: screenClamp.min };
     uniforms.maxScreenPointSize = { value: screenClamp.max };
+    if (pointTexture) uniforms.pointTexture = { value: pointTexture };
 
     if (!hasColor) {
       const flatColor = new THREE.Color(color ?? 0xffcc00);
@@ -270,15 +290,24 @@ export function buildPointCloud(pointSeriesData, options = {}) {
     material = new THREE.ShaderMaterial({
       uniforms,
       vertexShader: buildSizeVertexShaderSource({ branch, hasColor }),
-      fragmentShader: SIZE_FRAGMENT_SHADER,
+      fragmentShader: buildPointFragmentShaderSource({ hasTexture: Boolean(pointTexture) }),
       vertexColors: hasColor,
+      transparent: Boolean(pointTexture),
     });
   } else {
+    const hasTexture = Boolean(pointTexture);
     material = new THREE.PointsMaterial({
-      color: colorFn ? 0xffffff : color ?? 0xffcc00,
-      vertexColors: Boolean(colorFn),
+      // Symbol images show their own original colours from the data file
+      // and are never tinted by the active colour marker (client decision).
+      // Points with no symbol (circle fallback) keep the existing
+      // vertex-colour behaviour.
+      color: hasTexture || colorFn ? 0xffffff : color ?? 0xffcc00,
+      vertexColors: hasTexture ? false : Boolean(colorFn),
       size: Number.isFinite(size) ? size : 0.15,
       sizeAttenuation: true,
+      map: pointTexture,
+      transparent: hasTexture,
+      alphaTest: hasTexture ? 0.05 : 0,
     });
   }
 
