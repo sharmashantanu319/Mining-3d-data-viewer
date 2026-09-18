@@ -15,6 +15,7 @@ import ColourLegendPanel from "./components/ColourLegendPanel";
 import { buildSceneColourLegends } from "./components/colourLegend";
 import MarkerSelectorPanel from "./components/MarkerSelectorPanel";
 import { applyMarkerSelections } from "./components/markerSelection";
+import styles from "./page.module.css";
 
 function colourMarkerInput(series) {
   if (!series?.colourMarker || !Array.isArray(series.markerDefinitions)) return null;
@@ -133,7 +134,7 @@ export default function Home() {
   }
 
   return (
-    <main style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
+    <main className={styles.viewerPage}>
       <header className="header">
         <div className="header-brand">
           <div className="logo">mX</div>
@@ -155,21 +156,8 @@ export default function Home() {
         </label>
       </header>
 
-      <div style={{ position: "relative", flex: 1 }}>
-        <div
-          style={{
-            position: "absolute",
-            top: 16,
-            left: 16,
-            zIndex: 10,
-            background: "white",
-            padding: "8px 12px",
-            borderRadius: 8,
-            boxShadow: "0 1px 4px rgba(0,0,0,0.2)",
-            fontFamily: "Arial, sans-serif",
-            maxWidth: 420,
-          }}
-        >
+      <div className={styles.workspace}>
+        <aside className={styles.controlPanel} aria-label="Viewer controls">
           {fileName && (
             <div style={{ marginBottom: 8, fontSize: 13, color: "#555" }}>
               Loaded: {fileName}
@@ -254,48 +242,49 @@ export default function Home() {
             </label>
           </div>
 
-        </div>
+          {pointSeries.length > 0 && (
+            <FilterPanel
+              series={pointSeries}
+              selectedSeries={safeSelectedSeries}
+              onSelectSeries={setSelectedSeries}
+              fields={selectedFields}
+              filters={filtersBySeries[safeSelectedSeries] ?? []}
+              stats={selectedStats}
+              seriesVisible={
+                seriesVisibility[safeSelectedSeries] ??
+                pointSeries[safeSelectedSeries]?.visible !== false
+              }
+              onSeriesVisibleChange={(visible) =>
+                setSeriesVisibility((current) => ({ ...current, [safeSelectedSeries]: visible }))
+              }
+              hasNullVisibility={Boolean(colourMarkerInput(pointSeries[safeSelectedSeries]))}
+              showNullValues={
+                nullVisibility[safeSelectedSeries] ??
+                pointSeries[safeSelectedSeries]?.showNullColours !== false
+              }
+              onShowNullValuesChange={(visible) =>
+                setNullVisibility((current) => ({ ...current, [safeSelectedSeries]: visible }))
+              }
+              onChange={(filters) =>
+                setFiltersBySeries((current) => ({ ...current, [safeSelectedSeries]: filters }))
+              }
+              onReset={() =>
+                setFiltersBySeries((current) => ({ ...current, [safeSelectedSeries]: [] }))
+              }
+            />
+          )}
+        </aside>
 
-        {pointSeries.length > 0 && (
-          <FilterPanel
-            series={pointSeries}
-            selectedSeries={safeSelectedSeries}
-            onSelectSeries={setSelectedSeries}
-            fields={selectedFields}
-            filters={filtersBySeries[safeSelectedSeries] ?? []}
-            stats={selectedStats}
-            seriesVisible={
-              seriesVisibility[safeSelectedSeries] ??
-              pointSeries[safeSelectedSeries]?.visible !== false
-            }
-            onSeriesVisibleChange={(visible) =>
-              setSeriesVisibility((current) => ({ ...current, [safeSelectedSeries]: visible }))
-            }
-            hasNullVisibility={Boolean(colourMarkerInput(pointSeries[safeSelectedSeries]))}
-            showNullValues={
-              nullVisibility[safeSelectedSeries] ??
-              pointSeries[safeSelectedSeries]?.showNullColours !== false
-            }
-            onShowNullValuesChange={(visible) =>
-              setNullVisibility((current) => ({ ...current, [safeSelectedSeries]: visible }))
-            }
-            onChange={(filters) =>
-              setFiltersBySeries((current) => ({ ...current, [safeSelectedSeries]: filters }))
-            }
-            onReset={() =>
-              setFiltersBySeries((current) => ({ ...current, [safeSelectedSeries]: [] }))
-            }
+        <section className={styles.sceneViewport} aria-label="3D scene">
+          <ThreeScene
+            ref={threeSceneRef}
+            sceneData={currentScene}
+            visiblePointClouds={renderedPointClouds}
+            projectionMode={projectionMode}
+            annotationsVisible={annotationsVisible}
+            annotationScale={annotationScale}
           />
-        )}
-
-        <ThreeScene
-          ref={threeSceneRef}
-          sceneData={currentScene}
-          visiblePointClouds={renderedPointClouds}
-          projectionMode={projectionMode}
-          annotationsVisible={annotationsVisible}
-          annotationScale={annotationScale}
-        />
+        </section>
         {legendsVisible && <ColourLegendPanel legends={colourLegends} />}
       </div>
     </main>
