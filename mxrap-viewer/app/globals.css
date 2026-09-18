@@ -23,8 +23,8 @@
 }
 
 .header {
-  height: 72px;
-  padding: 0 24px;
+  height: 52px;
+  padding: 0 16px;
 
   display: flex;
   align-items: center;
@@ -38,12 +38,12 @@
 .header-brand {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 .logo {
-  width: 40px;
-  height: 40px;
+  width: 30px;
+  height: 30px;
 
   display: flex;
   align-items: center;
@@ -52,29 +52,30 @@
   background-color: var(--color-brand);
   color: var(--color-fg);
 
-  border-radius: 6px;
+  border-radius: 5px;
+  font-size: 13px;
   font-weight: bold;
 }
 
 .header h1 {
   margin: 0;
-  font-size: 18px;
+  font-size: 14px;
 }
 
 .header p {
-  margin: 4px 0 0;
+  margin: 1px 0 0;
   color: #aeb9b0;
-  font-size: 12px;
+  font-size: 10px;
 }
 
 .open-file-button {
-  padding: 10px 16px;
+  padding: 6px 12px;
 
   background-color: var(--color-brand);
   color: var(--color-fg);
 
-  border-radius: 6px;
-  font-size: 14px;
+  border-radius: 5px;
+  font-size: 12px;
   font-weight: bold;
   cursor: pointer;
 }

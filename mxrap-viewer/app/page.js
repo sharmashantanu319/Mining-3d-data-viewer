@@ -159,17 +159,17 @@ export default function Home() {
       <div className={styles.workspace}>
         <aside className={styles.controlPanel} aria-label="Viewer controls">
           {fileName && (
-            <div style={{ marginBottom: 8, fontSize: 13, color: "var(--color-fg-muted)" }}>
+            <div style={{ marginBottom: 6, fontSize: 12, color: "var(--color-fg-muted)" }}>
               Loaded: {fileName}
             </div>
           )}
 
           {errors.length > 0 && (
-            <div style={{ marginBottom: 8, color: "var(--color-danger)", fontSize: 13 }}>
-              <div style={{ fontWeight: "bold", marginBottom: 4 }}>
+            <div style={{ marginBottom: 6, color: "var(--color-danger)", fontSize: 12 }}>
+              <div style={{ fontWeight: "bold", marginBottom: 3 }}>
                 This file could not be loaded ({errors.length} issue{errors.length > 1 ? "s" : ""}):
               </div>
-              <ul style={{ margin: 0, paddingLeft: 18 }}>
+              <ul style={{ margin: 0, paddingLeft: 16 }}>
                 {errors.map((e, i) => (
                   <li key={i}>{e}</li>
                 ))}
@@ -177,21 +177,21 @@ export default function Home() {
             </div>
           )}
 
-          <div style={{ marginBottom: 8 }}>
+          <div style={{ marginBottom: 6, fontSize: 13 }}>
             Current scene: <strong>{currentScene.title}</strong>
           </div>
-          <button onClick={goToNextScene} style={{ padding: "6px 12px", cursor: "pointer" }}>
+          <button onClick={goToNextScene} style={{ padding: "4px 10px", fontSize: 12, cursor: "pointer" }}>
             Next Scene
           </button>
           <button
             onClick={() => threeSceneRef.current?.resetView()}
-            style={{ padding: "6px 12px", cursor: "pointer", marginLeft: 8 }}
+            style={{ padding: "4px 10px", fontSize: 12, cursor: "pointer", marginLeft: 6 }}
           >
             Reset View
           </button>
           <button
             onClick={toggleProjectionMode}
-            style={{ padding: "6px 12px", cursor: "pointer", marginLeft: 8 }}
+            style={{ padding: "4px 10px", fontSize: 12, cursor: "pointer", marginLeft: 6 }}
           >
             {projectionMode === "perspective" ? "Switch to Orthographic" : "Switch to Perspective"}
           </button>
@@ -199,7 +199,7 @@ export default function Home() {
           {colourLegends.length > 0 && (
             <button
               onClick={() => setLegendsVisible((visible) => !visible)}
-              style={{ padding: "6px 12px", cursor: "pointer", marginTop: 8 }}
+              style={{ padding: "4px 10px", fontSize: 12, cursor: "pointer", marginTop: 6 }}
               aria-pressed={legendsVisible}
             >
               {legendsVisible ? "Hide colour legend" : "Show colour legend"}
@@ -219,15 +219,15 @@ export default function Home() {
             }
           />
 
-          <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--color-border)" }}>
+          <div style={{ marginTop: 6, paddingTop: 6, borderTop: "1px solid var(--color-border)" }}>
             <button
               onClick={() => setAnnotationsVisible((visible) => !visible)}
-              style={{ padding: "6px 12px", cursor: "pointer" }}
+              style={{ padding: "4px 10px", fontSize: 12, cursor: "pointer" }}
               aria-pressed={annotationsVisible}
             >
               {annotationsVisible ? "Hide annotations" : "Show annotations"}
             </button>
-            <label style={{ display: "block", marginTop: 8, fontSize: 13 }}>
+            <label style={{ display: "block", marginTop: 6, fontSize: 12 }}>
               Annotation size: {annotationScale.toFixed(1)}x
               <input
                 type="range"
