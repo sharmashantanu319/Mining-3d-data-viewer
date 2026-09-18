@@ -72,6 +72,45 @@ function buildSharedPointSizing(sizing = {}) {
   };
 }
 
+// Real mXrap marker-image assets (e.g. Sphere-Question.png, Triaxial.png)
+// ship as fully opaque PNGs with a plain black background instead of a real
+// alpha channel — the point-symbol fragment shader discards on alpha, so
+// without this they render as solid black squares. Detect images with no
+// genuine per-pixel alpha (every pixel already opaque) and chroma-key pure
+// black to transparent; an asset that does carry real alpha (e.g. the
+// Events series' soft-shaded sphere sprites) is returned untouched so its
+// anti-aliased edges aren't clipped.
+function keyOutOpaqueBlackBackground(image) {
+  const width = image.naturalWidth || image.width;
+  const height = image.naturalHeight || image.height;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  context.drawImage(image, 0, 0, width, height);
+
+  const imageData = context.getImageData(0, 0, width, height);
+  const { data } = imageData;
+
+  let hasRealAlpha = false;
+  for (let i = 3; i < data.length; i += 4) {
+    if (data[i] !== 255) {
+      hasRealAlpha = true;
+      break;
+    }
+  }
+  if (hasRealAlpha) return image;
+
+  const BLACK_THRESHOLD = 10;
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i] <= BLACK_THRESHOLD && data[i + 1] <= BLACK_THRESHOLD && data[i + 2] <= BLACK_THRESHOLD) {
+      data[i + 3] = 0;
+    }
+  }
+  context.putImageData(imageData, 0, 0);
+  return canvas;
+}
+
 // Temporary demo adapter used to exercise the point renderer's per-point
 // colour and size paths for mock scenes (no real marker-defs data). Real
 // scenes go through resolveMarkerRenderOptions instead; see the forEach
@@ -348,15 +387,17 @@ const ThreeScene = forwardRef(function ThreeScene(
     function getSymbolTexture(dataUrl) {
       if (!dataUrl) return null;
       if (textureCache.has(dataUrl)) return textureCache.get(dataUrl);
-      const texture = new THREE.TextureLoader().load(
-        dataUrl,
-        undefined,
-        undefined,
-        () => {
-          texture.userData.loadFailed = true;
-        }
-      );
+      const texture = new THREE.Texture();
       texture.colorSpace = THREE.SRGBColorSpace;
+      const image = new Image();
+      image.onload = () => {
+        texture.image = keyOutOpaqueBlackBackground(image);
+        texture.needsUpdate = true;
+      };
+      image.onerror = () => {
+        texture.userData.loadFailed = true;
+      };
+      image.src = dataUrl;
       textureCache.set(dataUrl, texture);
       return texture;
     }
