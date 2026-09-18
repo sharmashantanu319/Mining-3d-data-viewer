@@ -135,6 +135,7 @@ const ThreeScene = forwardRef(function ThreeScene(
   const cancelAnimationRef = useRef(null);
   const sceneRef = useRef(null);
   const pointCloudsRef = useRef([]);
+  const meshesRef = useRef([]);
   const buildPointCloudRef = useRef(null);
   const visiblePointCloudsRef = useRef(visiblePointClouds);
   visiblePointCloudsRef.current = visiblePointClouds;
@@ -149,6 +150,33 @@ const ThreeScene = forwardRef(function ThreeScene(
     });
   }, [annotationsVisible, annotationScale]);
 
+  // Bounding box of the currently rendered point clouds and surfaces (not
+  // the annotations, rings, or axes helper), used by fitScene()/
+  // setPresetView() to frame what's actually visible right now rather than
+  // the export's original camera framing (which can be badly off after
+  // filtering most of a series out).
+  function computeSceneBounds() {
+    const box = new THREE.Box3();
+    let hasContent = false;
+    for (const object of [...pointCloudsRef.current, ...meshesRef.current]) {
+      const objectBox = new THREE.Box3().setFromObject(object);
+      if (Number.isFinite(objectBox.min.x) && Number.isFinite(objectBox.max.x)) {
+        box.union(objectBox);
+        hasContent = true;
+      }
+    }
+    return hasContent ? box : null;
+  }
+
+  // The distance a camera with the given (perspective) field of view needs
+  // to be from a bounding sphere's centre to fit the whole sphere in frame,
+  // with a 20% margin. Orthographic cameras ignore fov for their own zoom,
+  // but still need a reasonable distance for near/far and pan/zoom feel.
+  function fitDistance(camera, radius) {
+    const fovDegrees = camera.isPerspectiveCamera ? camera.fov : 50;
+    return (Math.max(radius, 1e-6) / Math.sin(THREE.MathUtils.degToRad(fovDegrees / 2))) * 1.2;
+  }
+
   useImperativeHandle(ref, () => ({
     resetView() {
       const camera = cameraRef.current;
@@ -158,6 +186,54 @@ const ThreeScene = forwardRef(function ThreeScene(
 
       cancelAnimationRef.current?.();
       cancelAnimationRef.current = animateCameraTo(camera, controls, home.position, home.target);
+    },
+
+    // Reframes on the currently visible data, keeping the current viewing
+    // direction (just moving along it), rather than jumping back to the
+    // export's original camera position/angle the way resetView() does.
+    fitScene() {
+      const camera = cameraRef.current;
+      const controls = controlsRef.current;
+      if (!camera || !controls) return;
+      const box = computeSceneBounds();
+      if (!box) return;
+
+      const center = box.getCenter(new THREE.Vector3());
+      const radius = box.getBoundingSphere(new THREE.Sphere()).radius;
+      const direction = camera.position.clone().sub(controls.target);
+      if (direction.lengthSq() < 1e-9) direction.set(0, 0, 1);
+      direction.normalize().multiplyScalar(fitDistance(camera, radius));
+
+      cancelAnimationRef.current?.();
+      cancelAnimationRef.current = animateCameraTo(camera, controls, center.clone().add(direction), center);
+    },
+
+    // Snaps to a world-axis-aligned view (assumes the scene's own "up" is
+    // world +Y, true for every mock and real sample seen so far — a tilted
+    // export "up" would need each axis re-derived from it, out of scope
+    // here). Frames on the currently visible data like fitScene().
+    setPresetView(axis) {
+      const camera = cameraRef.current;
+      const controls = controlsRef.current;
+      if (!camera || !controls) return;
+      const box = computeSceneBounds();
+      const center = box ? box.getCenter(new THREE.Vector3()) : controls.target.clone();
+      const radius = box
+        ? box.getBoundingSphere(new THREE.Sphere()).radius
+        : camera.position.distanceTo(controls.target);
+      const distance = fitDistance(camera, radius);
+
+      const presets = {
+        top: { offset: new THREE.Vector3(0, distance, 0), up: new THREE.Vector3(0, 0, -1) },
+        front: { offset: new THREE.Vector3(0, 0, distance), up: new THREE.Vector3(0, 1, 0) },
+        side: { offset: new THREE.Vector3(distance, 0, 0), up: new THREE.Vector3(0, 1, 0) },
+      };
+      const preset = presets[axis];
+      if (!preset) return;
+
+      camera.up.copy(preset.up);
+      cancelAnimationRef.current?.();
+      cancelAnimationRef.current = animateCameraTo(camera, controls, center.clone().add(preset.offset), center);
     },
   }));
 
@@ -257,6 +333,7 @@ const ThreeScene = forwardRef(function ThreeScene(
       scene.add(mesh);
       meshes.push(mesh);
     });
+    meshesRef.current = meshes;
 
     function createPointCloud(pointSeriesData) {
       // Real marker-defs data (parsed from the export's markers.json) takes
@@ -405,6 +482,7 @@ const ThreeScene = forwardRef(function ThreeScene(
       controlsRef.current = null;
       sceneRef.current = null;
       pointCloudsRef.current = [];
+      meshesRef.current = [];
       buildPointCloudRef.current = null;
     };
   }, [sceneData, projectionMode]); // Key: re-run the full teardown/rebuild whenever sceneData or projectionMode changes

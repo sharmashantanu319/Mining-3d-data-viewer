@@ -183,18 +183,53 @@ export default function Home() {
           <button onClick={goToNextScene} style={{ padding: "6px 12px", cursor: "pointer" }}>
             Next Scene
           </button>
-          <button
-            onClick={() => threeSceneRef.current?.resetView()}
-            style={{ padding: "6px 12px", cursor: "pointer", marginLeft: 8 }}
-          >
-            Reset View
-          </button>
-          <button
-            onClick={toggleProjectionMode}
-            style={{ padding: "6px 12px", cursor: "pointer", marginLeft: 8 }}
-          >
-            {projectionMode === "perspective" ? "Switch to Orthographic" : "Switch to Perspective"}
-          </button>
+
+          <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #ddd" }}>
+            <div style={{ marginBottom: 6, fontSize: 11, fontWeight: "bold", color: "#68756c" }}>
+              CAMERA
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              <button
+                onClick={toggleProjectionMode}
+                style={{ padding: "6px 12px", cursor: "pointer" }}
+              >
+                {projectionMode === "perspective" ? "Switch to Orthographic" : "Switch to Perspective"}
+              </button>
+              <button
+                onClick={() => threeSceneRef.current?.fitScene()}
+                style={{ padding: "6px 12px", cursor: "pointer" }}
+                title="Reframe on the currently visible (filtered) data"
+              >
+                Fit Scene
+              </button>
+              <button
+                onClick={() => threeSceneRef.current?.resetView()}
+                style={{ padding: "6px 12px", cursor: "pointer" }}
+              >
+                Reset View
+              </button>
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+              <button
+                onClick={() => threeSceneRef.current?.setPresetView("top")}
+                style={{ padding: "6px 12px", cursor: "pointer" }}
+              >
+                Top
+              </button>
+              <button
+                onClick={() => threeSceneRef.current?.setPresetView("front")}
+                style={{ padding: "6px 12px", cursor: "pointer" }}
+              >
+                Front
+              </button>
+              <button
+                onClick={() => threeSceneRef.current?.setPresetView("side")}
+                style={{ padding: "6px 12px", cursor: "pointer" }}
+              >
+                Side
+              </button>
+            </div>
+          </div>
 
           {colourLegends.length > 0 && (
             <button
