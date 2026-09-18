@@ -81,9 +81,17 @@ export default function Home() {
     [visiblePointClouds, markerSelections]
   );
 
+  // Same marker selections, but against every row of the series rather than
+  // the filtered/visible subset — lets the legend show the full dataset's
+  // range alongside the (possibly narrower) currently-visible one.
+  const fullRenderedPointClouds = useMemo(
+    () => applyMarkerSelections(pointSeries, markerSelections),
+    [pointSeries, markerSelections]
+  );
+
   const colourLegends = useMemo(
-    () => buildSceneColourLegends(renderedPointClouds),
-    [renderedPointClouds]
+    () => buildSceneColourLegends(renderedPointClouds, fullRenderedPointClouds),
+    [renderedPointClouds, fullRenderedPointClouds]
   );
 
   async function handleFileChange(event) {
