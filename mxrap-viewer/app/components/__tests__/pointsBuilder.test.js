@@ -59,6 +59,7 @@ describe("point symbol rendering", () => {
       }
     );
     expect(cloud.geometry.userData.sourceIndices).toEqual([7, 12]);
+    expect(cloud.geometry.userData.points.map((point) => point.value)).toEqual([10, 20]);
     expect(Array.from(cloud.geometry.getAttribute("position").array)).toEqual([
       1, 2, 3, 4, 5, 6,
     ]);

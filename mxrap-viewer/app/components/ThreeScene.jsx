@@ -118,6 +118,20 @@ function getDemoRenderOptions(pointSeriesData) {
   };
 }
 
+// A uniform scale.setScalar() would squash a sprite-based annotation label
+// (buildAnnotation's faceCamera/render2d branch) back to a square, undoing
+// the aspect-aware scale it set up — see annotationsBuilder.js. Mesh-based
+// annotations (fixed-orientation) already bake their aspect ratio into
+// PlaneGeometry(width, height), so a uniform scalar is correct for them.
+function applyAnnotationScale(object, factor) {
+  if (object.isSprite) {
+    const aspect = object.userData.aspectRatio ?? 1;
+    object.scale.set(aspect * factor, factor, 1);
+  } else {
+    object.scale.setScalar(factor);
+  }
+}
+
 const ThreeScene = forwardRef(function ThreeScene(
   {
     sceneData,
@@ -125,6 +139,9 @@ const ThreeScene = forwardRef(function ThreeScene(
     projectionMode = "perspective",
     annotationsVisible = true,
     annotationScale = 1,
+    selectedPoint = null,
+    onPointHover = null,
+    onPointSelect = null,
   },
   ref
 ) {
@@ -135,19 +152,52 @@ const ThreeScene = forwardRef(function ThreeScene(
   const cancelAnimationRef = useRef(null);
   const sceneRef = useRef(null);
   const pointCloudsRef = useRef([]);
+  const meshesRef = useRef([]);
   const buildPointCloudRef = useRef(null);
   const visiblePointCloudsRef = useRef(visiblePointClouds);
   visiblePointCloudsRef.current = visiblePointClouds;
   const annotationsRef = useRef([]);
   const annotationSettingsRef = useRef({ annotationsVisible, annotationScale });
   annotationSettingsRef.current = { annotationsVisible, annotationScale };
+  const pointCallbacksRef = useRef({ onPointHover, onPointSelect });
+  pointCallbacksRef.current = { onPointHover, onPointSelect };
+  const selectedPointRef = useRef(selectedPoint);
+  selectedPointRef.current = selectedPoint;
+  const syncSelectedHighlightRef = useRef(null);
 
   useEffect(() => {
     annotationsRef.current.forEach(({ object, baseScale }) => {
       object.visible = annotationsVisible;
-      object.scale.setScalar(baseScale * annotationScale);
+      applyAnnotationScale(object, baseScale * annotationScale);
     });
   }, [annotationsVisible, annotationScale]);
+
+  // Bounding box of the currently rendered point clouds and surfaces (not
+  // the annotations, rings, or axes helper), used by fitScene()/
+  // setPresetView() to frame what's actually visible right now rather than
+  // the export's original camera framing (which can be badly off after
+  // filtering most of a series out).
+  function computeSceneBounds() {
+    const box = new THREE.Box3();
+    let hasContent = false;
+    for (const object of [...pointCloudsRef.current, ...meshesRef.current]) {
+      const objectBox = new THREE.Box3().setFromObject(object);
+      if (Number.isFinite(objectBox.min.x) && Number.isFinite(objectBox.max.x)) {
+        box.union(objectBox);
+        hasContent = true;
+      }
+    }
+    return hasContent ? box : null;
+  }
+
+  // The distance a camera with the given (perspective) field of view needs
+  // to be from a bounding sphere's centre to fit the whole sphere in frame,
+  // with a 20% margin. Orthographic cameras ignore fov for their own zoom,
+  // but still need a reasonable distance for near/far and pan/zoom feel.
+  function fitDistance(camera, radius) {
+    const fovDegrees = camera.isPerspectiveCamera ? camera.fov : 50;
+    return (Math.max(radius, 1e-6) / Math.sin(THREE.MathUtils.degToRad(fovDegrees / 2))) * 1.2;
+  }
 
   useImperativeHandle(ref, () => ({
     resetView() {
@@ -159,6 +209,54 @@ const ThreeScene = forwardRef(function ThreeScene(
       cancelAnimationRef.current?.();
       cancelAnimationRef.current = animateCameraTo(camera, controls, home.position, home.target);
     },
+
+    // Reframes on the currently visible data, keeping the current viewing
+    // direction (just moving along it), rather than jumping back to the
+    // export's original camera position/angle the way resetView() does.
+    fitScene() {
+      const camera = cameraRef.current;
+      const controls = controlsRef.current;
+      if (!camera || !controls) return;
+      const box = computeSceneBounds();
+      if (!box) return;
+
+      const center = box.getCenter(new THREE.Vector3());
+      const radius = box.getBoundingSphere(new THREE.Sphere()).radius;
+      const direction = camera.position.clone().sub(controls.target);
+      if (direction.lengthSq() < 1e-9) direction.set(0, 0, 1);
+      direction.normalize().multiplyScalar(fitDistance(camera, radius));
+
+      cancelAnimationRef.current?.();
+      cancelAnimationRef.current = animateCameraTo(camera, controls, center.clone().add(direction), center);
+    },
+
+    // Snaps to a world-axis-aligned view (assumes the scene's own "up" is
+    // world +Y, true for every mock and real sample seen so far — a tilted
+    // export "up" would need each axis re-derived from it, out of scope
+    // here). Frames on the currently visible data like fitScene().
+    setPresetView(axis) {
+      const camera = cameraRef.current;
+      const controls = controlsRef.current;
+      if (!camera || !controls) return;
+      const box = computeSceneBounds();
+      const center = box ? box.getCenter(new THREE.Vector3()) : controls.target.clone();
+      const radius = box
+        ? box.getBoundingSphere(new THREE.Sphere()).radius
+        : camera.position.distanceTo(controls.target);
+      const distance = fitDistance(camera, radius);
+
+      const presets = {
+        top: { offset: new THREE.Vector3(0, distance, 0), up: new THREE.Vector3(0, 0, -1) },
+        front: { offset: new THREE.Vector3(0, 0, distance), up: new THREE.Vector3(0, 1, 0) },
+        side: { offset: new THREE.Vector3(distance, 0, 0), up: new THREE.Vector3(0, 1, 0) },
+      };
+      const preset = presets[axis];
+      if (!preset) return;
+
+      camera.up.copy(preset.up);
+      cancelAnimationRef.current?.();
+      cancelAnimationRef.current = animateCameraTo(camera, controls, center.clone().add(preset.offset), center);
+    },
   }));
 
   useEffect(() => {
@@ -167,7 +265,7 @@ const ThreeScene = forwardRef(function ThreeScene(
 
     // ---------- 1. Scene / Camera / Renderer ----------
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xf0f0f0);
+    scene.background = new THREE.Color(0x090d0b);
     sceneRef.current = scene;
 
     const camPos = sceneData.camera?.position ?? DEFAULT_CAMERA.position;
@@ -194,6 +292,38 @@ const ThreeScene = forwardRef(function ThreeScene(
     renderer.setSize(container.clientWidth, container.clientHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     container.appendChild(renderer.domElement);
+
+    const raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2();
+
+    function createSelectionRing(colour) {
+      const canvas = document.createElement("canvas");
+      canvas.width = 64;
+      canvas.height = 64;
+      const context = canvas.getContext("2d");
+      context.clearRect(0, 0, 64, 64);
+      context.strokeStyle = colour;
+      context.lineWidth = 7;
+      context.beginPath();
+      context.arc(32, 32, 24, 0, Math.PI * 2);
+      context.stroke();
+      const texture = new THREE.CanvasTexture(canvas);
+      const material = new THREE.SpriteMaterial({
+        map: texture,
+        transparent: true,
+        depthTest: false,
+        sizeAttenuation: false,
+      });
+      const sprite = new THREE.Sprite(material);
+      sprite.scale.setScalar(0.065);
+      sprite.renderOrder = 1000;
+      sprite.visible = false;
+      scene.add(sprite);
+      return sprite;
+    }
+
+    const hoverRing = createSelectionRing("#84cc16");
+    const selectionRing = createSelectionRing("#e8f7d1");
 
     // ---------- 1b. Camera controls (rotate / zoom / tilt / pan) ----------
     const orbitTarget = new THREE.Vector3(camFocal.x, camFocal.y, camFocal.z);
@@ -257,6 +387,7 @@ const ThreeScene = forwardRef(function ThreeScene(
       scene.add(mesh);
       meshes.push(mesh);
     });
+    meshesRef.current = meshes;
 
     function createPointCloud(pointSeriesData) {
       // Real marker-defs data (parsed from the export's markers.json) takes
@@ -308,13 +439,108 @@ const ThreeScene = forwardRef(function ThreeScene(
     const initialPointCloudData = Array.isArray(visiblePointCloudsRef.current)
       ? visiblePointCloudsRef.current
       : sceneData.pointClouds ?? [];
-    initialPointCloudData.forEach((pointSeriesData) => {
+    initialPointCloudData.forEach((pointSeriesData, seriesIndex) => {
       const pointCloud = createPointCloud(pointSeriesData);
+      forEachPointObject(pointCloud, (points) => {
+        points.userData.seriesIndex = seriesIndex;
+      });
       scene.add(pointCloud);
       pointClouds.push(pointCloud);
     });
     pointCloudsRef.current = pointClouds;
     buildPointCloudRef.current = createPointCloud;
+
+    function inspectIntersection(intersection) {
+      const points = intersection?.object;
+      const point = points?.geometry?.userData?.points?.[intersection.index];
+      if (!point) return null;
+      return {
+        point,
+        sourceIndex: Number.isInteger(point.sourceIndex)
+          ? point.sourceIndex
+          : points.geometry.userData.sourceIndices?.[intersection.index] ?? intersection.index,
+        seriesIndex: points.userData.seriesIndex ?? 0,
+        position: intersection.point.clone(),
+      };
+    }
+
+    function pickPoint(event) {
+      const rect = renderer.domElement.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return null;
+      pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+      raycaster.params.Points.threshold = Math.max(0.02, camera.position.distanceTo(controls.target) * 0.008);
+      const intersections = raycaster.intersectObjects(pointCloudsRef.current, true);
+      return inspectIntersection(intersections[0]);
+    }
+
+    // Click reuses the most recent hover's intersection rather than
+    // re-raycasting from the click event: `click`'s MouseEvent.clientX/Y are
+    // integer-rounded (unlike `pointermove`'s fractional coordinates), and
+    // that sub-pixel rounding was enough to turn a hit into a miss at the
+    // edge of a point's small raycast threshold. Reusing the hover result
+    // also matches user intent more directly — clicking selects whatever the
+    // ring is currently showing.
+    let lastHoverKey = null;
+    let lastInspected = null;
+    function handlePointerMove(event) {
+      const inspected = pickPoint(event);
+      lastInspected = inspected;
+      hoverRing.visible = Boolean(inspected);
+      if (inspected) hoverRing.position.copy(inspected.position);
+      renderer.domElement.style.cursor = inspected ? "pointer" : "grab";
+      const nextHoverKey = inspected ? `${inspected.seriesIndex}:${inspected.sourceIndex}` : null;
+      if (nextHoverKey !== lastHoverKey) {
+        lastHoverKey = nextHoverKey;
+        pointCallbacksRef.current.onPointHover?.(inspected);
+      }
+    }
+
+    function handlePointerLeave() {
+      hoverRing.visible = false;
+      renderer.domElement.style.cursor = "grab";
+      lastInspected = null;
+      if (lastHoverKey !== null) {
+        lastHoverKey = null;
+        pointCallbacksRef.current.onPointHover?.(null);
+      }
+    }
+
+    function handleClick(event) {
+      const inspected = lastInspected ?? pickPoint(event);
+      selectionRing.visible = Boolean(inspected);
+      if (inspected) selectionRing.position.copy(inspected.position);
+      pointCallbacksRef.current.onPointSelect?.(inspected);
+    }
+
+    function syncSelectedHighlight(selection) {
+      selectionRing.visible = false;
+      if (!selection) return;
+      for (const pointObject of pointCloudsRef.current) {
+        let found = false;
+        forEachPointObject(pointObject, (points) => {
+          if (found || points.userData.seriesIndex !== selection.seriesIndex) return;
+          const pointIndex = points.geometry.userData.sourceIndices?.indexOf(selection.sourceIndex) ?? -1;
+          if (pointIndex < 0) return;
+          const position = points.geometry.getAttribute("position");
+          selectionRing.position.set(
+            position.getX(pointIndex),
+            position.getY(pointIndex),
+            position.getZ(pointIndex)
+          );
+          selectionRing.visible = true;
+          found = true;
+        });
+        if (found) break;
+      }
+    }
+
+    syncSelectedHighlightRef.current = syncSelectedHighlight;
+    renderer.domElement.addEventListener("pointermove", handlePointerMove);
+    renderer.domElement.addEventListener("pointerleave", handlePointerLeave);
+    renderer.domElement.addEventListener("click", handleClick);
+    syncSelectedHighlight(selectedPointRef.current);
 
     const annotations = [];
     (sceneData.annotations ?? []).forEach((annotationData) => {
@@ -382,6 +608,9 @@ const ThreeScene = forwardRef(function ThreeScene(
       cancelAnimationFrame(animationId);
       cancelAnimationRef.current?.();
       window.removeEventListener("resize", handleResize);
+      renderer.domElement.removeEventListener("pointermove", handlePointerMove);
+      renderer.domElement.removeEventListener("pointerleave", handlePointerLeave);
+      renderer.domElement.removeEventListener("click", handleClick);
 
       meshes.forEach((mesh) => {
         mesh.geometry.dispose();
@@ -391,6 +620,11 @@ const ThreeScene = forwardRef(function ThreeScene(
       pointCloudsRef.current.forEach(disposePointObject);
       textureCache.forEach((texture) => texture.dispose());
       textureCache.clear();
+      [hoverRing, selectionRing].forEach((ring) => {
+        ring.material.map?.dispose();
+        ring.material.dispose();
+        scene.remove(ring);
+      });
 
       annotations.forEach(({ object }) => disposeAnnotation(object));
       annotationsRef.current = [];
@@ -405,7 +639,9 @@ const ThreeScene = forwardRef(function ThreeScene(
       controlsRef.current = null;
       sceneRef.current = null;
       pointCloudsRef.current = [];
+      meshesRef.current = [];
       buildPointCloudRef.current = null;
+      syncSelectedHighlightRef.current = null;
     };
   }, [sceneData, projectionMode]); // Key: re-run the full teardown/rebuild whenever sceneData or projectionMode changes
 
@@ -418,7 +654,13 @@ const ThreeScene = forwardRef(function ThreeScene(
     if (!scene || !createPointCloud || !Array.isArray(visiblePointClouds)) return;
 
     const currentPointClouds = pointCloudsRef.current;
-    const nextPointClouds = visiblePointClouds.map((seriesData) => createPointCloud(seriesData));
+    const nextPointClouds = visiblePointClouds.map((seriesData, seriesIndex) => {
+      const pointObject = createPointCloud(seriesData);
+      pointObject.traverse((child) => {
+        if (child.isPoints) child.userData.seriesIndex = seriesIndex;
+      });
+      return pointObject;
+    });
 
     currentPointClouds.forEach((pointObject) => {
       scene.remove(pointObject);
@@ -431,6 +673,10 @@ const ThreeScene = forwardRef(function ThreeScene(
     nextPointClouds.forEach((pointCloud) => scene.add(pointCloud));
     pointCloudsRef.current = nextPointClouds;
   }, [visiblePointClouds]);
+
+  useEffect(() => {
+    syncSelectedHighlightRef.current?.(selectedPoint);
+  }, [selectedPoint, visiblePointClouds]);
 
   return <div ref={containerRef} style={{ width: "100%", height: "100%" }} />;
 });
