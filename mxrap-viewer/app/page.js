@@ -27,6 +27,7 @@ export default function Home() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [errors, setErrors] = useState([]);
   const [fileName, setFileName] = useState(null);
+  const [isLoadingExport, setIsLoadingExport] = useState(false);
   const [projectionMode, setProjectionMode] = useState("perspective");
   const [filtersBySeries, setFiltersBySeries] = useState({});
   const [selectedSeries, setSelectedSeries] = useState(0);
@@ -92,18 +93,19 @@ export default function Home() {
 
     setFileName(file.name);
     setErrors([]);
+    setIsLoadingExport(true);
 
-    // 第一步：先做 Validate（只检查，不渲染）
-    // Step 1: validate first (checks only, no rendering).
-    const validation = await validateExportFile(file);
-    if (!validation.valid) {
-      setErrors(validation.errors);
-      return; // 检查不通过，不继续往下解析/渲染
-    }
-
-    // 第二步：Validate 通过后，才真正解析并渲染
-    // Step 2: only parse and render once validation passes.
     try {
+      // 第一步：先做 Validate（只检查，不渲染）
+      // Step 1: validate first (checks only, no rendering).
+      const validation = await validateExportFile(file);
+      if (!validation.valid) {
+        setErrors(validation.errors);
+        return; // 检查不通过，不继续往下解析/渲染
+      }
+
+      // 第二步：Validate 通过后，才真正解析并渲染
+      // Step 2: only parse and render once validation passes.
       const parsed = await parseExportFile(file);
       setScenes(parsed.scenes);
       setCurrentIndex(0);
@@ -116,6 +118,8 @@ export default function Home() {
     } catch (err) {
       console.error(err);
       setErrors([err.message]);
+    } finally {
+      setIsLoadingExport(false);
     }
   }
 
@@ -145,13 +149,14 @@ export default function Home() {
           </div>
         </div>
 
-        <label className="open-file-button">
-          Open export
+        <label className="open-file-button" aria-disabled={isLoadingExport}>
+          {isLoadingExport ? "Loading…" : "Open export"}
 
           <input
             type="file"
             accept=".zip,.json"
             onChange={handleFileChange}
+            disabled={isLoadingExport}
           />
         </label>
       </header>
@@ -161,6 +166,12 @@ export default function Home() {
           {fileName && (
             <div style={{ marginBottom: 8, fontSize: 13, color: "#555" }}>
               Loaded: {fileName}
+            </div>
+          )}
+
+          {isLoadingExport && (
+            <div style={{ marginBottom: 8, fontSize: 13, color: "#364139" }} role="status">
+              Loading and validating export…
             </div>
           )}
 
@@ -195,6 +206,9 @@ export default function Home() {
           >
             {projectionMode === "perspective" ? "Switch to Orthographic" : "Switch to Perspective"}
           </button>
+          <div style={{ marginTop: 6, fontSize: 12, color: "#68756c" }}>
+            Camera mode: {projectionMode === "perspective" ? "Perspective" : "Orthographic"}
+          </div>
 
           {colourLegends.length > 0 && (
             <button
@@ -272,6 +286,12 @@ export default function Home() {
                 setFiltersBySeries((current) => ({ ...current, [safeSelectedSeries]: [] }))
               }
             />
+          )}
+
+          {pointSeries.length === 0 && (
+            <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #ddd", fontSize: 13, color: "#555" }}>
+              This scene has no point series to filter or inspect.
+            </div>
           )}
         </aside>
 
