@@ -96,6 +96,28 @@ describe("buildColourLegend", () => {
     expect(filtered.ticks[2].value).toBe(2);
   });
 
+  it("reports the full dataset's range when a data-derived domain has been narrowed by filtering", () => {
+    const withoutConfiguredRange = series({
+      markerDefinitions: [
+        { ...series().markerDefinitions[0], minimum: undefined, maximum: undefined },
+      ],
+    });
+    const filteredSeries = { ...withoutConfiguredRange, points: [{ ML: 0 }, { ML: 1 }] };
+    const legend = buildColourLegend(filteredSeries, undefined, withoutConfiguredRange);
+    expect(legend.fullRange).toEqual({ min: -2, max: 2, minLabel: "-2", maxLabel: "2" });
+  });
+
+  it("omits the full range when the domain is explicitly configured, even if filtered", () => {
+    const filteredSeries = { ...series(), points: [{ ML: 0 }, { ML: 1 }] };
+    const legend = buildColourLegend(filteredSeries, undefined, series());
+    expect(legend.fullRange).toBeNull();
+  });
+
+  it("omits the full range when the visible range hasn't actually been narrowed", () => {
+    const legend = buildColourLegend(series(), undefined, series());
+    expect(legend.fullRange).toBeNull();
+  });
+
   it("builds labelled swatches for a categorical legend", () => {
     const categorical = series({
       markerDefinitions: [

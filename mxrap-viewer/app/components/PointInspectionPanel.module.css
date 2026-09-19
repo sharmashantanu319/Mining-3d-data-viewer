@@ -1,0 +1,78 @@
+.panel {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #dfe5e0;
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.heading {
+  color: #526057;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.status {
+  margin-top: 3px;
+  color: #17211a;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.empty {
+  margin: 7px 0 0;
+  color: #68756c;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.clearButton {
+  padding: 4px 8px;
+  border: 1px solid #cbd4cd;
+  border-radius: 5px;
+  background: #fff;
+  color: #364139;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.values {
+  display: grid;
+  gap: 1px;
+  max-height: 220px;
+  margin: 9px 0 0;
+  overflow: auto;
+  border: 1px solid #e3e8e4;
+  border-radius: 6px;
+}
+
+.values div {
+  display: grid;
+  grid-template-columns: minmax(78px, 0.8fr) minmax(0, 1.4fr);
+  gap: 8px;
+  padding: 6px 8px;
+  background: #f7f9f7;
+  font-size: 11px;
+}
+
+.values dt {
+  overflow: hidden;
+  color: #68756c;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.values dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: #17211a;
+  font-variant-numeric: tabular-nums;
+}

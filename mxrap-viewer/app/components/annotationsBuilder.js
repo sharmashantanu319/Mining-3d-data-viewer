@@ -4,7 +4,7 @@ const DEFAULT_TEXT_COLOR = "#000000";
 const DEFAULT_BACKGROUND_COLOR = "#ffffff";
 const DEFAULT_BORDER_COLOR = "#000000";
 const DEFAULT_BORDER_WIDTH = 3;
-const DEFAULT_FONT = "600 24px Arial";
+const DEFAULT_FONT = "600 24px Arial, Helvetica, sans-serif";
 
 function stripMarkup(text) {
   return String(text).replace(/<[^>]*>/g, "");
@@ -68,7 +68,18 @@ export function buildAnnotation(annotation) {
 
   let object;
   if (isOverlay || faceCamera) {
+    // THREE.Sprite's geometry is always a unit square, so — unlike the
+    // PlaneGeometry(width, height) branch below, which bakes the label's
+    // real pixel aspect ratio into its geometry — its scale must be set
+    // per-axis to match. A uniform multiplyScalar(scale) here would
+    // squash/stretch the label's text to fit a square, distorting it.
     object = new THREE.Sprite(new THREE.SpriteMaterial(materialOptions));
+    // Stashed for ThreeScene.jsx's annotation-size control, which re-applies
+    // scale on its own (see the annotationsVisible/annotationScale effect)
+    // and needs this to stay aspect-aware too, not just the initial value set
+    // here.
+    object.userData.aspectRatio = width / height;
+    object.scale.set((width / height) * scale, scale, 1);
   } else {
     object = new THREE.Mesh(new THREE.PlaneGeometry(width, height), new THREE.MeshBasicMaterial(materialOptions));
     // Three.js applies these local rotations in the same sequence as the
@@ -76,9 +87,8 @@ export function buildAnnotation(annotation) {
     object.rotateZ(THREE.MathUtils.degToRad(finiteOr(annotation.rake, 0)));
     object.rotateX(THREE.MathUtils.degToRad(finiteOr(annotation.dip, 0)));
     object.rotateZ(THREE.MathUtils.degToRad(finiteOr(annotation.dipDirection, 0)));
+    object.scale.multiplyScalar(scale);
   }
-
-  object.scale.multiplyScalar(scale);
   object.position.set(
     finiteOr(annotation.x, 0),
     finiteOr(annotation.y, 0),
