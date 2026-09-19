@@ -178,6 +178,7 @@ const ThreeScene = forwardRef(function ThreeScene(
     projectionMode = "perspective",
     annotationsVisible = true,
     annotationScale = 1,
+    onCameraChange = null,
     selectedPoint = null,
     onPointHover = null,
     onPointSelect = null,
@@ -198,6 +199,8 @@ const ThreeScene = forwardRef(function ThreeScene(
   const annotationsRef = useRef([]);
   const annotationSettingsRef = useRef({ annotationsVisible, annotationScale });
   annotationSettingsRef.current = { annotationsVisible, annotationScale };
+  const onCameraChangeRef = useRef(onCameraChange);
+  onCameraChangeRef.current = onCameraChange;
   const pointCallbacksRef = useRef({ onPointHover, onPointSelect });
   pointCallbacksRef.current = { onPointHover, onPointSelect };
   const selectedPointRef = useRef(selectedPoint);
@@ -247,6 +250,30 @@ const ThreeScene = forwardRef(function ThreeScene(
 
       cancelAnimationRef.current?.();
       cancelAnimationRef.current = animateCameraTo(camera, controls, home.position, home.target);
+    },
+
+    // Current camera position/orbit target, for a caller (page.js's session
+    // persistence) to snapshot and later restore verbatim.
+    getCameraState() {
+      const camera = cameraRef.current;
+      const controls = controlsRef.current;
+      if (!camera || !controls) return null;
+      return {
+        position: { x: camera.position.x, y: camera.position.y, z: camera.position.z },
+        target: { x: controls.target.x, y: controls.target.y, z: controls.target.z },
+      };
+    },
+
+    // Snaps straight to the given position/target — no animation, since this
+    // is "restore exactly where I left off", not a guided navigation.
+    setCameraState(state) {
+      const camera = cameraRef.current;
+      const controls = controlsRef.current;
+      if (!camera || !controls || !state?.position || !state?.target) return;
+      cancelAnimationRef.current?.();
+      camera.position.set(state.position.x, state.position.y, state.position.z);
+      controls.target.set(state.target.x, state.target.y, state.target.z);
+      controls.update();
     },
 
     // Reframes on the currently visible data, keeping the current viewing
@@ -374,6 +401,14 @@ const ThreeScene = forwardRef(function ThreeScene(
     cameraRef.current = camera;
     controlsRef.current = controls;
     homeViewRef.current = { position: camPos, target: camFocal };
+
+    function handleControlsChange() {
+      onCameraChangeRef.current?.({
+        position: { x: camera.position.x, y: camera.position.y, z: camera.position.z },
+        target: { x: controls.target.x, y: controls.target.y, z: controls.target.z },
+      });
+    }
+    controls.addEventListener("change", handleControlsChange);
 
     // ---------- 1c. Point-size inputs that depend on renderer / camera ----------
     // The GPU's supported point-size range is queried once. The rest
@@ -607,7 +642,7 @@ const ThreeScene = forwardRef(function ThreeScene(
     annotationsRef.current = annotations;
     annotationsRef.current.forEach(({ object, baseScale }) => {
       object.visible = annotationSettingsRef.current.annotationsVisible;
-      object.scale.setScalar(baseScale * annotationSettingsRef.current.annotationScale);
+      applyAnnotationScale(object, baseScale * annotationSettingsRef.current.annotationScale);
     });
 
     // Keep the orthographic point-size uniforms in step with zoom / resize.
@@ -681,6 +716,7 @@ const ThreeScene = forwardRef(function ThreeScene(
       annotations.forEach(({ object }) => disposeAnnotation(object));
       annotationsRef.current = [];
 
+      controls.removeEventListener("change", handleControlsChange);
       controls.dispose();
       renderer.dispose();
       if (container.contains(renderer.domElement)) {

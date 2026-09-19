@@ -1,8 +1,10 @@
+import { useState } from "react";
 import styles from "./ColourLegendPanel.module.css";
 
 function RampLegend({ legend }) {
   return (
     <>
+      {legend.fullRange && <div className={styles.rangeLabel}>Visible range</div>}
       <div className={styles.ramp} aria-label={`${legend.title} colour ramp`}>
         {legend.samples.map((sample, index) => (
           <span key={index} style={{ backgroundColor: sample.colour }} />
@@ -33,6 +35,8 @@ function CategoryLegend({ legend }) {
 }
 
 function LegendCard({ legend }) {
+  const [collapsed, setCollapsed] = useState(false);
+
   return (
     <section className={styles.card} aria-label={`${legend.title} legend`}>
       <div className={styles.cardHeader}>
@@ -46,23 +50,42 @@ function LegendCard({ legend }) {
             {legend.input ? ` · ${legend.input}` : ""}
           </div>
         </div>
+        <button
+          type="button"
+          className={styles.collapseButton}
+          onClick={() => setCollapsed((value) => !value)}
+          aria-expanded={!collapsed}
+          aria-label={collapsed ? `Expand ${legend.title} legend` : `Collapse ${legend.title} legend`}
+        >
+          {collapsed ? "▸" : "▾"}
+        </button>
       </div>
 
-      {legend.kind === "error" ? (
-        <div className={styles.error} role="status">
-          Colour configuration unavailable
-        </div>
-      ) : legend.kind === "categorical" ? (
-        <CategoryLegend legend={legend} />
-      ) : (
-        <RampLegend legend={legend} />
+      {!collapsed && (
+        <>
+          {legend.kind === "error" ? (
+            <div className={styles.error} role="status">
+              Colour configuration unavailable
+            </div>
+          ) : legend.kind === "categorical" ? (
+            <CategoryLegend legend={legend} />
+          ) : (
+            <RampLegend legend={legend} />
+          )}
+
+          {legend.fullRange && (
+            <div className={styles.fullRange}>
+              Full range: {legend.fullRange.minLabel} – {legend.fullRange.maxLabel}
+            </div>
+          )}
+
+          <div className={styles.entry}>
+            <span className={styles.swatch} style={{ backgroundColor: legend.nullEntry.colour }} />
+            <span>{legend.nullEntry.label}</span>
+            {!legend.nullEntry.visible ? <span className={styles.hidden}>hidden</span> : null}
+          </div>
+        </>
       )}
-
-      <div className={styles.entry}>
-        <span className={styles.swatch} style={{ backgroundColor: legend.nullEntry.colour }} />
-        <span>{legend.nullEntry.label}</span>
-        {!legend.nullEntry.visible ? <span className={styles.hidden}>hidden</span> : null}
-      </div>
     </section>
   );
 }

@@ -92,10 +92,12 @@ export function buildAnnotation(annotation) {
     // PlaneGeometry(width, height) branch below, which bakes the label's
     // real pixel aspect ratio into its geometry — its scale must be set
     // per-axis to match. A uniform multiplyScalar(scale) here would
-    // squash/stretch the label's text to fit a square, distorting and
-    // blurring it (also read by ThreeScene.jsx's annotation-size control,
-    // which re-applies scale on its own and needs this too).
+    // squash/stretch the label's text to fit a square, distorting it.
     object = new THREE.Sprite(new THREE.SpriteMaterial(materialOptions));
+    // Stashed for ThreeScene.jsx's annotation-size control, which re-applies
+    // scale on its own (see the annotationsVisible/annotationScale effect)
+    // and needs this to stay aspect-aware too, not just the initial value set
+    // here.
     object.userData.aspectRatio = width / height;
     object.scale.set((width / height) * scale, scale, 1);
   } else {

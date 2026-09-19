@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ThreeScene from "./components/ThreeScene";
 import Header from "./components/Header";
 import { LeftSidebar } from "./components/LeftSidebar";
@@ -18,6 +18,7 @@ import { buildColourLegend } from "./components/colourLegend";
 import { getMarkerChoices, applyMarkerSelections } from "./components/markerSelection";
 import { resolveMarkerRenderOptions } from "./components/pointMarkerResolver";
 import { IconFitView, IconPerspective, IconOrtho, IconRefresh } from "./components/icons";
+import { loadSession, saveSession, sessionKeyFor } from "./components/viewerSession";
 
 function colourMarkerInput(series) {
   if (!series?.colourMarker || !Array.isArray(series.markerDefinitions)) return null;
@@ -41,14 +42,23 @@ export default function Home() {
   const [rightOpen, setRightOpen] = useState(true);
   const [markerSelections, setMarkerSelections] = useState({});
   const [markerSeriesIndex, setMarkerSeriesIndex] = useState(0);
+  const [restoreBanner, setRestoreBanner] = useState(null); // { key, session } for the currently loaded file, if a saved session was found
   const [hoveredPoint, setHoveredPoint] = useState(null);
   const [selectedPoint, setSelectedPoint] = useState(null);
-
   const threeSceneRef = useRef(null);
+  const sessionKeyRef = useRef(null); // which file's session to save to, or null for the initial mock demo (not persisted)
+  const cameraStateRef = useRef(null); // latest camera position/target, updated continuously as the user navigates
+  const pendingCameraRestoreRef = useRef(null);
+  const saveTimeoutRef = useRef(null);
   const currentScene = scenes[currentIndex];
   const pointSeries = useMemo(() => currentScene.pointClouds ?? [], [currentScene]);
   const safeSelectedSeries = Math.min(selectedSeries, Math.max(0, pointSeries.length - 1));
   const safeMarkerSeriesIndex = Math.min(markerSeriesIndex, Math.max(0, pointSeries.length - 1));
+  const sceneSurfaceCount = currentScene.surfaces?.length ?? 0;
+  const sceneTotalPointCount = useMemo(
+    () => pointSeries.reduce((total, series) => total + (series.points?.length ?? 0), 0),
+    [pointSeries]
+  );
 
   const filterResults = useMemo(
     () =>
@@ -89,17 +99,98 @@ export default function Home() {
     [visiblePointClouds, markerSelections]
   );
 
+  // Same marker selections, but against every row of the series rather than
+  // the filtered/visible subset — lets the legend show the full dataset's
+  // range alongside the (possibly narrower) currently-visible one.
+  const fullRenderedPointClouds = useMemo(
+    () => applyMarkerSelections(pointSeries, markerSelections),
+    [pointSeries, markerSelections]
+  );
+
+  // Debounced (not on every keystroke/drag frame) session save, keyed to
+  // whichever file is currently loaded. No-ops for the initial mock demo
+  // (sessionKeyRef is only set once a real file is opened).
+  function scheduleSessionSave() {
+    if (!sessionKeyRef.current) return;
+    clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(() => {
+      saveSession(sessionKeyRef.current, {
+        sceneIndex: currentIndex,
+        filtersBySeries,
+        seriesVisibility,
+        nullVisibility,
+        markerSelections,
+        markerSeriesIndex,
+        rightOpen,
+        annotationsVisible,
+        annotationScale,
+        projectionMode,
+        camera: cameraStateRef.current,
+      });
+    }, 400);
+  }
+
+  useEffect(() => {
+    scheduleSessionSave();
+    return () => clearTimeout(saveTimeoutRef.current);
+    // scheduleSessionSave is redefined every render (it closes over the
+    // state below) rather than memoized, so it's deliberately left out of
+    // this array — the actual state values below are the real deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    currentIndex,
+    filtersBySeries,
+    seriesVisibility,
+    nullVisibility,
+    markerSelections,
+    markerSeriesIndex,
+    rightOpen,
+    annotationsVisible,
+    annotationScale,
+    projectionMode,
+  ]);
+
+  // Applies a camera restore once the scene it belongs to has actually
+  // mounted (setCurrentIndex from applyRestoredSession() re-renders
+  // ThreeScene with a new sceneData first, which resets the camera to that
+  // scene's default — this runs after, overwriting it with the saved one).
+  useEffect(() => {
+    if (!pendingCameraRestoreRef.current) return;
+    threeSceneRef.current?.setCameraState(pendingCameraRestoreRef.current);
+    pendingCameraRestoreRef.current = null;
+  }, [currentScene]);
+
+  function applyRestoredSession(session) {
+    if (Number.isInteger(session.sceneIndex)) setCurrentIndex(session.sceneIndex);
+    if (session.filtersBySeries) setFiltersBySeries(session.filtersBySeries);
+    if (session.seriesVisibility) setSeriesVisibility(session.seriesVisibility);
+    if (session.nullVisibility) setNullVisibility(session.nullVisibility);
+    if (session.markerSelections) setMarkerSelections(session.markerSelections);
+    if (Number.isInteger(session.markerSeriesIndex)) setMarkerSeriesIndex(session.markerSeriesIndex);
+    if (typeof session.rightOpen === "boolean") setRightOpen(session.rightOpen);
+    if (typeof session.annotationsVisible === "boolean") setAnnotationsVisible(session.annotationsVisible);
+    if (Number.isFinite(session.annotationScale)) setAnnotationScale(session.annotationScale);
+    if (session.projectionMode) setProjectionMode(session.projectionMode);
+    if (session.camera) pendingCameraRestoreRef.current = session.camera;
+    setRestoreBanner(null);
+  }
+
   // Enriches each rendered legend with the specific per-series info the
-  // right panel wants beyond the ramp/ticks (missing-value count, and the
-  // size/symbol scheme actually in effect) — colourLegend.js only ever
-  // needed the colour ramp, so this is computed alongside it rather than
-  // added there.
+  // right panel wants beyond the ramp/ticks/full-range comparison (missing-
+  // value count, and the size/symbol scheme actually in effect) —
+  // colourLegend.js only ever needed the colour ramp, so this is computed
+  // alongside it rather than added there. Filters+maps renderedPointClouds
+  // directly (rather than going through buildSceneColourLegends) so each
+  // legend stays paired with its originating series by index, including for
+  // the fullRenderedPointClouds lookup buildColourLegend's 3rd argument uses
+  // to compute the full-dataset range comparison.
   const colourLegends = useMemo(
     () =>
       renderedPointClouds
-        .filter((series) => series?.legend === true)
-        .map((series) => {
-          const legend = buildColourLegend(series);
+        .map((series, index) => (series?.legend === true ? { series, index } : null))
+        .filter(Boolean)
+        .map(({ series, index }) => {
+          const legend = buildColourLegend(series, undefined, fullRenderedPointClouds[index]);
           if (!legend) return null;
           const missingCount = (series.points ?? []).filter((point) => {
             const value = point?.[legend.input];
@@ -114,12 +205,22 @@ export default function Home() {
           return { ...legend, missingCount, sizeLabel: series.sizeMarker || "Constant", symbolLabel };
         })
         .filter(Boolean),
-    [renderedPointClouds]
+    [renderedPointClouds, fullRenderedPointClouds]
   );
 
+  // Selection survives a filter/visibility change as long as the selected
+  // point is still among the rendered rows for its series; otherwise it
+  // reads as cleared rather than pointing at data that is no longer on
+  // screen (the underlying selection is left alone, so it reappears if the
+  // point becomes visible again, e.g. a filter is relaxed).
   const activeSelectedPoint = useMemo(() => {
     if (!selectedPoint) return null;
     const series = renderedPointClouds[selectedPoint.seriesIndex];
+    // Matched by object identity, not sourceIndex: mock/demo scenes don't
+    // carry a sourceIndex on their points (only real parsed exports do, via
+    // pointSeriesData.js), but filtering (dataFilters.js) and marker
+    // selection (markerSelection.js) both pass the original point objects
+    // through untouched, so identity is a reliable check either way.
     const stillVisible = series?.points?.includes(selectedPoint.point);
     return stillVisible ? selectedPoint : null;
   }, [renderedPointClouds, selectedPoint]);
@@ -212,12 +313,16 @@ export default function Home() {
     setIsLoadingExport(true);
 
     try {
+      // 第一步：先做 Validate（只检查，不渲染）
+      // Step 1: validate first (checks only, no rendering).
       const validation = await validateExportFile(file);
       if (!validation.valid) {
         setErrors(validation.errors);
-        return;
+        return; // 检查不通过，不继续往下解析/渲染
       }
 
+      // 第二步：Validate 通过后，才真正解析并渲染
+      // Step 2: only parse and render once validation passes.
       const parsed = await parseExportFile(file);
       setScenes(parsed.scenes);
       setCurrentIndex(0);
@@ -229,6 +334,11 @@ export default function Home() {
       setMarkerSeriesIndex(0);
       setHoveredPoint(null);
       setSelectedPoint(null);
+
+      sessionKeyRef.current = sessionKeyFor(file);
+      setRestoreBanner(null);
+      const saved = loadSession(sessionKeyRef.current);
+      if (saved) setRestoreBanner({ key: sessionKeyRef.current, session: saved });
     } catch (err) {
       console.error(err);
       setErrors([err.message]);
@@ -245,8 +355,13 @@ export default function Home() {
     setNullVisibility({});
     setMarkerSelections({});
     setMarkerSeriesIndex(0);
+    setRestoreBanner(null);
     setHoveredPoint(null);
     setSelectedPoint(null);
+  }
+
+  function goToNextScene() {
+    switchToScene((currentIndex + 1) % scenes.length);
   }
 
   const dataState = errors.length > 0 ? "error" : isLoadingExport ? "loading" : "loaded";
@@ -259,6 +374,38 @@ export default function Home() {
         isLoadingExport={isLoadingExport}
         onFileChange={handleFileChange}
       />
+
+      {restoreBanner && (
+        <div
+          style={{
+            flexShrink: 0,
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            padding: "6px 16px",
+            background: "var(--color-lime-bg)",
+            borderBottom: "1px solid var(--color-border)",
+            fontSize: 12,
+            color: "var(--color-fg-dim)",
+          }}
+        >
+          <span>A previous session was found for this file.</span>
+          <button
+            className="btn btn-lime"
+            style={{ fontSize: 11 }}
+            onClick={() => applyRestoredSession(restoreBanner.session)}
+          >
+            Restore
+          </button>
+          <button
+            className="btn btn-ghost"
+            style={{ fontSize: 11 }}
+            onClick={() => setRestoreBanner(null)}
+          >
+            Start fresh
+          </button>
+        </div>
+      )}
 
       <div style={{ flex: 1, display: "flex", overflow: "hidden", minHeight: 0 }}>
         <LeftSidebar
@@ -318,6 +465,10 @@ export default function Home() {
             projectionMode={projectionMode}
             annotationsVisible={annotationsVisible}
             annotationScale={annotationScale}
+            onCameraChange={(state) => {
+              cameraStateRef.current = state;
+              scheduleSessionSave();
+            }}
             selectedPoint={activeSelectedPoint}
             onPointHover={setHoveredPoint}
             onPointSelect={setSelectedPoint}
