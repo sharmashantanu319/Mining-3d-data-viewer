@@ -280,6 +280,13 @@ export default function Home() {
                 [seriesIndex]: { ...current[seriesIndex], ...change },
               }))
             }
+            onRestoreDefaults={(seriesIndex) =>
+              setMarkerSelections((current) => {
+                const next = { ...current };
+                delete next[seriesIndex];
+                return next;
+              })
+            }
           />
 
           <PointInspectionPanel
