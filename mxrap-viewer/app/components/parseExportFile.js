@@ -37,7 +37,8 @@ export async function parseExportFile(file) {
     }
     const info = JSON.parse(await infoEntry.async("text"));
 
-    const scenes = [];
+    const displays = [];
+    const surfaceMenus = new Map();
     for (const slide of info.slides ?? []) {
         for (const displayRef of slide.displays ?? []) {
             const configEntry = zip.file(`${root}${displayRef.folder}/config.json`);
@@ -52,25 +53,38 @@ export async function parseExportFile(file) {
                 continue;
             }
 
-            const scene = await parseDisplayConfig(zip, displayRef, config, root);
-            scenes.push(scene);
+            displays.push({ displayRef, config });
+            for (const series of config.series ?? []) {
+                if (series.type !== "surface" || !series.markerMenu) continue;
+                const key = series["data-vertices"];
+                if (!surfaceMenus.has(key)) surfaceMenus.set(key, new Set());
+                surfaceMenus.get(key).add(series.markerMenu);
+            }
         }
     }
 
+    const scenes = [];
+    for (const { displayRef, config } of displays) {
+        scenes.push(await parseDisplayConfig(zip, displayRef, config, root, surfaceMenus));
+    }
     return {
         title: info.title ?? "Untitled",
         scenes,
     };
 }
 
-async function parseDisplayConfig(zip, displayRef, config, root) {
+async function parseDisplayConfig(zip, displayRef, config, root, surfaceMenus) {
     const surfaces = [];
     const pointClouds = [];
     const annotations = parseDisplayAnnotations(config.annotations, displayRef.folder);
 
     for (const series of config.series ?? []) {
         if (series.type === "surface") {
-            const surface = await parseSurfaceSeries(zip, series, root);
+            // Some displays omit the menu for a shared geometry table. Inherit
+            // only when that table has one unambiguous menu in this export.
+            const menus = surfaceMenus.get(series["data-vertices"]);
+            const markerMenu = series.markerMenu ?? (menus?.size === 1 ? [...menus][0] : undefined);
+            const surface = await parseSurfaceSeries(zip, { ...series, markerMenu }, root);
             if (surface) surfaces.push(surface);
         } else if (series.type === "points") {
             const pointCloud = await parsePointSeries(zip, series, root);
@@ -215,6 +229,10 @@ async function parseSurfaceSeries(zip, series, root) {
 
     return {
         color: 0x4f8ef7,
+        visible: series.visible !== false,
+        colourMarker: series.colourMarker,
+        markerDefinitions: await loadMarkerDefinitions(zip, series.markerMenu, root),
+        vertexAttributes: verticesCsv,
         vertices,
         faces,
     };
@@ -247,7 +265,7 @@ function imageMimeType(fileName) {
 async function loadMarkerDefinitions(zip, markerMenu, root = "") {
     if (!markerMenu) return [];
 
-    const jsonEntry = zip.file(`marker-defs/${markerMenu}.json`);
+    const jsonEntry = zip.file(`${root}marker-defs/${markerMenu}.json`);
     if (!jsonEntry) {
         console.warn(`Marker definitions not found: marker-defs/${markerMenu}.json`);
         return [];

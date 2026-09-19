@@ -12,6 +12,9 @@
 // "ID → 数组下标" 的映射表，再把 faces 里的 ID 转换成下标。
 
 import * as THREE from "three";
+import { surfaceVertexErrors } from "./surfaceValidation";
+import { resolveColourMarker } from "./pointMarkerResolver";
+import { mapColour } from "./colourMapping";
 
 /**
  * 把 { vertices, faces } 格式的数据，转换成 Three.js 的 BufferGeometry
@@ -22,6 +25,8 @@ import * as THREE from "three";
  * @returns {THREE.BufferGeometry}
  */
 export function buildSurfaceGeometry(vertices, faces) {
+  const errors = surfaceVertexErrors(vertices);
+  if (errors.length) throw new Error(`Invalid surface: ${errors.join(" ")}`);
   // 第一步：建立 "顶点 ID → 数组下标" 的映射表
   // Step 1: build an "ID -> array index" lookup map.
   // 例如顶点 ID 是 [5, 10, 23]，映射后变成 [0, 1, 2]（数组下标）
@@ -76,20 +81,31 @@ export function buildSurfaceGeometry(vertices, faces) {
 export function buildSurfaceMesh(surfaceData) {
   const geometry = buildSurfaceGeometry(surfaceData.vertices, surfaceData.faces);
 
-  // 8.13 会议关键结论：MXRAP 里所有表面必须双面可见（不做背面剔除）
-  // Key finding from 8.13 meeting: MXRAP surfaces must always render
-  // from both sides (no back-face culling), because engineers need to
-  // inspect the model from any camera angle.
-  //
-  // 关于颜色 / About color:
-  // 目前先用简单的纯色材质占位。真正的"颜色渐变条插值"（color ramp
-  // interpolation）需要自定义 shader，属于后续 Warson 的任务
-  // (07.09 "Implement color interpolation")，这里先不实现，
-  // 但保留了 surfaceData.color 作为占位的输入通道。
+  // Reuse the same domain and ramp rules as point colouring. Raw CSV
+  // attributes remain separate from the position/ID records.
+  const rows = surfaceData.vertexAttributes ?? surfaceData.vertices;
+  const marker = resolveColourMarker({ ...surfaceData, points: rows });
+  let transparent = false;
+  if (marker) {
+    const colours = new Float32Array(surfaceData.vertices.length * 4);
+    const linear = new THREE.Color();
+    surfaceData.vertices.forEach((_, index) => {
+      const colour = mapColour(rows[index]?.[marker.input], marker);
+      // Ramp RGB is display sRGB; lit vertex colours use linear RGB.
+      linear.setRGB(colour.r, colour.g, colour.b, THREE.SRGBColorSpace);
+      colours.set([linear.r, linear.g, linear.b, colour.a], index * 4);
+      if (colour.a < 1) transparent = true;
+    });
+    geometry.setAttribute("color", new THREE.BufferAttribute(colours, 4));
+  }
   const material = new THREE.MeshStandardMaterial({
-    color: surfaceData.color ?? 0x4f8ef7,
-    side: THREE.DoubleSide, // 关键设置：双面渲染
+    color: marker ? 0xffffff : surfaceData.color ?? 0x4f8ef7,
+    vertexColors: Boolean(marker),
+    transparent,
+    depthWrite: !transparent,
+    side: THREE.DoubleSide,
   });
-
-  return new THREE.Mesh(geometry, material);
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.visible = surfaceData.visible !== false;
+  return mesh;
 }

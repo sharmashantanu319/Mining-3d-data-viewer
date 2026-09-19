@@ -20,10 +20,7 @@
 // marker icon images needs texture-atlas support that renderer doesn't have
 // yet. Colour and size are unaffected by that gap.
 //
-// Surfaces have their own `colourMarker` in config.json too, but
-// geometryBuilder.js only ever draws them with one flat colour per surface
-// — wiring real surface colouring is a separate, larger follow-up (it needs
-// a per-vertex colour attribute), out of scope here.
+// Surface meshes also reuse resolveColourMarker for their vertex attributes.
 
 import { normalizeColourMarker, mapColour, parseColourRampCsv } from "./colourMapping";
 import { normalizeSizeMarker, mapSize } from "./sizeMapping";
@@ -126,7 +123,11 @@ export function resolveMarkerRenderOptions(pointSeriesData) {
     : null;
   const symbolFn = colourMarker?.valid
     ? (point) => {
-        const symbol = mapColour(point?.[colourMarker.input], colourMarker).symbol ?? null;
+        const colour = mapColour(point?.[colourMarker.input], colourMarker);
+        // Missing configuration remains visible in its null colour, without
+        // the export's large question-mark image obscuring nearby geometry.
+        if (colour.isNull && colour.symbol?.toLowerCase() === "sphere-question.png") return null;
+        const symbol = colour.symbol ?? null;
         return symbol && !GENERIC_SPHERE_SYMBOLS.has(symbol) ? symbol : null;
       }
     : null;

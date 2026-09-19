@@ -178,6 +178,7 @@ const ThreeScene = forwardRef(function ThreeScene(
     projectionMode = "perspective",
     annotationsVisible = true,
     annotationScale = 1,
+    markerScale = 0.5,
     onCameraChange = null,
     selectedPoint = null,
     onPointHover = null,
@@ -193,6 +194,8 @@ const ThreeScene = forwardRef(function ThreeScene(
   const sceneRef = useRef(null);
   const pointCloudsRef = useRef([]);
   const meshesRef = useRef([]);
+  const markerScaleRef = useRef(markerScale);
+  markerScaleRef.current = markerScale;
   const buildPointCloudRef = useRef(null);
   const visiblePointCloudsRef = useRef(visiblePointClouds);
   visiblePointCloudsRef.current = visiblePointClouds;
@@ -223,6 +226,7 @@ const ThreeScene = forwardRef(function ThreeScene(
     const box = new THREE.Box3();
     let hasContent = false;
     for (const object of [...pointCloudsRef.current, ...meshesRef.current]) {
+      if (!object.visible) continue;
       const objectBox = new THREE.Box3().setFromObject(object);
       if (Number.isFinite(objectBox.min.x) && Number.isFinite(objectBox.max.x)) {
         box.union(objectBox);
@@ -482,7 +486,11 @@ const ThreeScene = forwardRef(function ThreeScene(
       // ml-based demo adapter.
       const contentOptions =
         resolveMarkerRenderOptions(pointSeriesData) ?? getDemoRenderOptions(pointSeriesData);
-      const renderOptions = { ...contentOptions, ...buildSharedPointSizing(currentPointSizing()) };
+      const renderOptions = {
+        ...contentOptions,
+        ...buildSharedPointSizing(currentPointSizing()),
+        markerDisplayScale: markerScaleRef.current,
+      };
       if (!contentOptions.symbolFn) {
         return buildPointCloud(pointSeriesData, renderOptions);
       }
@@ -765,6 +773,13 @@ const ThreeScene = forwardRef(function ThreeScene(
   useEffect(() => {
     syncSelectedHighlightRef.current?.(selectedPoint);
   }, [selectedPoint, visiblePointClouds]);
+
+  useEffect(() => {
+    pointCloudsRef.current.forEach((object) => object.traverse((child) => {
+      const uniform = child.material?.uniforms?.markerDisplayScale;
+      if (uniform) uniform.value = markerScale;
+    }));
+  }, [markerScale, visiblePointClouds, sceneData, projectionMode]);
 
   return <div ref={containerRef} style={{ width: "100%", height: "100%" }} />;
 });

@@ -67,6 +67,8 @@ export function LeftSidebar({
   sizeChoices,
   colourValue,
   sizeValue,
+  markerScale,
+  onMarkerScaleChange,
   onColourChange,
   onSizeChange,
   resolvedSymbolLabel,
@@ -267,6 +269,20 @@ export function LeftSidebar({
                   ))}
                 </select>
               </div>
+              <label className="ctrl-row">
+                <span className="ctrl-label">Marker size</span>
+                <input
+                  type="range"
+                  aria-label="Marker display size"
+                  min="0.1"
+                  max="1.5"
+                  step="0.05"
+                  value={markerScale}
+                  onChange={(event) => onMarkerScaleChange(Number(event.target.value))}
+                  style={{ width: 80 }}
+                />
+                <span>{Math.round(markerScale * 100)}%</span>
+              </label>
               <div className="ctrl-row">
                 <span className="ctrl-label">Symbol</span>
                 {/* Not a real independent axis in this data model: symbols

@@ -339,6 +339,7 @@ export function buildSizeVertexShaderSource({ branch, hasColor }) {
     // identically on every branch after the raw size is computed.
     uniform float minScreenPointSize;
     uniform float maxScreenPointSize;
+    uniform float markerDisplayScale;
     ${hasColor ? "" : "uniform vec3 flatColor;"}
     varying vec3 vColor;
 
@@ -347,6 +348,7 @@ export function buildSizeVertexShaderSource({ branch, hasColor }) {
       vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
       float rawPointSize;
 ${body}
+      rawPointSize *= markerDisplayScale;
       gl_PointSize = clamp(rawPointSize, minScreenPointSize, maxScreenPointSize);
     }
   `;

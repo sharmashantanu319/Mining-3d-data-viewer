@@ -22,6 +22,7 @@
 
 import JSZip from "jszip";
 import Papa from "papaparse";
+import { surfaceVertexErrors } from "./surfaceValidation";
 
 /**
  * @typedef {{ valid: boolean, errors: string[] }} ValidationResult
@@ -117,6 +118,12 @@ export async function validateExportFile(file) {
 
                 errors.push(...verticesResult.errors);
                 errors.push(...facesResult.errors);
+
+                if (verticesResult.rows) {
+                    errors.push(...surfaceVertexErrors(verticesResult.rows.map((row) => ({
+                        id: row.ID, x: row["Location X"], y: row["Location Y"], z: row["Location Z"],
+                    }))).map((message) => `${folder} > ${seriesLabel}: ${message}`));
+                }
 
                 if (verticesResult.rows && facesResult.rows) {
                     const idErrors = checkFaceVertexReferences(verticesResult.rows, facesResult.rows, `${folder} > ${seriesLabel}`);
