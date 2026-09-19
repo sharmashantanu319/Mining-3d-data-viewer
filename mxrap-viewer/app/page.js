@@ -265,6 +265,39 @@ export default function Home() {
             Camera mode: {projectionMode === "perspective" ? "Perspective" : "Orthographic"}
           </div>
 
+          <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #ddd" }}>
+            <div style={{ marginBottom: 6, fontSize: 11, fontWeight: "bold", color: "#68756c" }}>
+              CAMERA VIEWS
+            </div>
+            <div className={styles.actionRow}>
+              <button
+                onClick={() => threeSceneRef.current?.fitScene()}
+                className={styles.actionButton}
+                title="Reframe on the currently visible (filtered) data"
+              >
+                Fit Scene
+              </button>
+              <button
+                onClick={() => threeSceneRef.current?.setPresetView("top")}
+                className={styles.actionButton}
+              >
+                Top
+              </button>
+              <button
+                onClick={() => threeSceneRef.current?.setPresetView("front")}
+                className={styles.actionButton}
+              >
+                Front
+              </button>
+              <button
+                onClick={() => threeSceneRef.current?.setPresetView("side")}
+                className={styles.actionButton}
+              >
+                Side
+              </button>
+            </div>
+          </div>
+
           {colourLegends.length > 0 && (
             <div className={styles.actionRow} style={{ marginTop: 8 }}>
               <button
