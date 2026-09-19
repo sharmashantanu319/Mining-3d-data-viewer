@@ -285,7 +285,7 @@ export default function Home() {
       <div className={styles.workspace}>
         <aside className={styles.controlPanel} aria-label="Viewer controls">
           {fileName && (
-            <div style={{ marginBottom: 8, fontSize: 13, color: "#555" }}>
+            <div style={{ marginBottom: 6, fontSize: 12, color: "var(--color-fg-muted)" }}>
               Loaded: {fileName}
             </div>
           )}
@@ -324,11 +324,11 @@ export default function Home() {
           )}
 
           {errors.length > 0 && (
-            <div style={{ marginBottom: 8, color: "red", fontSize: 13 }}>
-              <div style={{ fontWeight: "bold", marginBottom: 4 }}>
+            <div style={{ marginBottom: 6, color: "var(--color-danger)", fontSize: 12 }}>
+              <div style={{ fontWeight: "bold", marginBottom: 3 }}>
                 This file could not be loaded ({errors.length} issue{errors.length > 1 ? "s" : ""}):
               </div>
-              <ul style={{ margin: 0, paddingLeft: 18 }}>
+              <ul style={{ margin: 0, paddingLeft: 16 }}>
                 {errors.map((e, i) => (
                   <li key={i}>{e}</li>
                 ))}
@@ -443,7 +443,7 @@ export default function Home() {
             onClear={() => setSelectedPoint(null)}
           />
 
-          <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #ddd" }}>
+          <div style={{ marginTop: 6, paddingTop: 6, borderTop: "1px solid var(--color-border)" }}>
             <button
               onClick={() => setAnnotationsVisible((visible) => !visible)}
               className={styles.actionButton}
@@ -451,7 +451,7 @@ export default function Home() {
             >
               {annotationsVisible ? "Hide annotations" : "Show annotations"}
             </button>
-            <label style={{ display: "block", marginTop: 8, fontSize: 13 }}>
+            <label style={{ display: "block", marginTop: 6, fontSize: 12 }}>
               Annotation size: {annotationScale.toFixed(1)}x
               <input
                 type="range"
