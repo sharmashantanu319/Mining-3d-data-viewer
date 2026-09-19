@@ -33,7 +33,35 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
+  gap: 8px;
   margin-bottom: 7px;
+}
+
+.collapseButton {
+  flex: 0 0 auto;
+  border: 1px solid #cbd4cd;
+  border-radius: 5px;
+  background: #fff;
+  padding: 2px 7px;
+  color: #526057;
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.fullRange {
+  margin: -2px 0 9px;
+  color: #7d8980;
+  font-size: 10px;
+}
+
+.rangeLabel {
+  margin-bottom: 3px;
+  color: #7d8980;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .title {

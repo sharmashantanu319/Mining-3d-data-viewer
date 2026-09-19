@@ -127,6 +127,74 @@
   gap: 6px;
 }
 
+.sectionHeading {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.activeFilterChip {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px 8px 0 0;
+  border-bottom: 0;
+  background: #f8fafc;
+}
+
+.activeFilterLabel {
+  overflow: hidden;
+  color: #172033;
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activeFilterValue {
+  overflow: hidden;
+  color: #475569;
+  font-size: 12px;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clearFieldButton {
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.clearFieldButton:hover {
+  color: #dc2626;
+}
+
+.activeFilterChip + .field {
+  border-radius: 0 0 10px 10px;
+}
+
+.searchInput {
+  box-sizing: border-box;
+  width: 100%;
+  margin-bottom: 4px;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  background: white;
+  padding: 7px 8px;
+  color: #172033;
+  font-size: 13px;
+}
+
 .field {
   border: 1px solid var(--color-border);
   border-radius: 8px;
