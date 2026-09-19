@@ -15,6 +15,7 @@ import ColourLegendPanel from "./components/ColourLegendPanel";
 import { buildSceneColourLegends } from "./components/colourLegend";
 import MarkerSelectorPanel from "./components/MarkerSelectorPanel";
 import { applyMarkerSelections } from "./components/markerSelection";
+import PointInspectionPanel from "./components/PointInspectionPanel";
 import styles from "./page.module.css";
 
 function colourMarkerInput(series) {
@@ -37,6 +38,8 @@ export default function Home() {
   const [legendsVisible, setLegendsVisible] = useState(true);
   const [markerSelections, setMarkerSelections] = useState({});
   const [markerSeriesIndex, setMarkerSeriesIndex] = useState(0);
+  const [hoveredPoint, setHoveredPoint] = useState(null);
+  const [selectedPoint, setSelectedPoint] = useState(null);
   const threeSceneRef = useRef(null);
   const currentScene = scenes[currentIndex];
   const pointSeries = useMemo(() => currentScene.pointClouds ?? [], [currentScene]);
@@ -86,6 +89,23 @@ export default function Home() {
     [renderedPointClouds]
   );
 
+  // Selection survives a filter/visibility change as long as the selected
+  // point is still among the rendered rows for its series; otherwise it
+  // reads as cleared rather than pointing at data that is no longer on
+  // screen (the underlying selection is left alone, so it reappears if the
+  // point becomes visible again, e.g. a filter is relaxed).
+  const activeSelectedPoint = useMemo(() => {
+    if (!selectedPoint) return null;
+    const series = renderedPointClouds[selectedPoint.seriesIndex];
+    // Matched by object identity, not sourceIndex: mock/demo scenes don't
+    // carry a sourceIndex on their points (only real parsed exports do, via
+    // pointSeriesData.js), but filtering (dataFilters.js) and marker
+    // selection (markerSelection.js) both pass the original point objects
+    // through untouched, so identity is a reliable check either way.
+    const stillVisible = series?.points?.includes(selectedPoint.point);
+    return stillVisible ? selectedPoint : null;
+  }, [renderedPointClouds, selectedPoint]);
+
   async function handleFileChange(event) {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -113,6 +133,8 @@ export default function Home() {
       setNullVisibility({});
       setMarkerSelections({});
       setMarkerSeriesIndex(0);
+      setHoveredPoint(null);
+      setSelectedPoint(null);
     } catch (err) {
       console.error(err);
       setErrors([err.message]);
@@ -131,6 +153,8 @@ export default function Home() {
     setNullVisibility({});
     setMarkerSelections({});
     setMarkerSeriesIndex(0);
+    setHoveredPoint(null);
+    setSelectedPoint(null);
   }
 
   return (
@@ -219,6 +243,12 @@ export default function Home() {
             }
           />
 
+          <PointInspectionPanel
+            inspection={activeSelectedPoint ?? hoveredPoint}
+            kind={activeSelectedPoint ? "selected" : "hovered"}
+            onClear={() => setSelectedPoint(null)}
+          />
+
           <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #ddd" }}>
             <button
               onClick={() => setAnnotationsVisible((visible) => !visible)}
@@ -283,6 +313,9 @@ export default function Home() {
             projectionMode={projectionMode}
             annotationsVisible={annotationsVisible}
             annotationScale={annotationScale}
+            selectedPoint={activeSelectedPoint}
+            onPointHover={setHoveredPoint}
+            onPointSelect={setSelectedPoint}
           />
         </section>
         {legendsVisible && <ColourLegendPanel legends={colourLegends} />}
