@@ -72,6 +72,45 @@ function buildSharedPointSizing(sizing = {}) {
   };
 }
 
+// Real mXrap marker-image assets (e.g. Sphere-Question.png, Triaxial.png)
+// ship as fully opaque PNGs with a plain black background instead of a real
+// alpha channel — the point-symbol fragment shader discards on alpha, so
+// without this they render as solid black squares. Detect images with no
+// genuine per-pixel alpha (every pixel already opaque) and chroma-key pure
+// black to transparent; an asset that does carry real alpha (e.g. the
+// Events series' soft-shaded sphere sprites) is returned untouched so its
+// anti-aliased edges aren't clipped.
+function keyOutOpaqueBlackBackground(image) {
+  const width = image.naturalWidth || image.width;
+  const height = image.naturalHeight || image.height;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  context.drawImage(image, 0, 0, width, height);
+
+  const imageData = context.getImageData(0, 0, width, height);
+  const { data } = imageData;
+
+  let hasRealAlpha = false;
+  for (let i = 3; i < data.length; i += 4) {
+    if (data[i] !== 255) {
+      hasRealAlpha = true;
+      break;
+    }
+  }
+  if (hasRealAlpha) return image;
+
+  const BLACK_THRESHOLD = 10;
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i] <= BLACK_THRESHOLD && data[i + 1] <= BLACK_THRESHOLD && data[i + 2] <= BLACK_THRESHOLD) {
+      data[i + 3] = 0;
+    }
+  }
+  context.putImageData(imageData, 0, 0);
+  return canvas;
+}
+
 // Temporary demo adapter used to exercise the point renderer's per-point
 // colour and size paths for mock scenes (no real marker-defs data). Real
 // scenes go through resolveMarkerRenderOptions instead; see the forEach
@@ -292,7 +331,10 @@ const ThreeScene = forwardRef(function ThreeScene(
 
     // ---------- 1. Scene / Camera / Renderer ----------
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xf0f0f0);
+    // Slightly lighter blue-black than the panel chrome's near-black
+    // (--color-base #0C1110), so the model reads as sitting "in" the
+    // viewport rather than blending into it.
+    scene.background = new THREE.Color(0x121a20);
     sceneRef.current = scene;
 
     const camPos = sceneData.camera?.position ?? DEFAULT_CAMERA.position;
@@ -349,8 +391,8 @@ const ThreeScene = forwardRef(function ThreeScene(
       return sprite;
     }
 
-    const hoverRing = createSelectionRing("#ffffff");
-    const selectionRing = createSelectionRing("#111111");
+    const hoverRing = createSelectionRing("#84cc16");
+    const selectionRing = createSelectionRing("#e8f7d1");
 
     // ---------- 1b. Camera controls (rotate / zoom / tilt / pan) ----------
     const orbitTarget = new THREE.Vector3(camFocal.x, camFocal.y, camFocal.z);
@@ -380,15 +422,17 @@ const ThreeScene = forwardRef(function ThreeScene(
     function getSymbolTexture(dataUrl) {
       if (!dataUrl) return null;
       if (textureCache.has(dataUrl)) return textureCache.get(dataUrl);
-      const texture = new THREE.TextureLoader().load(
-        dataUrl,
-        undefined,
-        undefined,
-        () => {
-          texture.userData.loadFailed = true;
-        }
-      );
+      const texture = new THREE.Texture();
       texture.colorSpace = THREE.SRGBColorSpace;
+      const image = new Image();
+      image.onload = () => {
+        texture.image = keyOutOpaqueBlackBackground(image);
+        texture.needsUpdate = true;
+      };
+      image.onerror = () => {
+        texture.userData.loadFailed = true;
+      };
+      image.src = dataUrl;
       textureCache.set(dataUrl, texture);
       return texture;
     }
@@ -408,12 +452,20 @@ const ThreeScene = forwardRef(function ThreeScene(
     }
 
     // ---------- 2. Lights ----------
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    // Stronger than the light-theme defaults, and a second fill light from
+    // the opposite side: against the dark viewport background, flatter
+    // lighting made surfaces/points harder to read as 3D shapes rather than
+    // silhouettes.
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.85);
     scene.add(ambientLight);
 
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 1.2);
     directionalLight.position.set(5, 10, 7);
     scene.add(directionalLight);
+
+    const fillLight = new THREE.DirectionalLight(0xffffff, 0.4);
+    fillLight.position.set(-6, -4, -8);
+    scene.add(fillLight);
 
     // ---------- 3. 根据 sceneData 加载真实内容 ----------
     const meshes = [];

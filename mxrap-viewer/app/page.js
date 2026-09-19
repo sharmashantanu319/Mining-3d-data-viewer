@@ -2,7 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import ThreeScene from "./components/ThreeScene";
-import FilterPanel from "./components/FilterPanel";
+import Header from "./components/Header";
+import { LeftSidebar } from "./components/LeftSidebar";
+import { RightPanel } from "./components/RightPanel";
+import { StatusBar } from "./components/StatusBar";
 import { mockScenes } from "./components/mockScenes";
 import { validateExportFile } from "./components/validateExportFile";
 import { parseExportFile } from "./components/parseExportFile";
@@ -11,13 +14,11 @@ import {
   applyNullVisibility,
   inferFilterFields,
 } from "./components/dataFilters";
-import ColourLegendPanel from "./components/ColourLegendPanel";
-import { buildSceneColourLegends } from "./components/colourLegend";
-import MarkerSelectorPanel from "./components/MarkerSelectorPanel";
-import { applyMarkerSelections } from "./components/markerSelection";
+import { buildColourLegend } from "./components/colourLegend";
+import { getMarkerChoices, applyMarkerSelections } from "./components/markerSelection";
+import { resolveMarkerRenderOptions } from "./components/pointMarkerResolver";
+import { IconFitView, IconPerspective, IconOrtho, IconRefresh } from "./components/icons";
 import { loadSession, saveSession, sessionKeyFor } from "./components/viewerSession";
-import PointInspectionPanel from "./components/PointInspectionPanel";
-import styles from "./page.module.css";
 
 function colourMarkerInput(series) {
   if (!series?.colourMarker || !Array.isArray(series.markerDefinitions)) return null;
@@ -37,7 +38,8 @@ export default function Home() {
   const [nullVisibility, setNullVisibility] = useState({});
   const [annotationsVisible, setAnnotationsVisible] = useState(true);
   const [annotationScale, setAnnotationScale] = useState(1);
-  const [legendsVisible, setLegendsVisible] = useState(true);
+  const [leftOpen, setLeftOpen] = useState(true);
+  const [rightOpen, setRightOpen] = useState(true);
   const [markerSelections, setMarkerSelections] = useState({});
   const [markerSeriesIndex, setMarkerSeriesIndex] = useState(0);
   const [restoreBanner, setRestoreBanner] = useState(null); // { key, session } for the currently loaded file, if a saved session was found
@@ -51,6 +53,7 @@ export default function Home() {
   const currentScene = scenes[currentIndex];
   const pointSeries = useMemo(() => currentScene.pointClouds ?? [], [currentScene]);
   const safeSelectedSeries = Math.min(selectedSeries, Math.max(0, pointSeries.length - 1));
+  const safeMarkerSeriesIndex = Math.min(markerSeriesIndex, Math.max(0, pointSeries.length - 1));
   const sceneSurfaceCount = currentScene.surfaces?.length ?? 0;
   const sceneTotalPointCount = useMemo(
     () => pointSeries.reduce((total, series) => total + (series.points?.length ?? 0), 0),
@@ -118,7 +121,7 @@ export default function Home() {
         nullVisibility,
         markerSelections,
         markerSeriesIndex,
-        legendsVisible,
+        rightOpen,
         annotationsVisible,
         annotationScale,
         projectionMode,
@@ -141,7 +144,7 @@ export default function Home() {
     nullVisibility,
     markerSelections,
     markerSeriesIndex,
-    legendsVisible,
+    rightOpen,
     annotationsVisible,
     annotationScale,
     projectionMode,
@@ -164,7 +167,7 @@ export default function Home() {
     if (session.nullVisibility) setNullVisibility(session.nullVisibility);
     if (session.markerSelections) setMarkerSelections(session.markerSelections);
     if (Number.isInteger(session.markerSeriesIndex)) setMarkerSeriesIndex(session.markerSeriesIndex);
-    if (typeof session.legendsVisible === "boolean") setLegendsVisible(session.legendsVisible);
+    if (typeof session.rightOpen === "boolean") setRightOpen(session.rightOpen);
     if (typeof session.annotationsVisible === "boolean") setAnnotationsVisible(session.annotationsVisible);
     if (Number.isFinite(session.annotationScale)) setAnnotationScale(session.annotationScale);
     if (session.projectionMode) setProjectionMode(session.projectionMode);
@@ -172,8 +175,36 @@ export default function Home() {
     setRestoreBanner(null);
   }
 
+  // Enriches each rendered legend with the specific per-series info the
+  // right panel wants beyond the ramp/ticks/full-range comparison (missing-
+  // value count, and the size/symbol scheme actually in effect) —
+  // colourLegend.js only ever needed the colour ramp, so this is computed
+  // alongside it rather than added there. Filters+maps renderedPointClouds
+  // directly (rather than going through buildSceneColourLegends) so each
+  // legend stays paired with its originating series by index, including for
+  // the fullRenderedPointClouds lookup buildColourLegend's 3rd argument uses
+  // to compute the full-dataset range comparison.
   const colourLegends = useMemo(
-    () => buildSceneColourLegends(renderedPointClouds, fullRenderedPointClouds),
+    () =>
+      renderedPointClouds
+        .map((series, index) => (series?.legend === true ? { series, index } : null))
+        .filter(Boolean)
+        .map(({ series, index }) => {
+          const legend = buildColourLegend(series, undefined, fullRenderedPointClouds[index]);
+          if (!legend) return null;
+          const missingCount = (series.points ?? []).filter((point) => {
+            const value = point?.[legend.input];
+            return (
+              value === null ||
+              value === undefined ||
+              value === "" ||
+              (typeof value === "number" && !Number.isFinite(value))
+            );
+          }).length;
+          const symbolLabel = resolveMarkerRenderOptions(series)?.symbolFn ? "From colour ramp" : "None";
+          return { ...legend, missingCount, sizeLabel: series.sizeMarker || "Constant", symbolLabel };
+        })
+        .filter(Boolean),
     [renderedPointClouds, fullRenderedPointClouds]
   );
 
@@ -193,6 +224,85 @@ export default function Home() {
     const stillVisible = series?.points?.includes(selectedPoint.point);
     return stillVisible ? selectedPoint : null;
   }, [renderedPointClouds, selectedPoint]);
+
+  const totalVisibleCount = useMemo(
+    () => filterResults.reduce((total, result, index) => {
+      const visible = seriesVisibility[index] ?? pointSeries[index]?.visible !== false;
+      return total + (visible ? result.visibleCount : 0);
+    }, 0),
+    [filterResults, seriesVisibility, pointSeries]
+  );
+  const totalPointCount = useMemo(
+    () => pointSeries.reduce((total, series) => total + (series.points?.length ?? 0), 0),
+    [pointSeries]
+  );
+  const surfaceCount = currentScene.surfaces?.length ?? 0;
+  const activeFilterCount = useMemo(
+    () => Object.values(filtersBySeries).reduce((total, filters) => total + (filters?.length ?? 0), 0),
+    [filtersBySeries]
+  );
+
+  // "Layers": point series + surfaces + annotations, synthesised for the
+  // Layers panel — the underlying data model doesn't have a first-class
+  // "layer" concept the way the design reference's mock data does.
+  const layers = useMemo(() => {
+    const seriesLayers = pointSeries.map((series, index) => ({
+      id: `series-${index}`,
+      name: series.name || `Point series ${index + 1}`,
+      type: "event",
+      visible: seriesVisibility[index] ?? series.visible !== false,
+      count: series.points?.length ?? 0,
+      // Category icon colour — lime is reserved for active/selection
+      // states (the eye icon itself signals visibility), not used
+      // decoratively here.
+      color: "var(--color-fg-dim)",
+    }));
+    const surfaceCount = currentScene.surfaces?.length ?? 0;
+    const annotationCount = currentScene.annotations?.length ?? 0;
+    return [
+      ...seriesLayers,
+      ...(surfaceCount > 0
+        ? [{ id: "surfaces", name: "Surfaces", type: "surface", visible: true, count: surfaceCount, color: "#3B82F6" }]
+        : []),
+      ...(annotationCount > 0
+        ? [{ id: "annotations", name: "Annotations", type: "annotation", visible: annotationsVisible, count: annotationCount, color: "#A3A3A3" }]
+        : []),
+    ];
+  }, [pointSeries, seriesVisibility, currentScene, annotationsVisible]);
+
+  function handleLayerToggle(id) {
+    if (id === "annotations") {
+      setAnnotationsVisible((visible) => !visible);
+      return;
+    }
+    if (id === "surfaces") return; // no per-surface visibility toggle in the render pipeline yet
+    const match = id.match(/^series-(\d+)$/);
+    if (!match) return;
+    const index = Number(match[1]);
+    setSeriesVisibility((current) => ({
+      ...current,
+      [index]: !(current[index] ?? pointSeries[index]?.visible !== false),
+    }));
+  }
+
+  // Marker Style section operates on whichever series is selected there.
+  const markerActiveSeries = visiblePointClouds[safeMarkerSeriesIndex];
+  const markerChoices = getMarkerChoices(markerActiveSeries);
+  const markerActiveSelection = markerSelections?.[safeMarkerSeriesIndex] ?? {};
+  const colourValue = Object.hasOwn(markerActiveSelection, "colourMarker")
+    ? markerActiveSelection.colourMarker ?? ""
+    : markerActiveSeries?.colourMarker ?? "";
+  const sizeValue = Object.hasOwn(markerActiveSelection, "sizeMarker")
+    ? markerActiveSelection.sizeMarker ?? ""
+    : markerActiveSeries?.sizeMarker ?? "";
+
+  const resolvedSymbolLabel = useMemo(() => {
+    if (!markerActiveSeries) return null;
+    const selection = markerSelections?.[safeMarkerSeriesIndex] ?? {};
+    const [previewSeries] = applyMarkerSelections([markerActiveSeries], { 0: selection });
+    const renderOptions = resolveMarkerRenderOptions(previewSeries);
+    return renderOptions?.symbolFn ? "From colour ramp" : "None";
+  }, [markerActiveSeries, markerSelections, safeMarkerSeriesIndex]);
 
   async function handleFileChange(event) {
     const file = event.target.files?.[0];
@@ -237,10 +347,6 @@ export default function Home() {
     }
   }
 
-  function toggleProjectionMode() {
-    setProjectionMode((mode) => (mode === "perspective" ? "orthographic" : "perspective"));
-  }
-
   function switchToScene(index) {
     setCurrentIndex(index);
     setSelectedSeries(0);
@@ -258,254 +364,100 @@ export default function Home() {
     switchToScene((currentIndex + 1) % scenes.length);
   }
 
+  const dataState = errors.length > 0 ? "error" : isLoadingExport ? "loading" : "loaded";
+
   return (
-    <main className={styles.viewerPage}>
-      <header className="header">
-        <div className="header-brand">
-          <div className="logo">mX</div>
+    <div style={{ display: "flex", flexDirection: "column", height: "100vh", overflow: "hidden", background: "var(--color-base)" }}>
+      <Header
+        fileName={fileName}
+        currentScene={currentScene}
+        isLoadingExport={isLoadingExport}
+        onFileChange={handleFileChange}
+      />
 
-          <div>
-            <h1>Mining 3D Data Viewer</h1>
-            <p>mXrap export viewer</p>
-          </div>
+      {restoreBanner && (
+        <div
+          style={{
+            flexShrink: 0,
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            padding: "6px 16px",
+            background: "var(--color-lime-bg)",
+            borderBottom: "1px solid var(--color-border)",
+            fontSize: 12,
+            color: "var(--color-fg-dim)",
+          }}
+        >
+          <span>A previous session was found for this file.</span>
+          <button
+            className="btn btn-lime"
+            style={{ fontSize: 11 }}
+            onClick={() => applyRestoredSession(restoreBanner.session)}
+          >
+            Restore
+          </button>
+          <button
+            className="btn btn-ghost"
+            style={{ fontSize: 11 }}
+            onClick={() => setRestoreBanner(null)}
+          >
+            Start fresh
+          </button>
         </div>
+      )}
 
-        <label className="open-file-button" aria-disabled={isLoadingExport}>
-          {isLoadingExport ? "Loading…" : "Open export"}
+      <div style={{ flex: 1, display: "flex", overflow: "hidden", minHeight: 0 }}>
+        <LeftSidebar
+          open={leftOpen}
+          onToggle={() => setLeftOpen((v) => !v)}
+          scenes={scenes}
+          sceneIdx={currentIndex}
+          onSceneChange={switchToScene}
+          onPrev={() => switchToScene((currentIndex - 1 + scenes.length) % scenes.length)}
+          onNext={() => switchToScene((currentIndex + 1) % scenes.length)}
+          layers={layers}
+          onLayerToggle={handleLayerToggle}
+          markerSeriesOptions={pointSeries.map((series, index) => series.name || `Series ${index + 1}`)}
+          markerSeriesIndex={safeMarkerSeriesIndex}
+          onMarkerSeriesChange={setMarkerSeriesIndex}
+          colourChoices={markerChoices.colour}
+          sizeChoices={markerChoices.size}
+          colourValue={colourValue}
+          sizeValue={sizeValue}
+          onColourChange={(value) =>
+            setMarkerSelections((current) => ({
+              ...current,
+              [safeMarkerSeriesIndex]: { ...current[safeMarkerSeriesIndex], colourMarker: value || null },
+            }))
+          }
+          onSizeChange={(value) =>
+            setMarkerSelections((current) => ({
+              ...current,
+              [safeMarkerSeriesIndex]: { ...current[safeMarkerSeriesIndex], sizeMarker: value || null },
+            }))
+          }
+          resolvedSymbolLabel={resolvedSymbolLabel}
+          annotScale={annotationScale}
+          onAnnotScaleChange={setAnnotationScale}
+          annotationsVisible={annotationsVisible}
+          onAnnotationsVisibleChange={() => setAnnotationsVisible((v) => !v)}
+          hasNullVisibility={Boolean(colourMarkerInput(pointSeries[safeSelectedSeries]))}
+          showNulls={
+            nullVisibility[safeSelectedSeries] ?? pointSeries[safeSelectedSeries]?.showNullColours !== false
+          }
+          onShowNullsChange={(e) =>
+            setNullVisibility((current) => ({ ...current, [safeSelectedSeries]: e.target.checked }))
+          }
+          fields={selectedFields}
+          filters={filtersBySeries[safeSelectedSeries] ?? []}
+          onFiltersChange={(filters) => setFiltersBySeries((current) => ({ ...current, [safeSelectedSeries]: filters }))}
+          onResetFilters={() => setFiltersBySeries((current) => ({ ...current, [safeSelectedSeries]: [] }))}
+          visibleCount={selectedStats.visibleCount}
+          totalCount={selectedStats.totalCount}
+        />
 
-          <input
-            type="file"
-            accept=".zip,.json"
-            onChange={handleFileChange}
-            disabled={isLoadingExport}
-          />
-        </label>
-      </header>
-
-      <div className={styles.workspace}>
-        <aside className={styles.controlPanel} aria-label="Viewer controls">
-          {fileName && (
-            <div style={{ marginBottom: 6, fontSize: 12, color: "var(--color-fg-muted)" }}>
-              Loaded: {fileName}
-            </div>
-          )}
-
-          {restoreBanner && (
-            <div
-              style={{
-                marginBottom: 8,
-                padding: 8,
-                border: "1px solid #b6d7f0",
-                borderRadius: 6,
-                background: "#eef7ff",
-                fontSize: 13,
-              }}
-            >
-              <div style={{ marginBottom: 6 }}>A previous session was found for this file.</div>
-              <button
-                onClick={() => applyRestoredSession(restoreBanner.session)}
-                style={{ padding: "4px 10px", cursor: "pointer", marginRight: 8 }}
-              >
-                Restore
-              </button>
-              <button
-                onClick={() => setRestoreBanner(null)}
-                style={{ padding: "4px 10px", cursor: "pointer" }}
-              >
-                Start fresh
-              </button>
-            </div>
-          )}
-
-          {isLoadingExport && (
-            <div style={{ marginBottom: 8, fontSize: 13, color: "#364139" }} role="status">
-              Loading and validating export…
-            </div>
-          )}
-
-          {errors.length > 0 && (
-            <div style={{ marginBottom: 6, color: "var(--color-danger)", fontSize: 12 }}>
-              <div style={{ fontWeight: "bold", marginBottom: 3 }}>
-                This file could not be loaded ({errors.length} issue{errors.length > 1 ? "s" : ""}):
-              </div>
-              <ul style={{ margin: 0, paddingLeft: 16 }}>
-                {errors.map((e, i) => (
-                  <li key={i}>{e}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          <label style={{ display: "block", marginBottom: 4, fontSize: 13, fontWeight: "bold" }}>
-            Scene
-            <select
-              value={currentIndex}
-              onChange={(event) => switchToScene(Number(event.target.value))}
-              style={{ display: "block", width: "100%", marginTop: 4, padding: "6px 8px", fontSize: 13 }}
-            >
-              {scenes.map((scene, index) => (
-                <option key={scene.id ?? index} value={index}>
-                  {scene.title}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div style={{ marginBottom: 8, fontSize: 12, color: "#68756c" }}>
-            {sceneTotalPointCount} point{sceneTotalPointCount === 1 ? "" : "s"} · {sceneSurfaceCount} surface
-            {sceneSurfaceCount === 1 ? "" : "s"}
-          </div>
-          <div className={styles.actionRow}>
-            <button onClick={goToNextScene} className={styles.actionButton}>
-              Next Scene
-            </button>
-            <button
-              onClick={() => threeSceneRef.current?.resetView()}
-              className={styles.actionButton}
-            >
-              Reset View
-            </button>
-            <button onClick={toggleProjectionMode} className={styles.actionButton}>
-              {projectionMode === "perspective" ? "Switch to Orthographic" : "Switch to Perspective"}
-            </button>
-          </div>
-          <div style={{ marginTop: 6, fontSize: 12, color: "#68756c" }}>
-            Camera mode: {projectionMode === "perspective" ? "Perspective" : "Orthographic"}
-          </div>
-
-          <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #ddd" }}>
-            <div style={{ marginBottom: 6, fontSize: 11, fontWeight: "bold", color: "#68756c" }}>
-              CAMERA VIEWS
-            </div>
-            <div className={styles.actionRow}>
-              <button
-                onClick={() => threeSceneRef.current?.fitScene()}
-                className={styles.actionButton}
-                title="Reframe on the currently visible (filtered) data"
-              >
-                Fit Scene
-              </button>
-              <button
-                onClick={() => threeSceneRef.current?.setPresetView("top")}
-                className={styles.actionButton}
-              >
-                Top
-              </button>
-              <button
-                onClick={() => threeSceneRef.current?.setPresetView("front")}
-                className={styles.actionButton}
-              >
-                Front
-              </button>
-              <button
-                onClick={() => threeSceneRef.current?.setPresetView("side")}
-                className={styles.actionButton}
-              >
-                Side
-              </button>
-            </div>
-          </div>
-
-          {colourLegends.length > 0 && (
-            <div className={styles.actionRow} style={{ marginTop: 8 }}>
-              <button
-                onClick={() => setLegendsVisible((visible) => !visible)}
-                className={styles.actionButton}
-                aria-pressed={legendsVisible}
-              >
-                {legendsVisible ? "Hide colour legend" : "Show colour legend"}
-              </button>
-            </div>
-          )}
-
-          <MarkerSelectorPanel
-            series={visiblePointClouds}
-            selectedSeries={markerSeriesIndex}
-            onSelectSeries={setMarkerSeriesIndex}
-            selections={markerSelections}
-            onSelectionChange={(seriesIndex, change) =>
-              setMarkerSelections((current) => ({
-                ...current,
-                [seriesIndex]: { ...current[seriesIndex], ...change },
-              }))
-            }
-            onRestoreDefaults={(seriesIndex) =>
-              setMarkerSelections((current) => {
-                const next = { ...current };
-                delete next[seriesIndex];
-                return next;
-              })
-            }
-          />
-
-          <PointInspectionPanel
-            inspection={activeSelectedPoint ?? hoveredPoint}
-            kind={activeSelectedPoint ? "selected" : "hovered"}
-            onClear={() => setSelectedPoint(null)}
-          />
-
-          <div style={{ marginTop: 6, paddingTop: 6, borderTop: "1px solid var(--color-border)" }}>
-            <button
-              onClick={() => setAnnotationsVisible((visible) => !visible)}
-              className={styles.actionButton}
-              aria-pressed={annotationsVisible}
-            >
-              {annotationsVisible ? "Hide annotations" : "Show annotations"}
-            </button>
-            <label style={{ display: "block", marginTop: 6, fontSize: 12 }}>
-              Annotation size: {annotationScale.toFixed(1)}x
-              <input
-                type="range"
-                min="0.5"
-                max="2"
-                step="0.1"
-                value={annotationScale}
-                onChange={(event) => setAnnotationScale(Number(event.target.value))}
-                style={{ display: "block", width: "100%" }}
-                aria-label="Annotation size"
-              />
-            </label>
-          </div>
-
-          {pointSeries.length > 0 && (
-            <FilterPanel
-              series={pointSeries}
-              selectedSeries={safeSelectedSeries}
-              onSelectSeries={setSelectedSeries}
-              fields={selectedFields}
-              filters={filtersBySeries[safeSelectedSeries] ?? []}
-              stats={selectedStats}
-              seriesVisible={
-                seriesVisibility[safeSelectedSeries] ??
-                pointSeries[safeSelectedSeries]?.visible !== false
-              }
-              onSeriesVisibleChange={(visible) =>
-                setSeriesVisibility((current) => ({ ...current, [safeSelectedSeries]: visible }))
-              }
-              hasNullVisibility={Boolean(colourMarkerInput(pointSeries[safeSelectedSeries]))}
-              showNullValues={
-                nullVisibility[safeSelectedSeries] ??
-                pointSeries[safeSelectedSeries]?.showNullColours !== false
-              }
-              onShowNullValuesChange={(visible) =>
-                setNullVisibility((current) => ({ ...current, [safeSelectedSeries]: visible }))
-              }
-              onChange={(filters) =>
-                setFiltersBySeries((current) => ({ ...current, [safeSelectedSeries]: filters }))
-              }
-              onReset={() =>
-                setFiltersBySeries((current) => ({ ...current, [safeSelectedSeries]: [] }))
-              }
-            />
-          )}
-
-          {pointSeries.length === 0 && (
-            <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #ddd", fontSize: 13, color: "#555" }}>
-              This scene has no point series to filter or inspect.
-            </div>
-          )}
-        </aside>
-
-        <section className={styles.sceneViewport} aria-label="3D scene">
+        <section style={{ flex: 1, position: "relative", minWidth: 0, minHeight: 0, overflow: "hidden" }} aria-label="3D scene">
           <ThreeScene
             ref={threeSceneRef}
             sceneData={currentScene}
@@ -521,9 +473,82 @@ export default function Home() {
             onPointHover={setHoveredPoint}
             onPointSelect={setSelectedPoint}
           />
+
+          {/* Viewport toolbar — the single place camera controls live (not
+              duplicated in the sidebar). A real segmented pair for
+              Perspective/Orthographic, not one button that swaps its own
+              label. */}
+          <div style={{ position: "absolute", top: 10, left: 10, zIndex: 5, display: "flex", gap: 4 }}>
+            <button className="vp-btn" onClick={() => threeSceneRef.current?.fitScene()} title="Fit Scene — frame the currently visible data">
+              <IconFitView size={14} />
+            </button>
+            <button className="vp-btn" onClick={() => threeSceneRef.current?.resetView()} title="Reset View — return to the export's original camera">
+              <IconRefresh size={14} />
+            </button>
+            <div style={{ display: "flex", border: "1px solid var(--color-border)", borderRadius: "var(--radius-sm)", overflow: "hidden" }}>
+              <button
+                className={`vp-btn ${projectionMode === "perspective" ? "active" : ""}`}
+                onClick={() => setProjectionMode("perspective")}
+                title="Perspective projection"
+                style={{ border: "none", borderRadius: 0 }}
+              >
+                <IconPerspective size={14} />
+              </button>
+              <button
+                className={`vp-btn ${projectionMode === "orthographic" ? "active" : ""}`}
+                onClick={() => setProjectionMode("orthographic")}
+                title="Orthographic projection"
+                style={{ border: "none", borderRadius: 0, borderLeft: "1px solid var(--color-border)" }}
+              >
+                <IconOrtho size={14} />
+              </button>
+            </div>
+          </div>
+          <div
+            style={{
+              position: "absolute", top: 10, right: 10, zIndex: 5,
+              padding: "3px 8px", background: "rgba(18,25,24,0.85)", border: "1px solid var(--color-border)",
+              borderRadius: 4, fontSize: 10, fontWeight: 500, letterSpacing: "0.06em",
+              color: "var(--color-fg-dim)", backdropFilter: "blur(4px)",
+            }}
+          >
+            {projectionMode === "perspective" ? "PERSPECTIVE" : "ORTHOGRAPHIC"}
+          </div>
+          {errors.length > 0 && (
+            <div
+              style={{
+                position: "absolute", top: 44, left: 10, right: 10, zIndex: 5,
+                padding: "8px 10px", background: "rgba(18,25,24,0.92)", border: "1px solid var(--color-danger-border)",
+                borderRadius: 6, fontSize: 11, color: "var(--color-danger)",
+              }}
+            >
+              This file could not be loaded ({errors.length} issue{errors.length > 1 ? "s" : ""}): {errors.join("; ")}
+            </div>
+          )}
         </section>
-        {legendsVisible && <ColourLegendPanel legends={colourLegends} />}
+
+        <RightPanel
+          open={rightOpen}
+          onToggle={() => setRightOpen((v) => !v)}
+          inspection={activeSelectedPoint ?? hoveredPoint}
+          kind={activeSelectedPoint ? "selected" : "hovered"}
+          onClear={() => setSelectedPoint(null)}
+          legends={colourLegends}
+        />
       </div>
-    </main>
+
+      <StatusBar
+        dataState={dataState}
+        hoveredPoint={hoveredPoint}
+        selectedPoint={activeSelectedPoint}
+        visibleCount={totalVisibleCount}
+        totalCount={totalPointCount}
+        surfaceCount={surfaceCount}
+        activeFilterCount={activeFilterCount}
+        viewMode={projectionMode}
+        currentScene={currentScene}
+        errorMessage={errors[0]}
+      />
+    </div>
   );
 }
