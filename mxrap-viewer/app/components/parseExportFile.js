@@ -247,8 +247,10 @@ function imageMimeType(fileName) {
 async function loadMarkerDefinitions(zip, markerMenu, root = "") {
     if (!markerMenu) return [];
 
-    const jsonEntry = zip.file(`marker-defs/${markerMenu}.json`);
-    if (!jsonEntry) {
+    const markerPath =
+    `${root}marker-defs/${markerMenu}.json`;
+
+    const jsonEntry = zip.file(markerPath);    if (!jsonEntry) {
         console.warn(`Marker definitions not found: marker-defs/${markerMenu}.json`);
         return [];
     }
