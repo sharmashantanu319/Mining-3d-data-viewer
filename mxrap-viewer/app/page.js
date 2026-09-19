@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ThreeScene from "./components/ThreeScene";
 import FilterPanel from "./components/FilterPanel";
 import { mockScenes } from "./components/mockScenes";
@@ -15,6 +15,7 @@ import ColourLegendPanel from "./components/ColourLegendPanel";
 import { buildSceneColourLegends } from "./components/colourLegend";
 import MarkerSelectorPanel from "./components/MarkerSelectorPanel";
 import { applyMarkerSelections } from "./components/markerSelection";
+import { loadSession, saveSession, sessionKeyFor } from "./components/viewerSession";
 import PointInspectionPanel from "./components/PointInspectionPanel";
 import styles from "./page.module.css";
 
@@ -39,9 +40,14 @@ export default function Home() {
   const [legendsVisible, setLegendsVisible] = useState(true);
   const [markerSelections, setMarkerSelections] = useState({});
   const [markerSeriesIndex, setMarkerSeriesIndex] = useState(0);
+  const [restoreBanner, setRestoreBanner] = useState(null); // { key, session } for the currently loaded file, if a saved session was found
   const [hoveredPoint, setHoveredPoint] = useState(null);
   const [selectedPoint, setSelectedPoint] = useState(null);
   const threeSceneRef = useRef(null);
+  const sessionKeyRef = useRef(null); // which file's session to save to, or null for the initial mock demo (not persisted)
+  const cameraStateRef = useRef(null); // latest camera position/target, updated continuously as the user navigates
+  const pendingCameraRestoreRef = useRef(null);
+  const saveTimeoutRef = useRef(null);
   const currentScene = scenes[currentIndex];
   const pointSeries = useMemo(() => currentScene.pointClouds ?? [], [currentScene]);
   const safeSelectedSeries = Math.min(selectedSeries, Math.max(0, pointSeries.length - 1));
@@ -98,6 +104,74 @@ export default function Home() {
     [pointSeries, markerSelections]
   );
 
+  // Debounced (not on every keystroke/drag frame) session save, keyed to
+  // whichever file is currently loaded. No-ops for the initial mock demo
+  // (sessionKeyRef is only set once a real file is opened).
+  function scheduleSessionSave() {
+    if (!sessionKeyRef.current) return;
+    clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(() => {
+      saveSession(sessionKeyRef.current, {
+        sceneIndex: currentIndex,
+        filtersBySeries,
+        seriesVisibility,
+        nullVisibility,
+        markerSelections,
+        markerSeriesIndex,
+        legendsVisible,
+        annotationsVisible,
+        annotationScale,
+        projectionMode,
+        camera: cameraStateRef.current,
+      });
+    }, 400);
+  }
+
+  useEffect(() => {
+    scheduleSessionSave();
+    return () => clearTimeout(saveTimeoutRef.current);
+    // scheduleSessionSave is redefined every render (it closes over the
+    // state below) rather than memoized, so it's deliberately left out of
+    // this array — the actual state values below are the real deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    currentIndex,
+    filtersBySeries,
+    seriesVisibility,
+    nullVisibility,
+    markerSelections,
+    markerSeriesIndex,
+    legendsVisible,
+    annotationsVisible,
+    annotationScale,
+    projectionMode,
+  ]);
+
+  // Applies a camera restore once the scene it belongs to has actually
+  // mounted (setCurrentIndex from applyRestoredSession() re-renders
+  // ThreeScene with a new sceneData first, which resets the camera to that
+  // scene's default — this runs after, overwriting it with the saved one).
+  useEffect(() => {
+    if (!pendingCameraRestoreRef.current) return;
+    threeSceneRef.current?.setCameraState(pendingCameraRestoreRef.current);
+    pendingCameraRestoreRef.current = null;
+  }, [currentScene]);
+
+  function applyRestoredSession(session) {
+    if (Number.isInteger(session.sceneIndex)) setCurrentIndex(session.sceneIndex);
+    if (session.filtersBySeries) setFiltersBySeries(session.filtersBySeries);
+    if (session.seriesVisibility) setSeriesVisibility(session.seriesVisibility);
+    if (session.nullVisibility) setNullVisibility(session.nullVisibility);
+    if (session.markerSelections) setMarkerSelections(session.markerSelections);
+    if (Number.isInteger(session.markerSeriesIndex)) setMarkerSeriesIndex(session.markerSeriesIndex);
+    if (typeof session.legendsVisible === "boolean") setLegendsVisible(session.legendsVisible);
+    if (typeof session.annotationsVisible === "boolean") setAnnotationsVisible(session.annotationsVisible);
+    if (Number.isFinite(session.annotationScale)) setAnnotationScale(session.annotationScale);
+    if (session.projectionMode) setProjectionMode(session.projectionMode);
+    if (session.camera) pendingCameraRestoreRef.current = session.camera;
+    setRestoreBanner(null);
+  }
+
   const colourLegends = useMemo(
     () => buildSceneColourLegends(renderedPointClouds, fullRenderedPointClouds),
     [renderedPointClouds, fullRenderedPointClouds]
@@ -150,6 +224,11 @@ export default function Home() {
       setMarkerSeriesIndex(0);
       setHoveredPoint(null);
       setSelectedPoint(null);
+
+      sessionKeyRef.current = sessionKeyFor(file);
+      setRestoreBanner(null);
+      const saved = loadSession(sessionKeyRef.current);
+      if (saved) setRestoreBanner({ key: sessionKeyRef.current, session: saved });
     } catch (err) {
       console.error(err);
       setErrors([err.message]);
@@ -170,6 +249,7 @@ export default function Home() {
     setNullVisibility({});
     setMarkerSelections({});
     setMarkerSeriesIndex(0);
+    setRestoreBanner(null);
     setHoveredPoint(null);
     setSelectedPoint(null);
   }
@@ -207,6 +287,33 @@ export default function Home() {
           {fileName && (
             <div style={{ marginBottom: 8, fontSize: 13, color: "#555" }}>
               Loaded: {fileName}
+            </div>
+          )}
+
+          {restoreBanner && (
+            <div
+              style={{
+                marginBottom: 8,
+                padding: 8,
+                border: "1px solid #b6d7f0",
+                borderRadius: 6,
+                background: "#eef7ff",
+                fontSize: 13,
+              }}
+            >
+              <div style={{ marginBottom: 6 }}>A previous session was found for this file.</div>
+              <button
+                onClick={() => applyRestoredSession(restoreBanner.session)}
+                style={{ padding: "4px 10px", cursor: "pointer", marginRight: 8 }}
+              >
+                Restore
+              </button>
+              <button
+                onClick={() => setRestoreBanner(null)}
+                style={{ padding: "4px 10px", cursor: "pointer" }}
+              >
+                Start fresh
+              </button>
             </div>
           )}
 
@@ -406,6 +513,10 @@ export default function Home() {
             projectionMode={projectionMode}
             annotationsVisible={annotationsVisible}
             annotationScale={annotationScale}
+            onCameraChange={(state) => {
+              cameraStateRef.current = state;
+              scheduleSessionSave();
+            }}
             selectedPoint={activeSelectedPoint}
             onPointHover={setHoveredPoint}
             onPointSelect={setSelectedPoint}
