@@ -99,6 +99,20 @@ describe("resolveMarkerRenderOptions", () => {
     expect(options.colorFn).toBeUndefined();
   });
 
+  it("draws unknown configurations as null-colour dots while retaining known symbols", () => {
+    const definition = {
+      ...ML_COLOUR_DEF,
+      nullSymbol: "Sphere-Question.png",
+      nullColour: [0, 0, 1],
+      rampCsv: rampCsv([rampRow({ symbol: "Triaxial.png" })]),
+    };
+    const options = resolveMarkerRenderOptions({ ...SERIES, markerDefinitions: [definition] });
+    expect(options.symbolFn({ ML: null })).toBeNull();
+    expect(options.symbolFn({})).toBeNull();
+    expect(options.colorFn({ ML: null })).toEqual({ r: 0, g: 0, b: 1 });
+    expect(options.symbolFn({ ML: 1 })).toBe("Triaxial.png");
+  });
+
   it("omits colorFn when colourMarker is null (no colour marker selected)", () => {
     const options = resolveMarkerRenderOptions({ ...SERIES, colourMarker: null });
     expect(options.colorFn).toBeUndefined();

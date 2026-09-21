@@ -20,10 +20,7 @@
 // marker icon images needs texture-atlas support that renderer doesn't have
 // yet. Colour and size are unaffected by that gap.
 //
-// Surfaces have their own `colourMarker` in config.json too, but
-// geometryBuilder.js only ever draws them with one flat colour per surface
-// — wiring real surface colouring is a separate, larger follow-up (it needs
-// a per-vertex colour attribute), out of scope here.
+// Surface meshes also reuse resolveColourMarker for their vertex attributes.
 
 import { normalizeColourMarker, mapColour, parseColourRampCsv } from "./colourMapping";
 import { normalizeSizeMarker, mapSize } from "./sizeMapping";

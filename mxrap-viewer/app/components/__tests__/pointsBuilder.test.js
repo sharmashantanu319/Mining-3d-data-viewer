@@ -3,6 +3,17 @@ import * as THREE from "three";
 import { buildPointCloud, buildPointFragmentShaderSource } from "../pointsBuilder";
 
 describe("point symbol rendering", () => {
+  it.each([0.5, 1, 1.5])("scales display size by %s without changing exported marker sizes", (scale) => {
+    const cloud = buildPointCloud({ points: [{ x: 1, y: 2, z: 3 }] }, {
+      sizeFn: () => 35, minPointSize: 20, maxPointSize: 50,
+      distanceAttenuation: "cartoon", markerDisplayScale: scale,
+    });
+    expect(cloud.geometry.attributes.pointSize.getX(0)).toBe(35);
+    expect(cloud.material.uniforms.markerDisplayScale.value).toBe(scale);
+    cloud.geometry.dispose();
+    cloud.material.dispose();
+  });
+
   it("emits a texture-sampling shader only for symbol batches", () => {
     const textured = buildPointFragmentShaderSource({ hasTexture: true });
     const circular = buildPointFragmentShaderSource({ hasTexture: false });

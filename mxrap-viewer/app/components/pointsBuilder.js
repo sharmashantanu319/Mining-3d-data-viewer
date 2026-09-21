@@ -148,6 +148,7 @@ export function buildPointFragmentShaderSource({ hasTexture = false } = {}) {
  * @param {string} [options.distanceAttenuation] - "cartoon" | "real" | "fixed"
  * @param {number} [options.cameraParallel] - 0 perspective (default), 1 orthographic
  * @param {number} [options.pointScaleFactor] - renderWindowDPI / 72 (perspective branch)
+ * @param {number} [options.markerDisplayScale] - display multiplier after projection, before screen clamp (default 1)
  * @param {number} [options.parallelCartoonScale] - orthographic "cartoon" branch factor
  * @param {number} [options.pixelSizeNVCx] - 2 / drawing-buffer width (orthographic branches)
  * @param {{min:number,max:number}|null} [options.hardwarePointSizeRange] - from getHardwarePointSizeRange()
@@ -168,6 +169,7 @@ export function buildPointCloud(pointSeriesData, options = {}) {
     distanceAttenuation,
     cameraParallel = 0,
     pointScaleFactor = 1,
+    markerDisplayScale = 1,
     parallelCartoonScale,
     pixelSizeNVCx,
     hardwarePointSizeRange = null,
@@ -278,6 +280,9 @@ export function buildPointCloud(pointSeriesData, options = {}) {
       };
     }
     uniforms.minScreenPointSize = { value: screenClamp.min };
+    uniforms.markerDisplayScale = {
+      value: Number.isFinite(markerDisplayScale) && markerDisplayScale > 0 ? markerDisplayScale : 1,
+    };
     uniforms.maxScreenPointSize = { value: screenClamp.max };
     if (pointTexture) uniforms.pointTexture = { value: pointTexture };
 

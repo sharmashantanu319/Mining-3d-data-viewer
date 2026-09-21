@@ -42,6 +42,7 @@ export default function Home() {
   const [rightOpen, setRightOpen] = useState(true);
   const [markerSelections, setMarkerSelections] = useState({});
   const [markerSeriesIndex, setMarkerSeriesIndex] = useState(0);
+  const [markerScale, setMarkerScale] = useState(0.5);
   const [restoreBanner, setRestoreBanner] = useState(null); // { key, session } for the currently loaded file, if a saved session was found
   const [hoveredPoint, setHoveredPoint] = useState(null);
   const [selectedPoint, setSelectedPoint] = useState(null);
@@ -121,6 +122,7 @@ export default function Home() {
         nullVisibility,
         markerSelections,
         markerSeriesIndex,
+        markerScale,
         rightOpen,
         annotationsVisible,
         annotationScale,
@@ -144,6 +146,7 @@ export default function Home() {
     nullVisibility,
     markerSelections,
     markerSeriesIndex,
+    markerScale,
     rightOpen,
     annotationsVisible,
     annotationScale,
@@ -167,6 +170,7 @@ export default function Home() {
     if (session.nullVisibility) setNullVisibility(session.nullVisibility);
     if (session.markerSelections) setMarkerSelections(session.markerSelections);
     if (Number.isInteger(session.markerSeriesIndex)) setMarkerSeriesIndex(session.markerSeriesIndex);
+    if (Number.isFinite(session.markerScale)) setMarkerScale(Math.min(1.5, Math.max(0.1, session.markerScale)));
     if (typeof session.rightOpen === "boolean") setRightOpen(session.rightOpen);
     if (typeof session.annotationsVisible === "boolean") setAnnotationsVisible(session.annotationsVisible);
     if (Number.isFinite(session.annotationScale)) setAnnotationScale(session.annotationScale);
@@ -425,6 +429,8 @@ export default function Home() {
           sizeChoices={markerChoices.size}
           colourValue={colourValue}
           sizeValue={sizeValue}
+          markerScale={markerScale}
+          onMarkerScaleChange={setMarkerScale}
           onColourChange={(value) =>
             setMarkerSelections((current) => ({
               ...current,
@@ -465,6 +471,7 @@ export default function Home() {
             projectionMode={projectionMode}
             annotationsVisible={annotationsVisible}
             annotationScale={annotationScale}
+            markerScale={markerScale}
             onCameraChange={(state) => {
               cameraStateRef.current = state;
               scheduleSessionSave();

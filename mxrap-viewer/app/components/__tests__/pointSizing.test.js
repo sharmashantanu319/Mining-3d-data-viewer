@@ -431,6 +431,8 @@ describe("buildSizeVertexShaderSource — branch selection & final clamp", () =>
       );
       expect(src).toContain("uniform float minScreenPointSize;");
       expect(src).toContain("uniform float maxScreenPointSize;");
+      expect(src).toContain("uniform float markerDisplayScale;");
+      expect(src.indexOf("rawPointSize *= markerDisplayScale;")).toBeLessThan(src.indexOf("gl_PointSize = clamp("));
     }
   });
 
