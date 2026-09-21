@@ -44,7 +44,7 @@ export function formatLegendValue(value, marker) {
   }).format(value);
 }
 
-export function buildColourLegend(pointSeriesData, sampleCount = DEFAULT_SAMPLE_COUNT) {
+export function buildColourLegend(pointSeriesData, sampleCount = DEFAULT_SAMPLE_COUNT, fullPointSeriesData = null) {
   const marker = resolveColourMarker(pointSeriesData ?? {});
   if (!marker) return null;
 
@@ -95,12 +95,32 @@ export function buildColourLegend(pointSeriesData, sampleCount = DEFAULT_SAMPLE_
     label: formatLegendValue(value, marker),
   }));
 
-  return { ...base, kind: "ramp", samples, ticks };
+  // Only meaningful for a data-derived domain (no configured minimum/maximum):
+  // that's the only case where filtering can narrow it. A configured domain
+  // is a fixed export setting, not something a filter view could "hide" —
+  // showing it back to the user as if it might differ would be misleading.
+  let fullRange = null;
+  if (fullPointSeriesData && marker.configuredMin === null && marker.configuredMax === null) {
+    const fullMarker = resolveColourMarker(fullPointSeriesData);
+    if (
+      fullMarker?.valid &&
+      (fullMarker.domainMin !== marker.domainMin || fullMarker.domainMax !== marker.domainMax)
+    ) {
+      fullRange = {
+        min: fullMarker.domainMin,
+        max: fullMarker.domainMax,
+        minLabel: formatLegendValue(fullMarker.domainMin, fullMarker),
+        maxLabel: formatLegendValue(fullMarker.domainMax, fullMarker),
+      };
+    }
+  }
+
+  return { ...base, kind: "ramp", samples, ticks, fullRange };
 }
 
-export function buildSceneColourLegends(pointClouds) {
+export function buildSceneColourLegends(pointClouds, fullPointClouds = null) {
+  const full = Array.isArray(fullPointClouds) ? fullPointClouds : null;
   return (Array.isArray(pointClouds) ? pointClouds : [])
-    .filter((series) => series?.legend === true)
-    .map((series) => buildColourLegend(series))
+    .map((series, index) => (series?.legend === true ? buildColourLegend(series, DEFAULT_SAMPLE_COUNT, full?.[index]) : null))
     .filter(Boolean);
 }

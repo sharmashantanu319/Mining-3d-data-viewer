@@ -99,6 +99,20 @@ function resolveSizeMarker(pointSeriesData) {
  *   whose markerMenu didn't resolve), so the caller can fall back to its own
  *   demo rendering.
  */
+// Some real mXrap ramps (e.g. the sample data's "Mag/Spheres" magnitude
+// ramp) assign the same generic default-sphere image to every threshold row
+// instead of a real per-category icon. Client decision (see the commit
+// introducing symbol colours) was that points WITH a symbol show the
+// symbol's own colour and points with NO symbol keep the colour-marker
+// tint — but a ramp that names this generic sphere on every row never
+// produces a "no symbol" point, so it silently loses its data-driven
+// colour entirely. These filenames aren't a real per-category icon, just a
+// default shape, so they're treated as "no symbol" here.
+const GENERIC_SPHERE_SYMBOLS = new Set([
+  "master ball sprite 64x64.png",
+  "sphere_64x64.png",
+]);
+
 export function resolveMarkerRenderOptions(pointSeriesData) {
   const s = pointSeriesData ?? {};
   if (!Array.isArray(s.markerDefinitions) || s.markerDefinitions.length === 0) return null;
