@@ -490,6 +490,18 @@ const ThreeScene = forwardRef(function ThreeScene(
       const batches = new Map();
       for (const point of pointSeriesData.points ?? []) {
         const symbol = contentOptions.symbolFn(point);
+        if (pointSeriesData.name === "Sensors") {
+            console.log({
+                configuration: point.Configuration,
+                selectedSymbol: symbol,
+                imageFound: Boolean(
+                    contentOptions.symbolAssets?.[symbol]
+                )
+            });
+        }
+
+
+
         const dataUrl = symbol ? contentOptions.symbolAssets?.[symbol] : null;
         const batchKey = dataUrl ?? "__circle_fallback__";
         if (!batches.has(batchKey)) batches.set(batchKey, { dataUrl, points: [] });
