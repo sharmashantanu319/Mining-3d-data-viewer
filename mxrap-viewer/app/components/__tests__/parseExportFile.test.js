@@ -55,7 +55,10 @@ describe("parseExportFile (real demo data)", () => {
 
     const [surface] = scene.surfaces;
     expect(surface.color).toBe(0x4f8ef7);
-    expect(surface.vertices).toEqual([
+    // toMatchObject, not toEqual: vertices also carry the CSV's other raw
+    // columns (Date, Marker Material, Marker Value) alongside id/x/y/z, same
+    // convention as pointSeriesData.js's points.
+    expect(surface.vertices).toMatchObject([
       { id: 1, x: 7790, y: 10230, z: 2380 },
       { id: 2, x: 8290, y: 10230, z: 2380 },
       { id: 3, x: 8290, y: 10730, z: 2460 },
@@ -65,6 +68,13 @@ describe("parseExportFile (real demo data)", () => {
       { v1: 1, v2: 2, v3: 3 },
       { v1: 1, v2: 3, v3: 4 },
     ]);
+  });
+
+  it("this demo export has no markerMenu/colourMarker, so the surface gets no marker definitions", async () => {
+    const [scene] = (await parseExportFile(demoZipBuffer)).scenes;
+    const [surface] = scene.surfaces;
+    expect(surface.colourMarker).toBeNull();
+    expect(surface.markerDefinitions).toEqual([]);
   });
 
   it("keeps vertex/face fields numeric via CSV dynamicTyping", async () => {
@@ -166,10 +176,46 @@ describe("parseExportFile (full-scale real export: visualiser-export-2)", () => 
     const [surface] = result.scenes[0].surfaces;
     expect(surface.vertices).toHaveLength(158168);
     expect(surface.faces).toHaveLength(231024);
-    expect(surface.vertices[0]).toEqual({ id: 1, x: 7790.72, y: 10232.6, z: 2381.51 });
-    expect(surface.vertices.at(-1)).toEqual({ id: 821798, x: 9679.8, y: 10365.82, z: 3248.12 });
+    expect(surface.vertices[0]).toMatchObject({ id: 1, x: 7790.72, y: 10232.6, z: 2381.51 });
+    expect(surface.vertices.at(-1)).toMatchObject({ id: 821798, x: 9679.8, y: 10365.82, z: 3248.12 });
     expect(surface.faces[0]).toEqual({ v1: 1, v2: 10, v3: 6 });
     expect(surface.faces.at(-1)).toEqual({ v1: 821792, v2: 821797, v3: 821791 });
+  });
+
+  it("loads the surface's colourMarker and marker-defs when the display declares a markerMenu", () => {
+    // s1-3dview's Geometry Model series has markerMenu "mgm/markers" and
+    // colourMarker "Material"; s2-3dview reuses the same geometry data but
+    // its series config omits markerMenu, so it must degrade to no marker
+    // definitions rather than crash or silently reuse s1's.
+    const [s1Surface] = result.scenes[0].surfaces;
+    const [s2Surface] = result.scenes[1].surfaces;
+
+    expect(s1Surface.colourMarker).toBe("Material");
+    expect(s1Surface.markerDefinitions.map((d) => d.name)).toEqual(["Material", "Date"]);
+    const material = s1Surface.markerDefinitions.find((d) => d.name === "Material");
+    expect(material.input).toBe("Material Marker Value");
+    expect(material.ramp).toBe("material.csv");
+    expect(material.rampCsv).toContain("Up to");
+
+    expect(s2Surface.colourMarker).toBe("Material");
+    expect(s2Surface.markerDefinitions).toEqual([]);
+  });
+
+  it("resolves real per-vertex surface colour from the loaded marker-defs via surfaceMarkerResolver", async () => {
+    const { resolveSurfaceVertexColours } = await import("../surfaceMarkerResolver");
+    const [s1Surface] = result.scenes[0].surfaces;
+
+    const colours = resolveSurfaceVertexColours(s1Surface);
+    expect(colours).toBeInstanceOf(Float32Array);
+    expect(colours).toHaveLength(s1Surface.vertices.length * 3);
+    for (let i = 0; i < colours.length; i++) {
+      expect(Number.isFinite(colours[i])).toBe(true);
+    }
+
+    // A surface with no resolvable marker (s2, no markerMenu) falls back to
+    // null so the renderer keeps its flat placeholder colour.
+    const [s2Surface] = result.scenes[1].surfaces;
+    expect(resolveSurfaceVertexColours(s2Surface)).toBeNull();
   });
 
   it("reuses the identical geometry model data across both displays", () => {
