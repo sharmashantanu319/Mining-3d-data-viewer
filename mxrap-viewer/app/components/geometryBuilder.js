@@ -22,11 +22,16 @@ import { mapColour } from "./colourMapping";
  *
  * @param {Array<{id: number|string, x: number, y: number, z: number}>} vertices
  * @param {Array<{v1: number|string, v2: number|string, v3: number|string}>} faces
+ * @param {Float32Array} [vertexColours] one RGB triple (0..1) per vertex, in
+ *   the same order as `vertices` (surfaceMarkerResolver.js's output). When
+ *   given and its length matches, attached as a "color" BufferAttribute for
+ *   real per-vertex colour marker data instead of one flat surface colour.
  * @returns {THREE.BufferGeometry}
  */
 export function buildSurfaceGeometry(vertices, faces) {
   const errors = surfaceVertexErrors(vertices);
   if (errors.length) throw new Error(`Invalid surface: ${errors.join(" ")}`);
+export function buildSurfaceGeometry(vertices, faces, vertexColours) {
   // 第一步：建立 "顶点 ID → 数组下标" 的映射表
   // Step 1: build an "ID -> array index" lookup map.
   // 例如顶点 ID 是 [5, 10, 23]，映射后变成 [0, 1, 2]（数组下标）
@@ -67,6 +72,12 @@ export function buildSurfaceGeometry(vertices, faces) {
   // Compute normals so lighting renders correctly (otherwise surfaces look flat).
   geometry.computeVertexNormals();
 
+  // Real per-vertex colour marker data (surfaceMarkerResolver.js), when
+  // available and the right length for this exact vertex array.
+  if (vertexColours instanceof Float32Array && vertexColours.length === vertices.length * 3) {
+    geometry.setAttribute("color", new THREE.BufferAttribute(vertexColours, 3));
+  }
+
   return geometry;
 }
 
@@ -76,33 +87,98 @@ export function buildSurfaceGeometry(vertices, faces) {
  * Build a ready-to-add THREE.Mesh from a surface data object.
  *
  * @param {{vertices: Array, faces: Array, color?: number}} surfaceData
+ * @param {Float32Array} [vertexColours] real per-vertex colour marker data
+ *   (surfaceMarkerResolver.js's resolveSurfaceVertexColours output). When
+ *   absent/null, falls back to surfaceData.color as one flat colour.
  * @returns {THREE.Mesh}
  */
-export function buildSurfaceMesh(surfaceData) {
-  const geometry = buildSurfaceGeometry(surfaceData.vertices, surfaceData.faces);
+export function buildSurfaceMesh(surfaceData, vertexColours) {
+  const geometry = buildSurfaceGeometry(surfaceData.vertices, surfaceData.faces, vertexColours);
+  const hasVertexColours = geometry.hasAttribute("color");
 
-  // Reuse the same domain and ramp rules as point colouring. Raw CSV
-  // attributes remain separate from the position/ID records.
-  const rows = surfaceData.vertexAttributes ?? surfaceData.vertices;
-  const marker = resolveColourMarker({ ...surfaceData, points: rows });
-  let transparent = false;
-  if (marker) {
-    const colours = new Float32Array(surfaceData.vertices.length * 4);
-    const linear = new THREE.Color();
-    surfaceData.vertices.forEach((_, index) => {
-      const colour = mapColour(rows[index]?.[marker.input], marker);
-      // Ramp RGB is display sRGB; lit vertex colours use linear RGB.
-      linear.setRGB(colour.r, colour.g, colour.b, THREE.SRGBColorSpace);
-      colours.set([linear.r, linear.g, linear.b, colour.a], index * 4);
-      if (colour.a < 1) transparent = true;
+  // Preserve colours already supplied by Development's
+  // vertexColours pipeline. Do not overwrite them.
+  let usesVertexColours = Boolean(
+    geometry.getAttribute("color")
+  );
+
+  // Fallback: resolve colours from the surface's raw CSV
+  // attributes when no colour attribute has been supplied.
+  if (!usesVertexColours) {
+    const rows =
+      surfaceData.vertexAttributes ?? surfaceData.vertices;
+
+    const marker = resolveColourMarker({
+      ...surfaceData,
+      points: rows,
     });
-    geometry.setAttribute("color", new THREE.BufferAttribute(colours, 4));
+
+    if (marker?.valid) {
+      const colours = new Float32Array(
+        surfaceData.vertices.length * 4
+      );
+
+      const linear = new THREE.Color();
+
+      surfaceData.vertices.forEach((_, index) => {
+        const colour = mapColour(
+          rows[index]?.[marker.input],
+          marker
+        );
+
+        // Convert display sRGB to linear RGB.
+        linear.setRGB(
+          colour.r,
+          colour.g,
+          colour.b,
+          THREE.SRGBColorSpace
+        );
+
+        const alpha = Number.isFinite(colour.a)
+          ? Math.max(0, Math.min(1, colour.a))
+          : 1;
+
+        colours.set(
+          [linear.r, linear.g, linear.b, alpha],
+          index * 4
+        );
+      });
+
+      geometry.setAttribute(
+        "color",
+        new THREE.BufferAttribute(colours, 4)
+      );
+
+      usesVertexColours = true;
+    }
   }
+
+  // Check for transparency in either colour pipeline.
+  let transparent = false;
+
+  const colourAttribute = geometry.getAttribute("color");
+
+  if (colourAttribute?.itemSize === 4) {
+    for (let i = 0; i < colourAttribute.count; i++) {
+      if (colourAttribute.getW(i) < 1) {
+        transparent = true;
+        break;
+      }
+    }
+  }
+
+  // Create the final surface material.
   const material = new THREE.MeshStandardMaterial({
-    color: marker ? 0xffffff : surfaceData.color ?? 0x4f8ef7,
-    vertexColors: Boolean(marker),
+    color: usesVertexColours
+      ? 0xffffff
+      : surfaceData.color ?? 0x4f8ef7,
+
+    vertexColors: usesVertexColours,
+
     transparent,
     depthWrite: !transparent,
+
+    // Mining surfaces must remain visible from both sides.
     side: THREE.DoubleSide,
   });
   const mesh = new THREE.Mesh(geometry, material);

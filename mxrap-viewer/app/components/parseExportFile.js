@@ -214,7 +214,13 @@ async function parseSurfaceSeries(zip, series, root) {
         return null;
     }
 
+    // Keep the rest of each row's columns (e.g. "Material Marker Value",
+    // "Date Marker Value") alongside id/x/y/z, same convention as
+    // pointSeriesData.js's buildPointSeries: downstream colour resolution
+    // (surfaceMarkerResolver.js) reads a marker definition's `input` column
+    // by name, whatever it's called.
     const vertices = verticesCsv.map((row) => ({
+        ...row,
         id: row["ID"],
         x: row["Location X"],
         y: row["Location Y"],
@@ -226,6 +232,8 @@ async function parseSurfaceSeries(zip, series, root) {
         v2: row["V2"],
         v3: row["V3"],
     }));
+
+    const markerDefinitions = await loadMarkerDefinitions(zip, series.markerMenu, root);
 
     return {
         color: 0x4f8ef7,
@@ -265,8 +273,10 @@ function imageMimeType(fileName) {
 async function loadMarkerDefinitions(zip, markerMenu, root = "") {
     if (!markerMenu) return [];
 
-    const jsonEntry = zip.file(`${root}marker-defs/${markerMenu}.json`);
-    if (!jsonEntry) {
+    const markerPath =
+    `${root}marker-defs/${markerMenu}.json`;
+
+    const jsonEntry = zip.file(markerPath);    if (!jsonEntry) {
         console.warn(`Marker definitions not found: marker-defs/${markerMenu}.json`);
         return [];
     }

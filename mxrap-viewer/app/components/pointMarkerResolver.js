@@ -122,15 +122,33 @@ export function resolveMarkerRenderOptions(pointSeriesData) {
       }
     : null;
   const symbolFn = colourMarker?.valid
-    ? (point) => {
-        const colour = mapColour(point?.[colourMarker.input], colourMarker);
-        // Missing configuration remains visible in its null colour, without
-        // the export's large question-mark image obscuring nearby geometry.
-        if (colour.isNull && colour.symbol?.toLowerCase() === "sphere-question.png") return null;
-        const symbol = colour.symbol ?? null;
-        return symbol && !GENERIC_SPHERE_SYMBOLS.has(symbol) ? symbol : null;
-      }
-    : null;
+      ? (point) => {
+          const value = point?.[colourMarker.input];
+          const mapped = mapColour(value, colourMarker);
+
+          // Keep the existing behaviour for non-categorical markers.
+          if (
+            colourMarker.legend.kind !== "categorical" ||
+            !colourMarker.legend.categories?.some(
+              (category) => category.value === value
+            ) ||
+            mapped.symbol !== colourMarker.nullSymbol
+          ) {
+            return mapped.symbol ?? null;
+          }
+
+          // For an exact category value, the exported ramp may
+          // place the intended symbol just above that value.
+          const preferred = colourMarker.segments.find(
+            (segment) =>
+              segment.upperBoundRaw > value &&
+              segment.symbol &&
+              segment.symbol !== colourMarker.nullSymbol
+          );
+
+          return preferred?.symbol ?? mapped.symbol ?? null;
+        }
+      : null;
   const colourDefinition = findMarkerDef(s.markerDefinitions, s.colourMarker);
   const sizeMarker = resolveSizeMarker(s);
 
