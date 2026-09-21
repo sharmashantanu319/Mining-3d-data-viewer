@@ -19,9 +19,13 @@ import * as THREE from "three";
  *
  * @param {Array<{id: number|string, x: number, y: number, z: number}>} vertices
  * @param {Array<{v1: number|string, v2: number|string, v3: number|string}>} faces
+ * @param {Float32Array} [vertexColours] one RGB triple (0..1) per vertex, in
+ *   the same order as `vertices` (surfaceMarkerResolver.js's output). When
+ *   given and its length matches, attached as a "color" BufferAttribute for
+ *   real per-vertex colour marker data instead of one flat surface colour.
  * @returns {THREE.BufferGeometry}
  */
-export function buildSurfaceGeometry(vertices, faces) {
+export function buildSurfaceGeometry(vertices, faces, vertexColours) {
   // 第一步：建立 "顶点 ID → 数组下标" 的映射表
   // Step 1: build an "ID -> array index" lookup map.
   // 例如顶点 ID 是 [5, 10, 23]，映射后变成 [0, 1, 2]（数组下标）
@@ -62,6 +66,12 @@ export function buildSurfaceGeometry(vertices, faces) {
   // Compute normals so lighting renders correctly (otherwise surfaces look flat).
   geometry.computeVertexNormals();
 
+  // Real per-vertex colour marker data (surfaceMarkerResolver.js), when
+  // available and the right length for this exact vertex array.
+  if (vertexColours instanceof Float32Array && vertexColours.length === vertices.length * 3) {
+    geometry.setAttribute("color", new THREE.BufferAttribute(vertexColours, 3));
+  }
+
   return geometry;
 }
 
@@ -71,10 +81,14 @@ export function buildSurfaceGeometry(vertices, faces) {
  * Build a ready-to-add THREE.Mesh from a surface data object.
  *
  * @param {{vertices: Array, faces: Array, color?: number}} surfaceData
+ * @param {Float32Array} [vertexColours] real per-vertex colour marker data
+ *   (surfaceMarkerResolver.js's resolveSurfaceVertexColours output). When
+ *   absent/null, falls back to surfaceData.color as one flat colour.
  * @returns {THREE.Mesh}
  */
-export function buildSurfaceMesh(surfaceData) {
-  const geometry = buildSurfaceGeometry(surfaceData.vertices, surfaceData.faces);
+export function buildSurfaceMesh(surfaceData, vertexColours) {
+  const geometry = buildSurfaceGeometry(surfaceData.vertices, surfaceData.faces, vertexColours);
+  const hasVertexColours = geometry.hasAttribute("color");
 
   // 8.13 会议关键结论：MXRAP 里所有表面必须双面可见（不做背面剔除）
   // Key finding from 8.13 meeting: MXRAP surfaces must always render
@@ -82,12 +96,13 @@ export function buildSurfaceMesh(surfaceData) {
   // inspect the model from any camera angle.
   //
   // 关于颜色 / About color:
-  // 目前先用简单的纯色材质占位。真正的"颜色渐变条插值"（color ramp
-  // interpolation）需要自定义 shader，属于后续 Warson 的任务
-  // (07.09 "Implement color interpolation")，这里先不实现，
-  // 但保留了 surfaceData.color 作为占位的输入通道。
+  // A vertex colour attribute (real marker-def data resolved by
+  // surfaceMarkerResolver.js) takes priority over the flat placeholder
+  // colour; the material's own `color` must be white in that case so it
+  // doesn't tint the per-vertex colours.
   const material = new THREE.MeshStandardMaterial({
-    color: surfaceData.color ?? 0x4f8ef7,
+    color: hasVertexColours ? 0xffffff : surfaceData.color ?? 0x4f8ef7,
+    vertexColors: hasVertexColours,
     side: THREE.DoubleSide, // 关键设置：双面渲染
   });
 

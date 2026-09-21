@@ -23,6 +23,7 @@ import { buildAnnotation, disposeAnnotation } from "./annotationsBuilder";
 import { buildSurfaceMesh } from "./geometryBuilder";
 import { buildPointCloud, getHardwarePointSizeRange } from "./pointsBuilder";
 import { resolveMarkerRenderOptions } from "./pointMarkerResolver";
+import { resolveSurfaceVertexColours } from "./surfaceMarkerResolver";
 import {
   orthoParallelScaleFromCamera,
   parallelCartoonScale as computeParallelCartoonScale,
@@ -470,7 +471,11 @@ const ThreeScene = forwardRef(function ThreeScene(
     // ---------- 3. 根据 sceneData 加载真实内容 ----------
     const meshes = [];
     (sceneData.surfaces ?? []).forEach((surfaceData) => {
-      const mesh = buildSurfaceMesh(surfaceData);
+      // Real marker-def data (parsed from the export's markers.json) takes
+      // priority; surfaces with no resolvable colour marker fall back to
+      // the flat placeholder colour buildSurfaceMesh's own default handles.
+      const vertexColours = resolveSurfaceVertexColours(surfaceData);
+      const mesh = buildSurfaceMesh(surfaceData, vertexColours);
       scene.add(mesh);
       meshes.push(mesh);
     });
