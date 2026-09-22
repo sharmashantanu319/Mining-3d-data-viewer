@@ -182,11 +182,11 @@ describe("parseExportFile (full-scale real export: visualiser-export-2)", () => 
     expect(surface.faces.at(-1)).toEqual({ v1: 821792, v2: 821797, v3: 821791 });
   });
 
-  it("loads the surface's colourMarker and marker-defs when the display declares a markerMenu", () => {
+  it("loads surface marker definitions and shares an unambiguous menu across views of the same geometry", () => {
     // s1-3dview's Geometry Model series has markerMenu "mgm/markers" and
     // colourMarker "Material"; s2-3dview reuses the same geometry data but
-    // its series config omits markerMenu, so it must degrade to no marker
-    // definitions rather than crash or silently reuse s1's.
+    // its series config omits markerMenu, so it inherits the one menu
+    // associated with that geometry table.
     const [s1Surface] = result.scenes[0].surfaces;
     const [s2Surface] = result.scenes[1].surfaces;
 
@@ -198,7 +198,7 @@ describe("parseExportFile (full-scale real export: visualiser-export-2)", () => 
     expect(material.rampCsv).toContain("Up to");
 
     expect(s2Surface.colourMarker).toBe("Material");
-    expect(s2Surface.markerDefinitions).toEqual([]);
+    expect(s2Surface.markerDefinitions).toEqual(s1Surface.markerDefinitions);
   });
 
   it("resolves real per-vertex surface colour from the loaded marker-defs via surfaceMarkerResolver", async () => {
@@ -212,10 +212,14 @@ describe("parseExportFile (full-scale real export: visualiser-export-2)", () => 
       expect(Number.isFinite(colours[i])).toBe(true);
     }
 
-    // A surface with no resolvable marker (s2, no markerMenu) falls back to
-    // null so the renderer keeps its flat placeholder colour.
+    // Both views of the shared surface must produce identical colours.
     const [s2Surface] = result.scenes[1].surfaces;
-    expect(resolveSurfaceVertexColours(s2Surface)).toBeNull();
+    const sharedColours = resolveSurfaceVertexColours(s2Surface);
+    expect(sharedColours).toBeInstanceOf(Float32Array);
+    expect(sharedColours.length).toBe(colours.length);
+    expect(sharedColours.every((value, index) => value === colours[index])).toBe(true);
+    // A genuinely unresolved menu still uses the flat-colour fallback.
+    expect(resolveSurfaceVertexColours({ ...s2Surface, markerDefinitions: [] })).toBeNull();
   });
 
   it("reuses the identical geometry model data across both displays", () => {

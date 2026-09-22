@@ -28,10 +28,9 @@ import { mapColour } from "./colourMapping";
  *   real per-vertex colour marker data instead of one flat surface colour.
  * @returns {THREE.BufferGeometry}
  */
-export function buildSurfaceGeometry(vertices, faces) {
+export function buildSurfaceGeometry(vertices, faces, vertexColours) {
   const errors = surfaceVertexErrors(vertices);
   if (errors.length) throw new Error(`Invalid surface: ${errors.join(" ")}`);
-export function buildSurfaceGeometry(vertices, faces, vertexColours) {
   // 第一步：建立 "顶点 ID → 数组下标" 的映射表
   // Step 1: build an "ID -> array index" lookup map.
   // 例如顶点 ID 是 [5, 10, 23]，映射后变成 [0, 1, 2]（数组下标）
@@ -94,7 +93,6 @@ export function buildSurfaceGeometry(vertices, faces, vertexColours) {
  */
 export function buildSurfaceMesh(surfaceData, vertexColours) {
   const geometry = buildSurfaceGeometry(surfaceData.vertices, surfaceData.faces, vertexColours);
-  const hasVertexColours = geometry.hasAttribute("color");
 
   // Preserve colours already supplied by Development's
   // vertexColours pipeline. Do not overwrite them.

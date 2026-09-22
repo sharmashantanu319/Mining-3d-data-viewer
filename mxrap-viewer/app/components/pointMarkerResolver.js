@@ -126,6 +126,10 @@ export function resolveMarkerRenderOptions(pointSeriesData) {
           const value = point?.[colourMarker.input];
           const mapped = mapColour(value, colourMarker);
 
+          // Unknown sensor configurations stay visible in their null colour
+          // as dots, rather than the export's question-mark image.
+          if (mapped.isNull && mapped.symbol?.toLowerCase() === "sphere-question.png") return null;
+
           // Keep the existing behaviour for non-categorical markers.
           if (
             colourMarker.legend.kind !== "categorical" ||

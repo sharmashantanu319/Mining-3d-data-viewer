@@ -238,8 +238,8 @@ async function parseSurfaceSeries(zip, series, root) {
     return {
         color: 0x4f8ef7,
         visible: series.visible !== false,
-        colourMarker: series.colourMarker,
-        markerDefinitions: await loadMarkerDefinitions(zip, series.markerMenu, root),
+        colourMarker: series.colourMarker ?? null,
+        markerDefinitions,
         vertexAttributes: verticesCsv,
         vertices,
         faces,
