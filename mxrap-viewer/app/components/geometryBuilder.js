@@ -12,6 +12,9 @@
 // "ID → 数组下标" 的映射表，再把 faces 里的 ID 转换成下标。
 
 import * as THREE from "three";
+import { surfaceVertexErrors } from "./surfaceValidation";
+import { resolveColourMarker } from "./pointMarkerResolver";
+import { mapColour } from "./colourMapping";
 
 /**
  * 把 { vertices, faces } 格式的数据，转换成 Three.js 的 BufferGeometry
@@ -19,9 +22,15 @@ import * as THREE from "three";
  *
  * @param {Array<{id: number|string, x: number, y: number, z: number}>} vertices
  * @param {Array<{v1: number|string, v2: number|string, v3: number|string}>} faces
+ * @param {Float32Array} [vertexColours] one RGB triple (0..1) per vertex, in
+ *   the same order as `vertices` (surfaceMarkerResolver.js's output). When
+ *   given and its length matches, attached as a "color" BufferAttribute for
+ *   real per-vertex colour marker data instead of one flat surface colour.
  * @returns {THREE.BufferGeometry}
  */
-export function buildSurfaceGeometry(vertices, faces) {
+export function buildSurfaceGeometry(vertices, faces, vertexColours) {
+  const errors = surfaceVertexErrors(vertices);
+  if (errors.length) throw new Error(`Invalid surface: ${errors.join(" ")}`);
   // 第一步：建立 "顶点 ID → 数组下标" 的映射表
   // Step 1: build an "ID -> array index" lookup map.
   // 例如顶点 ID 是 [5, 10, 23]，映射后变成 [0, 1, 2]（数组下标）
@@ -46,7 +55,7 @@ export function buildSurfaceGeometry(vertices, faces) {
     // 防御性检查：如果某个 ID 在顶点表里找不到，跳过这个面并给出警告
     // Defensive check: if an ID isn't found in the vertex table, skip this face.
     if (i1 === undefined || i2 === undefined || i3 === undefined) {
-      console.warn("发现无效的顶点引用，已跳过该面 / Invalid vertex reference, face skipped:", face);
+      console.warn("Invalid vertex reference, face skipped:", face);
       return;
     }
     indices.push(i1, i2, i3);
@@ -62,6 +71,12 @@ export function buildSurfaceGeometry(vertices, faces) {
   // Compute normals so lighting renders correctly (otherwise surfaces look flat).
   geometry.computeVertexNormals();
 
+  // Real per-vertex colour marker data (surfaceMarkerResolver.js), when
+  // available and the right length for this exact vertex array.
+  if (vertexColours instanceof Float32Array && vertexColours.length === vertices.length * 3) {
+    geometry.setAttribute("color", new THREE.BufferAttribute(vertexColours, 3));
+  }
+
   return geometry;
 }
 
@@ -71,25 +86,101 @@ export function buildSurfaceGeometry(vertices, faces) {
  * Build a ready-to-add THREE.Mesh from a surface data object.
  *
  * @param {{vertices: Array, faces: Array, color?: number}} surfaceData
+ * @param {Float32Array} [vertexColours] real per-vertex colour marker data
+ *   (surfaceMarkerResolver.js's resolveSurfaceVertexColours output). When
+ *   absent/null, falls back to surfaceData.color as one flat colour.
  * @returns {THREE.Mesh}
  */
-export function buildSurfaceMesh(surfaceData) {
-  const geometry = buildSurfaceGeometry(surfaceData.vertices, surfaceData.faces);
+export function buildSurfaceMesh(surfaceData, vertexColours) {
+  const geometry = buildSurfaceGeometry(surfaceData.vertices, surfaceData.faces, vertexColours);
+  const hasVertexColours = geometry.hasAttribute("color");
 
-  // 8.13 会议关键结论：MXRAP 里所有表面必须双面可见（不做背面剔除）
-  // Key finding from 8.13 meeting: MXRAP surfaces must always render
-  // from both sides (no back-face culling), because engineers need to
-  // inspect the model from any camera angle.
-  //
-  // 关于颜色 / About color:
-  // 目前先用简单的纯色材质占位。真正的"颜色渐变条插值"（color ramp
-  // interpolation）需要自定义 shader，属于后续 Warson 的任务
-  // (07.09 "Implement color interpolation")，这里先不实现，
-  // 但保留了 surfaceData.color 作为占位的输入通道。
+  // Preserve colours already supplied by Development's
+  // vertexColours pipeline. Do not overwrite them.
+  let usesVertexColours = Boolean(
+    geometry.getAttribute("color")
+  );
+
+  // Fallback: resolve colours from the surface's raw CSV
+  // attributes when no colour attribute has been supplied.
+  if (!usesVertexColours) {
+    const rows =
+      surfaceData.vertexAttributes ?? surfaceData.vertices;
+
+    const marker = resolveColourMarker({
+      ...surfaceData,
+      points: rows,
+    });
+
+    if (marker?.valid) {
+      const colours = new Float32Array(
+        surfaceData.vertices.length * 4
+      );
+
+      const linear = new THREE.Color();
+
+      surfaceData.vertices.forEach((_, index) => {
+        const colour = mapColour(
+          rows[index]?.[marker.input],
+          marker
+        );
+
+        // Convert display sRGB to linear RGB.
+        linear.setRGB(
+          colour.r,
+          colour.g,
+          colour.b,
+          THREE.SRGBColorSpace
+        );
+
+        const alpha = Number.isFinite(colour.a)
+          ? Math.max(0, Math.min(1, colour.a))
+          : 1;
+
+        colours.set(
+          [linear.r, linear.g, linear.b, alpha],
+          index * 4
+        );
+      });
+
+      geometry.setAttribute(
+        "color",
+        new THREE.BufferAttribute(colours, 4)
+      );
+
+      usesVertexColours = true;
+    }
+  }
+
+  // Check for transparency in either colour pipeline.
+  let transparent = false;
+
+  const colourAttribute = geometry.getAttribute("color");
+
+  if (colourAttribute?.itemSize === 4) {
+    for (let i = 0; i < colourAttribute.count; i++) {
+      if (colourAttribute.getW(i) < 1) {
+        transparent = true;
+        break;
+      }
+    }
+  }
+
+  // Create the final surface material.
   const material = new THREE.MeshStandardMaterial({
-    color: surfaceData.color ?? 0x4f8ef7,
-    side: THREE.DoubleSide, // 关键设置：双面渲染
-  });
+    color: usesVertexColours
+      ? 0xffffff
+      : surfaceData.color ?? 0x4f8ef7,
 
-  return new THREE.Mesh(geometry, material);
+    vertexColors: usesVertexColours,
+
+    transparent,
+    depthWrite: !transparent,
+
+    // Mining surfaces must remain visible from both sides.
+    side: THREE.DoubleSide,
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.visible = surfaceData.visible !== false;
+  return mesh;
 }
