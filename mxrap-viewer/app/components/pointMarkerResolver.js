@@ -125,7 +125,17 @@ export function resolveMarkerRenderOptions(pointSeriesData) {
       ? (point) => {
           const value = point?.[colourMarker.input];
           const mapped = mapColour(value, colourMarker);
+          const symbolName = mapped.symbol
+            ?.split(/[\\/]/)
+            .pop()
+            ?.toLowerCase();
 
+          if (
+            symbolName &&
+            GENERIC_SPHERE_SYMBOLS.has(symbolName)
+          ) {
+            return null;
+          }
           // Unknown sensor configurations stay visible in their null colour
           // as dots, rather than the export's question-mark image.
           if (mapped.isNull && mapped.symbol?.toLowerCase() === "sphere-question.png") return null;
