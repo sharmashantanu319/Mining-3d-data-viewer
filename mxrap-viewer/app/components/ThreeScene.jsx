@@ -22,7 +22,9 @@ import * as THREE from "three";
 import { buildAnnotation, disposeAnnotation } from "./annotationsBuilder";
 import { buildSurfaceMesh } from "./geometryBuilder";
 import { buildPointCloud, getHardwarePointSizeRange } from "./pointsBuilder";
-import { resolveMarkerRenderOptions } from "./pointMarkerResolver";
+import {
+  resolveMarkerRenderOptions,
+} from "./pointMarkerResolver";
 import { resolveSurfaceVertexColours } from "./surfaceMarkerResolver";
 import {
   orthoParallelScaleFromCamera,
@@ -485,54 +487,92 @@ const ThreeScene = forwardRef(function ThreeScene(
     });
     meshesRef.current = meshes;
 
-    function createPointCloud(pointSeriesData) {
-      // Real marker-defs data (parsed from the export's markers.json) takes
-      // priority; mock scenes with no marker definitions fall back to the
-      // ml-based demo adapter.
-      const contentOptions =
-        resolveMarkerRenderOptions(pointSeriesData) ?? getDemoRenderOptions(pointSeriesData);
-      const renderOptions = {
-        ...contentOptions,
-        ...buildSharedPointSizing(currentPointSizing()),
-        markerDisplayScale: markerScaleRef.current,
-      };
-      if (!contentOptions.symbolFn) {
-        return buildPointCloud(pointSeriesData, renderOptions);
+function createPointCloud(pointSeriesData) {
+  const contentOptions =
+    resolveMarkerRenderOptions(pointSeriesData) ??
+    getDemoRenderOptions(pointSeriesData);
+
+  const renderOptions = {
+    ...contentOptions,
+    ...buildSharedPointSizing(currentPointSizing()),
+    markerDisplayScale: markerScaleRef.current,
+  };
+
+  // Seismic Events using the magnitude sphere style
+  // are rendered as procedurally shaded spheres.
+  if (contentOptions.renderAsShadedSphere) {
+    return buildPointCloud(
+      pointSeriesData,
+      {
+        ...renderOptions,
+        pointTexture: null,
+        renderAsShadedSphere: true,
       }
+    );
+  }
 
-      const batches = new Map();
-      for (const point of pointSeriesData.points ?? []) {
-        const symbol = contentOptions.symbolFn(point);
-        if (pointSeriesData.name === "Sensors") {
-            console.log({
-                configuration: point.Configuration,
-                selectedSymbol: symbol,
-                imageFound: Boolean(
-                    contentOptions.symbolAssets?.[symbol]
-                )
-            });
-        }
+  // No symbol mapping: render as normal points.
+  if (!contentOptions.symbolFn) {
+    return buildPointCloud(
+      pointSeriesData,
+      renderOptions
+    );
+  }
 
+  // Symbol-based series such as Sensors are grouped
+  // by texture.
+  const batches = new Map();
 
+  for (const point of pointSeriesData.points ?? []) {
+    const symbol =
+      contentOptions.symbolFn(point);
 
-        const dataUrl = symbol ? contentOptions.symbolAssets?.[symbol] : null;
-        const batchKey = dataUrl ?? "__circle_fallback__";
-        if (!batches.has(batchKey)) batches.set(batchKey, { dataUrl, points: [] });
-        batches.get(batchKey).points.push(point);
-      }
+    const dataUrl =
+      symbol
+        ? contentOptions.symbolAssets?.[symbol]
+        : null;
 
-      const group = new THREE.Group();
-      for (const batch of batches.values()) {
-        const pointTexture = getSymbolTexture(batch.dataUrl);
-        const points = buildPointCloud(
-          { ...pointSeriesData, points: batch.points },
-          { ...renderOptions, pointTexture }
-        );
-        group.add(points);
-      }
-      group.userData.symbolBatchCount = batches.size;
-      return group;
+    const batchKey =
+      dataUrl ?? "__no_texture__";
+
+    if (!batches.has(batchKey)) {
+      batches.set(batchKey, {
+        dataUrl,
+        points: [],
+      });
     }
+
+    batches.get(batchKey).points.push(point);
+  }
+
+  const group = new THREE.Group();
+
+  for (const batch of batches.values()) {
+    const pointTexture =
+      batch.dataUrl
+        ? getSymbolTexture(batch.dataUrl)
+        : null;
+
+    const points = buildPointCloud(
+      {
+        ...pointSeriesData,
+        points: batch.points,
+      },
+      {
+        ...renderOptions,
+        pointTexture,
+        tintTextureWithVertexColor: false,
+      }
+    );
+
+    group.add(points);
+  }
+
+  group.userData.symbolBatchCount =
+    batches.size;
+
+  return group;
+}
 
     function forEachPointObject(object, callback) {
       object?.traverse((child) => {

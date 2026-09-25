@@ -59,12 +59,6 @@ export function normalizeSizeMarker(markerDef, series, opts = {}) {
       message: "sizeMinimum / sizeMaximum must be finite numbers.",
       context: { sizeMinimum: s.sizeMinimum, sizeMaximum: s.sizeMaximum },
     });
-  } else if (sizeMinimum > sizeMaximum) {
-    warnings.push({
-      code: "output-size-reordered",
-      message: `sizeMinimum (${sizeMinimum}) is greater than sizeMaximum (${sizeMaximum}); swapped.`,
-    });
-    [sizeMinimum, sizeMaximum] = [sizeMaximum, sizeMinimum];
   }
 
   const midpointSize =
