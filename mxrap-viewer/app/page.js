@@ -3,12 +3,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import ThreeScene from "./components/ThreeScene";
 import Header from "./components/Header";
-import { LeftSidebar } from "./components/LeftSidebar";
+import { LeftSidebar, ANNOTATION_FONT_CHOICES } from "./components/LeftSidebar";
 import { RightPanel } from "./components/RightPanel";
 import { StatusBar } from "./components/StatusBar";
 import { mockScenes } from "./components/mockScenes";
 import { validateExportFile } from "./components/validateExportFile";
 import { parseExportFile } from "./components/parseExportFile";
+import { resolveLabelStyle, BARE_TEXT_COLOR } from "./components/annotationsBuilder";
 import {
   applyFiltersWithStats,
   applyNullVisibility,
@@ -98,6 +99,28 @@ export default function Home() {
     invalidCount: 0,
   };
 
+  // What the swatches show when "Custom" is off: the colour actually drawn
+  // for the first labelled annotation, matching resolveLabelStyle's own
+  // precedence rather than an arbitrary hard-coded value.
+  const firstAnnotationWithText = useMemo(
+    () => currentScene.annotations?.find((annotation) => annotation?.text) ?? null,
+    [currentScene]
+  );
+  const defaultLabelStyle = useMemo(
+    () => resolveLabelStyle(firstAnnotationWithText ?? {}, {}),
+    [firstAnnotationWithText]
+  );
+
+  function handleAnnotationBackgroundColorChange(value) {
+    setAnnotationBackgroundColor(value);
+    // A custom dark card behind the export's default black text is
+    // unreadable, so seed a contrasting text colour the first time a custom
+    // background is turned on (only if the user hasn't already customised it).
+    if (value && !annotationTextColor) {
+      setAnnotationTextColor(BARE_TEXT_COLOR);
+    }
+  }
+
   const renderedPointClouds = useMemo(
     () => applyMarkerSelections(visiblePointClouds, markerSelections),
     [visiblePointClouds, markerSelections]
@@ -183,9 +206,16 @@ export default function Home() {
     if (typeof session.rightOpen === "boolean") setRightOpen(session.rightOpen);
     if (typeof session.annotationsVisible === "boolean") setAnnotationsVisible(session.annotationsVisible);
     if (Number.isFinite(session.annotationScale)) setAnnotationScale(session.annotationScale);
-    if (typeof session.annotationFont === "string" || session.annotationFont === null) setAnnotationFont(session.annotationFont);
-    if (typeof session.annotationTextColor === "string" || session.annotationTextColor === null) setAnnotationTextColor(session.annotationTextColor);
-    if (typeof session.annotationBackgroundColor === "string" || session.annotationBackgroundColor === null) setAnnotationBackgroundColor(session.annotationBackgroundColor);
+    if (session.annotationFont === null || ANNOTATION_FONT_CHOICES.some((choice) => choice.value === session.annotationFont)) {
+      setAnnotationFont(session.annotationFont || null);
+    }
+    const COLOR_RE = /^#[0-9a-f]{6}$/i;
+    if (session.annotationTextColor === null || COLOR_RE.test(session.annotationTextColor)) {
+      setAnnotationTextColor(session.annotationTextColor);
+    }
+    if (session.annotationBackgroundColor === null || COLOR_RE.test(session.annotationBackgroundColor)) {
+      setAnnotationBackgroundColor(session.annotationBackgroundColor);
+    }
     if (session.projectionMode) setProjectionMode(session.projectionMode);
     if (session.camera) pendingCameraRestoreRef.current = session.camera;
     setRestoreBanner(null);
@@ -464,8 +494,10 @@ export default function Home() {
           onAnnotationFontChange={setAnnotationFont}
           annotationTextColor={annotationTextColor}
           onAnnotationTextColorChange={setAnnotationTextColor}
+          annotationTextColorFallback={defaultLabelStyle.textColor}
           annotationBackgroundColor={annotationBackgroundColor}
-          onAnnotationBackgroundColorChange={setAnnotationBackgroundColor}
+          onAnnotationBackgroundColorChange={handleAnnotationBackgroundColorChange}
+          annotationBackgroundColorFallback={defaultLabelStyle.backgroundColor ?? "#1f2a27"}
           hasNullVisibility={Boolean(colourMarkerInput(pointSeries[safeSelectedSeries]))}
           showNulls={
             nullVisibility[safeSelectedSeries] ?? pointSeries[safeSelectedSeries]?.showNullColours !== false

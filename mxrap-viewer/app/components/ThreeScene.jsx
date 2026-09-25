@@ -19,7 +19,7 @@
 
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import * as THREE from "three";
-import { buildAnnotation, disposeAnnotation } from "./annotationsBuilder";
+import { buildAnnotation, disposeAnnotation, resolveLabelFont } from "./annotationsBuilder";
 import { buildSurfaceMesh } from "./geometryBuilder";
 import { buildPointCloud, getHardwarePointSizeRange } from "./pointsBuilder";
 import {
@@ -174,6 +174,17 @@ function applyAnnotationScale(object, factor) {
   }
 }
 
+// Shared between the initial scene build and the style-override rebuild
+// effect so the filter/build/baseScale logic only lives in one place.
+function buildAnnotationObjects(sceneData, style) {
+  return (sceneData.annotations ?? [])
+    .filter((annotationData) => annotationData?.text)
+    .map((annotationData) => ({
+      object: buildAnnotation(annotationData, style),
+      baseScale: Number.isFinite(annotationData.scale) ? annotationData.scale : 10,
+    }));
+}
+
 const ThreeScene = forwardRef(function ThreeScene(
   {
     sceneData,
@@ -208,8 +219,10 @@ const ThreeScene = forwardRef(function ThreeScene(
   const annotationsRef = useRef([]);
   const annotationSettingsRef = useRef({ annotationsVisible, annotationScale });
   annotationSettingsRef.current = { annotationsVisible, annotationScale };
-  const annotationStyleRef = useRef({ font: annotationFont, textColor: annotationTextColor, backgroundColor: annotationBackgroundColor });
-  annotationStyleRef.current = { font: annotationFont, textColor: annotationTextColor, backgroundColor: annotationBackgroundColor };
+  // `annotationFont` is a font-family string (e.g. from ANNOTATION_FONT_CHOICES);
+  // annotationsBuilder combines it with each annotation's own size/weight.
+  const annotationStyleRef = useRef({ fontFamily: annotationFont, textColor: annotationTextColor, backgroundColor: annotationBackgroundColor });
+  annotationStyleRef.current = { fontFamily: annotationFont, textColor: annotationTextColor, backgroundColor: annotationBackgroundColor };
   const onCameraChangeRef = useRef(onCameraChange);
   onCameraChangeRef.current = onCameraChange;
   const pointCallbacksRef = useRef({ onPointHover, onPointSelect });
@@ -228,30 +241,40 @@ const ThreeScene = forwardRef(function ThreeScene(
   // Font/colour overrides change what's painted onto each label's canvas
   // (and, for fonts, its measured size), so the labels are rebuilt from
   // scratch rather than patched in place — same annotationsBuilder helpers
-  // the initial scene build uses, just re-run with the new style.
+  // the initial scene build uses, just re-run with the new style. Debounced
+  // (a colour <input type="color"> fires onChange continuously while
+  // dragging) and gated on the fonts actually being loaded, since a canvas
+  // draws with whatever font is available *now* and never gets repainted.
   useEffect(() => {
     const scene = sceneRef.current;
     if (!scene) return;
-    const style = annotationStyleRef.current;
-    const nextAnnotations = (sceneData.annotations ?? [])
-      .filter((annotationData) => annotationData?.text)
-      .map((annotationData) => {
-        const annotation = buildAnnotation(annotationData, style);
-        return {
-          object: annotation,
-          baseScale: Number.isFinite(annotationData.scale) ? annotationData.scale : 10,
-        };
+    let cancelled = false;
+    const timeoutId = setTimeout(() => {
+      const style = annotationStyleRef.current;
+      const fonts = new Set(
+        (sceneData.annotations ?? [])
+          .filter((annotationData) => annotationData?.text)
+          .map((annotationData) => resolveLabelFont(annotationData, style.fontFamily))
+      );
+      Promise.all([...fonts].map((font) => document.fonts?.load(font).catch(() => {}))).then(() => {
+        if (cancelled || sceneRef.current !== scene) return;
+        const nextAnnotations = buildAnnotationObjects(sceneData, style);
+        annotationsRef.current.forEach(({ object }) => {
+          scene.remove(object);
+          disposeAnnotation(object);
+        });
+        nextAnnotations.forEach(({ object }) => scene.add(object));
+        annotationsRef.current = nextAnnotations;
+        annotationsRef.current.forEach(({ object, baseScale }) => {
+          object.visible = annotationSettingsRef.current.annotationsVisible;
+          applyAnnotationScale(object, baseScale * annotationSettingsRef.current.annotationScale);
+        });
       });
-    annotationsRef.current.forEach(({ object }) => {
-      scene.remove(object);
-      disposeAnnotation(object);
-    });
-    nextAnnotations.forEach(({ object }) => scene.add(object));
-    annotationsRef.current = nextAnnotations;
-    annotationsRef.current.forEach(({ object, baseScale }) => {
-      object.visible = annotationSettingsRef.current.annotationsVisible;
-      applyAnnotationScale(object, baseScale * annotationSettingsRef.current.annotationScale);
-    });
+    }, 150);
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [annotationFont, annotationTextColor, annotationBackgroundColor]);
 
@@ -729,16 +752,8 @@ function createPointCloud(pointSeriesData) {
     renderer.domElement.addEventListener("click", handleClick);
     syncSelectedHighlight(selectedPointRef.current);
 
-    const annotations = [];
-    (sceneData.annotations ?? []).forEach((annotationData) => {
-      if (!annotationData?.text) return;
-      const annotation = buildAnnotation(annotationData, annotationStyleRef.current);
-      scene.add(annotation);
-      annotations.push({
-        object: annotation,
-        baseScale: Number.isFinite(annotationData.scale) ? annotationData.scale : 10,
-      });
-    });
+    const annotations = buildAnnotationObjects(sceneData, annotationStyleRef.current);
+    annotations.forEach(({ object }) => scene.add(object));
     annotationsRef.current = annotations;
     annotationsRef.current.forEach(({ object, baseScale }) => {
       object.visible = annotationSettingsRef.current.annotationsVisible;

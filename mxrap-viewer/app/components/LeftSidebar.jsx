@@ -41,12 +41,15 @@ function summariseFilter(field, filter) {
   return `${Number(min).toLocaleString()} – ${Number(max).toLocaleString()}`;
 }
 
-const ANNOTATION_FONT_CHOICES = [
+// Values are font-family lists only (no size/weight) — annotationsBuilder
+// keeps each annotation's own size/weight and swaps just the family, so
+// picking a font doesn't silently override the export's sizing.
+export const ANNOTATION_FONT_CHOICES = [
   { label: "Default (from data)", value: "" },
-  { label: "Sans-serif (Inter)", value: "600 24px Inter, system-ui, Arial, sans-serif" },
-  { label: "Serif (Georgia)", value: "600 24px Georgia, 'Times New Roman', serif" },
-  { label: "Monospace (Courier)", value: "600 24px 'Courier New', monospace" },
-  { label: "Handwritten (Comic Sans)", value: "600 24px 'Comic Sans MS', cursive" },
+  { label: "Sans-serif (Inter)", value: "Inter, system-ui, Arial, sans-serif" },
+  { label: "Serif (Georgia)", value: "Georgia, 'Times New Roman', serif" },
+  { label: "Monospace (Courier New)", value: "'Courier New', monospace" },
+  { label: "Handwritten (Comic Sans, if installed)", value: "'Comic Sans MS', cursive" },
 ];
 
 // A labelled colour override with a checkbox to switch between "use the
@@ -70,6 +73,7 @@ function ColourOverrideRow({ label, value, onChange, fallback, ariaLabel }) {
             type="checkbox"
             checked={Boolean(value)}
             onChange={(e) => onChange(e.target.checked ? (value ?? fallback) : null)}
+            aria-label={`${ariaLabel} override`}
           />
           Custom
         </label>
@@ -117,8 +121,10 @@ export function LeftSidebar({
   onAnnotationFontChange,
   annotationTextColor,
   onAnnotationTextColorChange,
+  annotationTextColorFallback,
   annotationBackgroundColor,
   onAnnotationBackgroundColorChange,
+  annotationBackgroundColorFallback,
   hasNullVisibility,
   showNulls,
   onShowNullsChange,
@@ -390,14 +396,14 @@ export function LeftSidebar({
                 label="Text colour"
                 value={annotationTextColor}
                 onChange={onAnnotationTextColorChange}
-                fallback="#e7ecea"
+                fallback={annotationTextColorFallback}
                 ariaLabel="Annotation text colour"
               />
               <ColourOverrideRow
                 label="Background colour"
                 value={annotationBackgroundColor}
                 onChange={onAnnotationBackgroundColorChange}
-                fallback="#1f2a27"
+                fallback={annotationBackgroundColorFallback}
                 ariaLabel="Annotation background colour"
               />
               {hasNullVisibility && (
