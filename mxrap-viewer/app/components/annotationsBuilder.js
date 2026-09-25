@@ -21,10 +21,14 @@ function finiteOr(value, fallback) {
   return Number.isFinite(value) ? value : fallback;
 }
 
-function createLabelTexture(annotation) {
+function createLabelTexture(annotation, style = {}) {
   const text = stripMarkup(annotation.text ?? "");
-  const font = annotation.font ?? DEFAULT_FONT;
-  const hasBackground = annotation.background != null;
+  const font = style.font ?? annotation.font ?? DEFAULT_FONT;
+  // A style override of "" (cleared by the user) means "no background",
+  // distinct from an override left unset (undefined), which falls back to
+  // the annotation's own background.
+  const background = style.backgroundColor !== undefined ? style.backgroundColor || null : annotation.background;
+  const hasBackground = background != null;
   const padding = finiteOr(annotation.padding, hasBackground ? 12 : BARE_TEXT_OUTLINE_WIDTH);
   const borderRadius = finiteOr(annotation.borderRadius, 8);
   const canvas = document.createElement("canvas");
@@ -39,7 +43,7 @@ function createLabelTexture(annotation) {
   context.textBaseline = "middle";
 
   if (hasBackground) {
-    context.fillStyle = annotation.background;
+    context.fillStyle = background;
     context.beginPath();
     context.roundRect(0, 0, canvas.width, canvas.height, borderRadius);
     context.fill();
@@ -48,7 +52,7 @@ function createLabelTexture(annotation) {
     context.lineWidth = finiteOr(annotation.borderWidth, DEFAULT_BORDER_WIDTH);
     context.stroke();
 
-    context.fillStyle = annotation.color ?? DEFAULT_TEXT_COLOR;
+    context.fillStyle = style.textColor ?? annotation.color ?? DEFAULT_TEXT_COLOR;
     context.fillText(text, padding, canvas.height / 2);
   } else {
     context.lineJoin = "round";
@@ -57,7 +61,7 @@ function createLabelTexture(annotation) {
     context.lineWidth = finiteOr(annotation.borderWidth, BARE_TEXT_OUTLINE_WIDTH);
     context.strokeText(text, padding, canvas.height / 2);
 
-    context.fillStyle = annotation.color ?? BARE_TEXT_COLOR;
+    context.fillStyle = style.textColor ?? annotation.color ?? BARE_TEXT_COLOR;
     context.fillText(text, padding, canvas.height / 2);
   }
 
@@ -72,9 +76,13 @@ function createLabelTexture(annotation) {
  * 2D labels and 3D face-camera labels use sprites. Fixed-orientation 3D text
  * uses a plane whose local XY orientation matches the customer's convention:
  * it starts flat on XY, with the front facing +Z and the text top toward +Y.
+ *
+ * `style` carries viewer-wide appearance overrides (font, textColor,
+ * backgroundColor) set by the user via the Annotations panel; any left
+ * unset fall back to the annotation's own values from the export.
  */
-export function buildAnnotation(annotation) {
-  const { texture, width, height } = createLabelTexture(annotation);
+export function buildAnnotation(annotation, style = {}) {
+  const { texture, width, height } = createLabelTexture(annotation, style);
   const scale = finiteOr(annotation.scale, 10);
   const isOverlay = annotation.render2d === true;
   const faceCamera = annotation.faceCamera === true;

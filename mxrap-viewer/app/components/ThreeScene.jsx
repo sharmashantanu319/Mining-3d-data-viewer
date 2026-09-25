@@ -181,6 +181,9 @@ const ThreeScene = forwardRef(function ThreeScene(
     projectionMode = "perspective",
     annotationsVisible = true,
     annotationScale = 1,
+    annotationFont = null,
+    annotationTextColor = null,
+    annotationBackgroundColor = null,
     markerScale = 0.5,
     onCameraChange = null,
     selectedPoint = null,
@@ -205,6 +208,8 @@ const ThreeScene = forwardRef(function ThreeScene(
   const annotationsRef = useRef([]);
   const annotationSettingsRef = useRef({ annotationsVisible, annotationScale });
   annotationSettingsRef.current = { annotationsVisible, annotationScale };
+  const annotationStyleRef = useRef({ font: annotationFont, textColor: annotationTextColor, backgroundColor: annotationBackgroundColor });
+  annotationStyleRef.current = { font: annotationFont, textColor: annotationTextColor, backgroundColor: annotationBackgroundColor };
   const onCameraChangeRef = useRef(onCameraChange);
   onCameraChangeRef.current = onCameraChange;
   const pointCallbacksRef = useRef({ onPointHover, onPointSelect });
@@ -219,6 +224,36 @@ const ThreeScene = forwardRef(function ThreeScene(
       applyAnnotationScale(object, baseScale * annotationScale);
     });
   }, [annotationsVisible, annotationScale]);
+
+  // Font/colour overrides change what's painted onto each label's canvas
+  // (and, for fonts, its measured size), so the labels are rebuilt from
+  // scratch rather than patched in place — same annotationsBuilder helpers
+  // the initial scene build uses, just re-run with the new style.
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    const style = annotationStyleRef.current;
+    const nextAnnotations = (sceneData.annotations ?? [])
+      .filter((annotationData) => annotationData?.text)
+      .map((annotationData) => {
+        const annotation = buildAnnotation(annotationData, style);
+        return {
+          object: annotation,
+          baseScale: Number.isFinite(annotationData.scale) ? annotationData.scale : 10,
+        };
+      });
+    annotationsRef.current.forEach(({ object }) => {
+      scene.remove(object);
+      disposeAnnotation(object);
+    });
+    nextAnnotations.forEach(({ object }) => scene.add(object));
+    annotationsRef.current = nextAnnotations;
+    annotationsRef.current.forEach(({ object, baseScale }) => {
+      object.visible = annotationSettingsRef.current.annotationsVisible;
+      applyAnnotationScale(object, baseScale * annotationSettingsRef.current.annotationScale);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [annotationFont, annotationTextColor, annotationBackgroundColor]);
 
   // Bounding box of the currently rendered point clouds and surfaces (not
   // the annotations, rings, or axes helper), used by fitScene()/
@@ -697,7 +732,7 @@ function createPointCloud(pointSeriesData) {
     const annotations = [];
     (sceneData.annotations ?? []).forEach((annotationData) => {
       if (!annotationData?.text) return;
-      const annotation = buildAnnotation(annotationData);
+      const annotation = buildAnnotation(annotationData, annotationStyleRef.current);
       scene.add(annotation);
       annotations.push({
         object: annotation,

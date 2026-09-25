@@ -38,6 +38,9 @@ export default function Home() {
   const [nullVisibility, setNullVisibility] = useState({});
   const [annotationsVisible, setAnnotationsVisible] = useState(true);
   const [annotationScale, setAnnotationScale] = useState(1);
+  const [annotationFont, setAnnotationFont] = useState(null);
+  const [annotationTextColor, setAnnotationTextColor] = useState(null);
+  const [annotationBackgroundColor, setAnnotationBackgroundColor] = useState(null);
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
   const [markerSelections, setMarkerSelections] = useState({});
@@ -126,6 +129,9 @@ export default function Home() {
         rightOpen,
         annotationsVisible,
         annotationScale,
+        annotationFont,
+        annotationTextColor,
+        annotationBackgroundColor,
         projectionMode,
         camera: cameraStateRef.current,
       });
@@ -150,6 +156,9 @@ export default function Home() {
     rightOpen,
     annotationsVisible,
     annotationScale,
+    annotationFont,
+    annotationTextColor,
+    annotationBackgroundColor,
     projectionMode,
   ]);
 
@@ -174,6 +183,9 @@ export default function Home() {
     if (typeof session.rightOpen === "boolean") setRightOpen(session.rightOpen);
     if (typeof session.annotationsVisible === "boolean") setAnnotationsVisible(session.annotationsVisible);
     if (Number.isFinite(session.annotationScale)) setAnnotationScale(session.annotationScale);
+    if (typeof session.annotationFont === "string" || session.annotationFont === null) setAnnotationFont(session.annotationFont);
+    if (typeof session.annotationTextColor === "string" || session.annotationTextColor === null) setAnnotationTextColor(session.annotationTextColor);
+    if (typeof session.annotationBackgroundColor === "string" || session.annotationBackgroundColor === null) setAnnotationBackgroundColor(session.annotationBackgroundColor);
     if (session.projectionMode) setProjectionMode(session.projectionMode);
     if (session.camera) pendingCameraRestoreRef.current = session.camera;
     setRestoreBanner(null);
@@ -448,6 +460,12 @@ export default function Home() {
           onAnnotScaleChange={setAnnotationScale}
           annotationsVisible={annotationsVisible}
           onAnnotationsVisibleChange={() => setAnnotationsVisible((v) => !v)}
+          annotationFont={annotationFont}
+          onAnnotationFontChange={setAnnotationFont}
+          annotationTextColor={annotationTextColor}
+          onAnnotationTextColorChange={setAnnotationTextColor}
+          annotationBackgroundColor={annotationBackgroundColor}
+          onAnnotationBackgroundColorChange={setAnnotationBackgroundColor}
           hasNullVisibility={Boolean(colourMarkerInput(pointSeries[safeSelectedSeries]))}
           showNulls={
             nullVisibility[safeSelectedSeries] ?? pointSeries[safeSelectedSeries]?.showNullColours !== false
@@ -471,6 +489,9 @@ export default function Home() {
             projectionMode={projectionMode}
             annotationsVisible={annotationsVisible}
             annotationScale={annotationScale}
+            annotationFont={annotationFont}
+            annotationTextColor={annotationTextColor}
+            annotationBackgroundColor={annotationBackgroundColor}
             markerScale={markerScale}
             onCameraChange={(state) => {
               cameraStateRef.current = state;
