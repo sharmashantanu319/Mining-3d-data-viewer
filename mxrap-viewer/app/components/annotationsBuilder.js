@@ -5,8 +5,7 @@ const DEFAULT_BORDER_COLOR = "#000000";
 const DEFAULT_BORDER_WIDTH = 3;
 const DEFAULT_FONT_WEIGHT = "600";
 const DEFAULT_FONT_SIZE = "24px";
-const DEFAULT_FONT_FAMILY = "Inter, system-ui, Arial, sans-serif";
-const DEFAULT_FONT = `${DEFAULT_FONT_WEIGHT} ${DEFAULT_FONT_SIZE} ${DEFAULT_FONT_FAMILY}`;
+const DEFAULT_FONT = `${DEFAULT_FONT_WEIGHT} ${DEFAULT_FONT_SIZE} Inter, system-ui, Arial, sans-serif`;
 
 // Used when an annotation has no explicit background — no card behind the
 // text, just a light label with a dark outline so it reads against any
@@ -16,7 +15,11 @@ export const BARE_TEXT_COLOR = "#E7ECEA";
 const BARE_TEXT_OUTLINE_COLOR = "rgba(9, 13, 11, 0.9)";
 const BARE_TEXT_OUTLINE_WIDTH = 4;
 
-const FONT_SHORTHAND_RE = /^(\S+)\s+(\d+(?:\.\d+)?px)\s+(.+)$/;
+// Splits a CSS font shorthand at its size token: everything up to and
+// including "<n>px" (plus an optional "/line-height") is the style/weight/size
+// prefix, everything after is the family list. Handles "600 24px Inter",
+// "italic bold 20px Arial", "20px Arial" and "bold 20px/1.2 Arial".
+const FONT_SHORTHAND_RE = /^(.*?\b\d+(?:\.\d+)?px(?:\/\S+)?)\s+(.+)$/;
 
 function stripMarkup(text) {
   return String(text).replace(/<[^>]*>/g, "");
@@ -26,22 +29,16 @@ function finiteOr(value, fallback) {
   return Number.isFinite(value) ? value : fallback;
 }
 
-// Splits a CSS font shorthand (as used in the export and DEFAULT_FONT) into
-// its weight/size/family parts so a font-family override can swap the
-// family alone without silently overriding the export's own size/weight.
-function splitFont(fontString) {
-  const match = FONT_SHORTHAND_RE.exec(fontString ?? "");
-  if (!match) return { weight: DEFAULT_FONT_WEIGHT, size: DEFAULT_FONT_SIZE, family: DEFAULT_FONT_FAMILY };
-  const [, weight, size, family] = match;
-  return { weight, size, family };
-}
-
-// The font actually painted onto a label's canvas: the annotation's own
-// weight/size (or the defaults), with only the family swappable via
-// `fontFamilyOverride` (the viewer-wide font picker).
+// The font actually painted onto a label's canvas. Without an override the
+// annotation's own font is used verbatim (so any valid CSS shorthand from the
+// export survives); with a family override (the viewer-wide font picker) only
+// the family is swapped, keeping the annotation's own style/weight/size.
 export function resolveLabelFont(annotation, fontFamilyOverride) {
-  const { weight, size, family } = splitFont(annotation.font ?? DEFAULT_FONT);
-  return `${weight} ${size} ${fontFamilyOverride ?? family}`;
+  const ownFont = annotation.font || DEFAULT_FONT;
+  if (!fontFamilyOverride) return ownFont;
+  const match = FONT_SHORTHAND_RE.exec(ownFont);
+  const prefix = match ? match[1] : `${DEFAULT_FONT_WEIGHT} ${DEFAULT_FONT_SIZE}`;
+  return `${prefix} ${fontFamilyOverride}`;
 }
 
 /**
@@ -53,11 +50,11 @@ export function resolveLabelFont(annotation, fontFamilyOverride) {
  */
 export function resolveLabelStyle(annotation, style = {}) {
   const font = resolveLabelFont(annotation, style.fontFamily);
-  // A style override of "" (cleared by the user) means "no background",
-  // distinct from an override left unset (undefined), which falls back to
-  // the annotation's own background.
+  // An override that is unset (undefined or null — the viewer's default
+  // state) falls back to the annotation's own background; an explicit ""
+  // means "no background".
   const backgroundColor =
-    style.backgroundColor !== undefined ? style.backgroundColor || null : annotation.background ?? null;
+    style.backgroundColor == null ? annotation.background ?? null : style.backgroundColor || null;
   const hasBackground = backgroundColor != null;
   const textColor = style.textColor ?? annotation.color ?? (hasBackground ? DEFAULT_TEXT_COLOR : BARE_TEXT_COLOR);
   const borderColor = annotation.borderColor ?? (hasBackground ? DEFAULT_BORDER_COLOR : BARE_TEXT_OUTLINE_COLOR);
@@ -176,4 +173,14 @@ export function disposeAnnotation(sprite) {
   if (!(sprite instanceof THREE.Sprite)) {
     sprite.geometry?.dispose();
   }
+}
+
+// Removes and disposes a list of `{ object }` annotation entries (the shape
+// ThreeScene keeps in annotationsRef). Shared by the style-rebuild effect and
+// the scene teardown so both release exactly the labels currently in the scene.
+export function disposeAnnotations(entries, scene = null) {
+  (entries ?? []).forEach(({ object }) => {
+    scene?.remove(object);
+    disposeAnnotation(object);
+  });
 }

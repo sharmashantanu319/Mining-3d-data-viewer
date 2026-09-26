@@ -6,6 +6,7 @@ import {
   IconSurface, IconDot, IconTag, IconSettings,
 } from "./icons";
 import { createCategoryFilter, createRangeFilter } from "./dataFilters";
+import { ANNOTATION_FONT_CHOICES } from "./annotationStyleOptions";
 
 function toDateInput(epoch) {
   if (!Number.isFinite(epoch)) return "";
@@ -40,17 +41,6 @@ function summariseFilter(field, filter) {
   const max = filter.max ?? field?.max;
   return `${Number(min).toLocaleString()} – ${Number(max).toLocaleString()}`;
 }
-
-// Values are font-family lists only (no size/weight) — annotationsBuilder
-// keeps each annotation's own size/weight and swaps just the family, so
-// picking a font doesn't silently override the export's sizing.
-export const ANNOTATION_FONT_CHOICES = [
-  { label: "Default (from data)", value: "" },
-  { label: "Sans-serif (Inter)", value: "Inter, system-ui, Arial, sans-serif" },
-  { label: "Serif (Georgia)", value: "Georgia, 'Times New Roman', serif" },
-  { label: "Monospace (Courier New)", value: "'Courier New', monospace" },
-  { label: "Handwritten (Comic Sans, if installed)", value: "'Comic Sans MS', cursive" },
-];
 
 // A labelled colour override with a checkbox to switch between "use the
 // export/theme default" (value === null, swatch disabled) and a custom
