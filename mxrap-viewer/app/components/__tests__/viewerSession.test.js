@@ -40,6 +40,17 @@ describe("saveSession / loadSession", () => {
     expect(loadSession(key)).toEqual({ sceneIndex: 1, projectionMode: "orthographic" });
   });
 
+  it("round-trips the annotation style overrides", () => {
+    const key = sessionKeyFor({ name: "export.zip", size: 1234 });
+    const session = {
+      annotationFont: "Georgia, 'Times New Roman', serif",
+      annotationTextColor: "#ffffff",
+      annotationBackgroundColor: null,
+    };
+    saveSession(key, session);
+    expect(loadSession(key)).toEqual(session);
+  });
+
   it("returns null when nothing has been saved for that key", () => {
     expect(loadSession(sessionKeyFor({ name: "other.zip", size: 1 }))).toBeNull();
   });
