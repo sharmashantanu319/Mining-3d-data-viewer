@@ -19,7 +19,7 @@
 
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import * as THREE from "three";
-import { buildAnnotation, disposeAnnotation, resolveLabelFont } from "./annotationsBuilder";
+import { buildAnnotation, disposeAnnotations, resolveLabelFont } from "./annotationsBuilder";
 import { buildSurfaceMesh } from "./geometryBuilder";
 import { buildPointCloud, getHardwarePointSizeRange } from "./pointsBuilder";
 import {
@@ -259,10 +259,7 @@ const ThreeScene = forwardRef(function ThreeScene(
       Promise.all([...fonts].map((font) => document.fonts?.load(font).catch(() => {}))).then(() => {
         if (cancelled || sceneRef.current !== scene) return;
         const nextAnnotations = buildAnnotationObjects(sceneData, style);
-        annotationsRef.current.forEach(({ object }) => {
-          scene.remove(object);
-          disposeAnnotation(object);
-        });
+        disposeAnnotations(annotationsRef.current, scene);
         nextAnnotations.forEach(({ object }) => scene.add(object));
         annotationsRef.current = nextAnnotations;
         annotationsRef.current.forEach(({ object, baseScale }) => {
@@ -828,7 +825,9 @@ function createPointCloud(pointSeriesData) {
         scene.remove(ring);
       });
 
-      annotations.forEach(({ object }) => disposeAnnotation(object));
+      // Dispose whatever labels are in the scene now — after a style change
+      // that is the rebuilt set, not the array built when the scene was created.
+      disposeAnnotations(annotationsRef.current);
       annotationsRef.current = [];
 
       controls.removeEventListener("change", handleControlsChange);
