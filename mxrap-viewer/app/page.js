@@ -3,13 +3,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import ThreeScene from "./components/ThreeScene";
 import Header from "./components/Header";
-import { LeftSidebar, ANNOTATION_FONT_CHOICES } from "./components/LeftSidebar";
+import { LeftSidebar } from "./components/LeftSidebar";
 import { RightPanel } from "./components/RightPanel";
 import { StatusBar } from "./components/StatusBar";
 import { mockScenes } from "./components/mockScenes";
 import { validateExportFile } from "./components/validateExportFile";
 import { parseExportFile } from "./components/parseExportFile";
-import { resolveLabelStyle, BARE_TEXT_COLOR } from "./components/annotationsBuilder";
+import { resolveLabelStyle } from "./components/annotationsBuilder";
+import { pickReadableTextColour, toHexColour } from "./components/annotationStyleOptions";
 import {
   applyFiltersWithStats,
   applyNullVisibility,
@@ -19,7 +20,7 @@ import { buildColourLegend } from "./components/colourLegend";
 import { getMarkerChoices, applyMarkerSelections } from "./components/markerSelection";
 import { resolveMarkerRenderOptions } from "./components/pointMarkerResolver";
 import { IconFitView, IconPerspective, IconOrtho, IconRefresh } from "./components/icons";
-import { loadSession, saveSession, sessionKeyFor } from "./components/viewerSession";
+import { loadSession, saveSession, sanitizeAnnotationStyle, sessionKeyFor } from "./components/viewerSession";
 
 function colourMarkerInput(series) {
   if (!series?.colourMarker || !Array.isArray(series.markerDefinitions)) return null;
@@ -111,14 +112,35 @@ export default function Home() {
     [firstAnnotationWithText]
   );
 
+  // Whether the current custom text colour was filled in automatically when a
+  // custom background was chosen (as opposed to picked by the user). Only an
+  // auto-filled colour is re-evaluated as the background changes, and cleared
+  // again when the background override is turned off.
+  const textColourAutoSeededRef = useRef(false);
+
+  function handleAnnotationTextColorChange(value) {
+    textColourAutoSeededRef.current = false;
+    setAnnotationTextColor(value);
+  }
+
   function handleAnnotationBackgroundColorChange(value) {
     setAnnotationBackgroundColor(value);
-    // A custom dark card behind the export's default black text is
-    // unreadable, so seed a contrasting text colour the first time a custom
-    // background is turned on (only if the user hasn't already customised it).
-    if (value && !annotationTextColor) {
-      setAnnotationTextColor(BARE_TEXT_COLOR);
+    if (!value) {
+      if (textColourAutoSeededRef.current) {
+        textColourAutoSeededRef.current = false;
+        setAnnotationTextColor(null);
+      }
+      return;
     }
+    // A colour the user picked themselves is never touched.
+    if (annotationTextColor && !textColourAutoSeededRef.current) return;
+    // Otherwise make sure the label stays readable: seed a contrasting text
+    // colour only when the colour that would be drawn doesn't already read
+    // well on the new background (a light card behind the default light text
+    // is unreadable, but an export's own readable text colour should stay).
+    const seeded = pickReadableTextColour(value, defaultLabelStyle.textColor);
+    textColourAutoSeededRef.current = seeded !== null;
+    setAnnotationTextColor(seeded);
   }
 
   const renderedPointClouds = useMemo(
@@ -206,15 +228,12 @@ export default function Home() {
     if (typeof session.rightOpen === "boolean") setRightOpen(session.rightOpen);
     if (typeof session.annotationsVisible === "boolean") setAnnotationsVisible(session.annotationsVisible);
     if (Number.isFinite(session.annotationScale)) setAnnotationScale(session.annotationScale);
-    if (session.annotationFont === null || ANNOTATION_FONT_CHOICES.some((choice) => choice.value === session.annotationFont)) {
-      setAnnotationFont(session.annotationFont || null);
-    }
-    const COLOR_RE = /^#[0-9a-f]{6}$/i;
-    if (session.annotationTextColor === null || COLOR_RE.test(session.annotationTextColor)) {
-      setAnnotationTextColor(session.annotationTextColor);
-    }
-    if (session.annotationBackgroundColor === null || COLOR_RE.test(session.annotationBackgroundColor)) {
-      setAnnotationBackgroundColor(session.annotationBackgroundColor);
+    const annotationStyle = sanitizeAnnotationStyle(session);
+    textColourAutoSeededRef.current = false;
+    if ("annotationFont" in annotationStyle) setAnnotationFont(annotationStyle.annotationFont);
+    if ("annotationTextColor" in annotationStyle) setAnnotationTextColor(annotationStyle.annotationTextColor);
+    if ("annotationBackgroundColor" in annotationStyle) {
+      setAnnotationBackgroundColor(annotationStyle.annotationBackgroundColor);
     }
     if (session.projectionMode) setProjectionMode(session.projectionMode);
     if (session.camera) pendingCameraRestoreRef.current = session.camera;
@@ -493,11 +512,11 @@ export default function Home() {
           annotationFont={annotationFont}
           onAnnotationFontChange={setAnnotationFont}
           annotationTextColor={annotationTextColor}
-          onAnnotationTextColorChange={setAnnotationTextColor}
-          annotationTextColorFallback={defaultLabelStyle.textColor}
+          onAnnotationTextColorChange={handleAnnotationTextColorChange}
+          annotationTextColorFallback={toHexColour(defaultLabelStyle.textColor) ?? "#000000"}
           annotationBackgroundColor={annotationBackgroundColor}
           onAnnotationBackgroundColorChange={handleAnnotationBackgroundColorChange}
-          annotationBackgroundColorFallback={defaultLabelStyle.backgroundColor ?? "#1f2a27"}
+          annotationBackgroundColorFallback={toHexColour(defaultLabelStyle.backgroundColor) ?? "#1f2a27"}
           hasNullVisibility={Boolean(colourMarkerInput(pointSeries[safeSelectedSeries]))}
           showNulls={
             nullVisibility[safeSelectedSeries] ?? pointSeries[safeSelectedSeries]?.showNullColours !== false
