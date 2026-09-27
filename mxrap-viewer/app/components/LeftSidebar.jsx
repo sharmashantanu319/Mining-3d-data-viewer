@@ -98,10 +98,16 @@ export function LeftSidebar({
   sizeChoices,
   colourValue,
   sizeValue,
+  sizeMinValue,
+  sizeMaxValue,
+  invertSize,
   markerScale,
   onMarkerScaleChange,
   onColourChange,
   onSizeChange,
+  onSizeMinChange,
+  onSizeMaxChange,
+  onInvertSizeChange,
   resolvedSymbolLabel,
   annotScale,
   onAnnotScaleChange,
@@ -307,6 +313,42 @@ export function LeftSidebar({
                     <option key={choice.name} value={choice.name}>{choice.name}{choice.input ? ` · ${choice.input}` : ""}</option>
                   ))}
                 </select>
+              </div>
+              <div className="ctrl-row">
+                <span className="ctrl-label">Min size</span>
+                <input
+                  type="number"
+                  aria-label="Marker size at the low end of the range"
+                  min="0"
+                  step="0.5"
+                  value={Number.isNaN(sizeMinValue) ? "" : sizeMinValue}
+                  onChange={(e) => onSizeMinChange(e.target.value === "" ? NaN : Number(e.target.value))}
+                  style={{ width: 60 }}
+                />
+              </div>
+              <div className="ctrl-row">
+                <span className="ctrl-label">Max size</span>
+                <input
+                  type="number"
+                  aria-label="Marker size at the high end of the range"
+                  min="0"
+                  step="0.5"
+                  value={Number.isNaN(sizeMaxValue) ? "" : sizeMaxValue}
+                  onChange={(e) => onSizeMaxChange(e.target.value === "" ? NaN : Number(e.target.value))}
+                  style={{ width: 60 }}
+                />
+              </div>
+              <div className="ctrl-row" style={{ justifyContent: "space-between" }}>
+                <span className="ctrl-label">Invert size</span>
+                <label className="toggle">
+                  <input
+                    type="checkbox"
+                    aria-label="Invert size mapping (small values get the larger marker)"
+                    checked={invertSize}
+                    onChange={(e) => onInvertSizeChange(e.target.checked)}
+                  />
+                  <div className="toggle-track"><div className="toggle-thumb" /></div>
+                </label>
               </div>
               <label className="ctrl-row">
                 <span className="ctrl-label">Marker size</span>

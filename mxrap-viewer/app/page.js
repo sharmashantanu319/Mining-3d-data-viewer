@@ -360,6 +360,15 @@ export default function Home() {
   const sizeValue = Object.hasOwn(markerActiveSelection, "sizeMarker")
     ? markerActiveSelection.sizeMarker ?? ""
     : markerActiveSeries?.sizeMarker ?? "";
+  const sizeMinValue = Object.hasOwn(markerActiveSelection, "minSize")
+    ? markerActiveSelection.minSize
+    : (markerActiveSeries?.sizeMinimum ?? "");
+  const sizeMaxValue = Object.hasOwn(markerActiveSelection, "maxSize")
+    ? markerActiveSelection.maxSize
+    : (markerActiveSeries?.sizeMaximum ?? "");
+  const invertSize = Object.hasOwn(markerActiveSelection, "invertSize")
+    ? markerActiveSelection.invertSize === true
+    : false;
 
   const resolvedSymbolLabel = useMemo(() => {
     if (!markerActiveSeries) return null;
@@ -490,6 +499,9 @@ export default function Home() {
           sizeChoices={markerChoices.size}
           colourValue={colourValue}
           sizeValue={sizeValue}
+          sizeMinValue={sizeMinValue}
+          sizeMaxValue={sizeMaxValue}
+          invertSize={invertSize}
           markerScale={markerScale}
           onMarkerScaleChange={setMarkerScale}
           onColourChange={(value) =>
@@ -502,6 +514,24 @@ export default function Home() {
             setMarkerSelections((current) => ({
               ...current,
               [safeMarkerSeriesIndex]: { ...current[safeMarkerSeriesIndex], sizeMarker: value || null },
+            }))
+          }
+          onSizeMinChange={(value) =>
+            setMarkerSelections((current) => ({
+              ...current,
+              [safeMarkerSeriesIndex]: { ...current[safeMarkerSeriesIndex], minSize: value },
+            }))
+          }
+          onSizeMaxChange={(value) =>
+            setMarkerSelections((current) => ({
+              ...current,
+              [safeMarkerSeriesIndex]: { ...current[safeMarkerSeriesIndex], maxSize: value },
+            }))
+          }
+          onInvertSizeChange={(value) =>
+            setMarkerSelections((current) => ({
+              ...current,
+              [safeMarkerSeriesIndex]: { ...current[safeMarkerSeriesIndex], invertSize: value },
             }))
           }
           resolvedSymbolLabel={resolvedSymbolLabel}
