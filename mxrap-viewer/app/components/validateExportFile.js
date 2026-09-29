@@ -18,11 +18,14 @@
 // 2. 数据引用完整性（Data-reference）：surface/text 引用的 CSV 是否存在、
 //    能否解析，以及 surface faces / text coordinates 是否有效
 //
-// 范围说明 / Scope note: points/lines/chart remain outside this validator.
+// 范围说明 / Scope note: points/lines remain outside this validator. Chart
+// displays are checked at the series level (data/data-additional CSVs
+// exist, axis/filter columns are present) but not point-by-point.
 
 import JSZip from "jszip";
 import Papa from "papaparse";
 import { surfaceVertexErrors } from "./surfaceValidation";
+import { parseChartConfig } from "./parseChartConfig";
 
 /**
  * @typedef {{ valid: boolean, errors: string[] }} ValidationResult
@@ -103,8 +106,13 @@ export async function validateExportFile(file) {
             continue;
         }
 
+        if (config.type === "chart") {
+            errors.push(...await checkChartSeriesReferences(zip, config, folder, displayRoot));
+            continue;
+        }
+
         if (config.type !== "3dview") {
-            // chart 等非 3D 视图类型不在本次校验范围内
+            // 其他未知类型不在本次校验范围内
             continue;
         }
 
@@ -140,6 +148,49 @@ export async function validateExportFile(file) {
     }
 
     return { valid: errors.length === 0, errors };
+}
+
+/**
+ * 检查一个 chart display 的每个 series：data / data-additional 引用的 CSV
+ * 是否存在且能解析，以及 axisX/axisY 和 filter 用到的列名是否真的出现在
+ * 数据里。不逐行校验数值（那是解析阶段 chartData.js 的事），只确认这份
+ * chart 能被 parseExportFile.js 正常消费。
+ * @returns {Promise<string[]>}
+ */
+async function checkChartSeriesReferences(zip, config, folder, root) {
+    const chart = parseChartConfig(config, folder);
+    if (!chart) {
+        return [`"${folder}/config.json" is not a valid chart display.`];
+    }
+
+    const errors = [];
+    for (const series of chart.series) {
+        const seriesLabel = series.name ?? "unnamed series";
+
+        const primaryResult = await checkCsvExists(zip, series.data, `${folder} > ${seriesLabel} data`, root);
+        errors.push(...primaryResult.errors);
+
+        const additionalRowSamples = [];
+        for (const ref of series.dataAdditional) {
+            const result = await checkCsvExists(zip, ref, `${folder} > ${seriesLabel} data-additional (${ref})`, root);
+            errors.push(...result.errors);
+            if (result.rows) additionalRowSamples.push(result.rows[0]);
+        }
+
+        if (!primaryResult.rows) continue;
+
+        const rowSamples = [primaryResult.rows[0], ...additionalRowSamples];
+        for (const column of [series.axisX.column, series.axisY.column]) {
+            if (!rowSamples.some((row) => hasColumn([row], [column]))) {
+                errors.push(`${folder} > ${seriesLabel}: axis column "${column}" not found in its data.`);
+            }
+        }
+        if (series.filter && !rowSamples.some((row) => hasColumn([row], [series.filter]))) {
+            errors.push(`${folder} > ${seriesLabel}: filter column "${series.filter}" not found in its data.`);
+        }
+    }
+
+    return errors;
 }
 
 /**
