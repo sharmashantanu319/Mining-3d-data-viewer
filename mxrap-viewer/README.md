@@ -56,7 +56,7 @@ The modules below were designed and implemented by me. See the linked pull reque
 - **`app/components/validateExportFile.js`** — Validates an uploaded export file's structural completeness and data-reference integrity *before* parsing/rendering, collecting all issues into a single report. Originally implemented by me; since extended by teammates (annotation-rendering support, fixes per tickets #78–80).
   → PR #26: https://github.com/sharmashantanu319/Mining-3d-data-viewer/pull/26
 
-- **`test-data/test-export-big.zip`** — Synthetic test file I constructed matching the real export schema, for testing without needing the client's actual data.
+- **`test-data/test-export-big.zip`** — Test export matching the real export schema, generated with Claude's help and tested in the browser.
 
 ### Bugs found and fixed along the way
 
@@ -65,7 +65,7 @@ The modules below were designed and implemented by me. See the linked pull reque
 
 ### Testing
 
-During development, I verified `parseExportFile.js` and `validateExportFile.js` with standalone Node.js scripts against constructed test zip fixtures (six distinct cases for the validator: one valid file and five representing real-world failure modes) before integrating them into the app.
+During development I tested `parseExportFile.js` and `validateExportFile.js` in the browser using constructed test zip files (a valid file, plus files with a missing CSV and an invalid vertex reference).
 
 Formal unit tests for these modules (`app/components/__tests__/parseExportFile.test.js`, `validateExportFile.test.js`) were subsequently added by a teammate (Viktor) using Vitest:
 
