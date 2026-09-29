@@ -20,6 +20,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import * as THREE from "three";
 import { buildAnnotation, disposeAnnotations, resolveLabelFont } from "./annotationsBuilder";
+import { applyCameraState, snapshotCameraState } from "./cameraState";
 import { buildSurfaceMesh } from "./geometryBuilder";
 import { createOrientationGizmo, renderOrientationGizmo } from "./orientationGizmo";
 import { buildPointCloud, getHardwarePointSizeRange } from "./pointsBuilder";
@@ -315,28 +316,25 @@ const ThreeScene = forwardRef(function ThreeScene(
       cancelAnimationRef.current = animateCameraTo(camera, controls, home.position, home.target);
     },
 
-    // Current camera position/orbit target, for a caller (page.js's session
-    // persistence) to snapshot and later restore verbatim.
+    // Current camera state (position, orbit target, up vector, orthographic
+    // zoom and projection kind, see cameraState.js), for a caller (page.js's
+    // per-scene camera memory and session persistence) to snapshot and later
+    // restore verbatim.
     getCameraState() {
       const camera = cameraRef.current;
       const controls = controlsRef.current;
       if (!camera || !controls) return null;
-      return {
-        position: { x: camera.position.x, y: camera.position.y, z: camera.position.z },
-        target: { x: controls.target.x, y: controls.target.y, z: controls.target.z },
-      };
+      return snapshotCameraState(camera, controls.target);
     },
 
-    // Snaps straight to the given position/target — no animation, since this
-    // is "restore exactly where I left off", not a guided navigation.
+    // Snaps straight to the given state — no animation, since this is
+    // "restore exactly where I left off", not a guided navigation.
     setCameraState(state) {
       const camera = cameraRef.current;
       const controls = controlsRef.current;
-      if (!camera || !controls || !state?.position || !state?.target) return;
+      if (!camera || !controls) return;
       cancelAnimationRef.current?.();
-      camera.position.set(state.position.x, state.position.y, state.position.z);
-      controls.target.set(state.target.x, state.target.y, state.target.z);
-      controls.update();
+      applyCameraState(camera, controls, state);
     },
 
     // Reframes on the currently visible data, keeping the current viewing
@@ -466,10 +464,7 @@ const ThreeScene = forwardRef(function ThreeScene(
     homeViewRef.current = { position: camPos, target: camFocal };
 
     function handleControlsChange() {
-      onCameraChangeRef.current?.({
-        position: { x: camera.position.x, y: camera.position.y, z: camera.position.z },
-        target: { x: controls.target.x, y: controls.target.y, z: controls.target.z },
-      });
+      onCameraChangeRef.current?.(snapshotCameraState(camera, controls.target));
     }
     controls.addEventListener("change", handleControlsChange);
 

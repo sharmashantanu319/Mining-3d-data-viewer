@@ -21,6 +21,8 @@ import { getMarkerChoices, applyMarkerSelections } from "./components/markerSele
 import { resolveMarkerRenderOptions } from "./components/pointMarkerResolver";
 import { IconFitView, IconPerspective, IconOrtho, IconRefresh } from "./components/icons";
 import { loadSession, saveSession, sanitizeAnnotationStyle, sessionKeyFor } from "./components/viewerSession";
+import { cameraStateForProjection, sanitizeSceneCameras } from "./components/cameraState";
+import { SCENE_SCOPED_STATE_DEFAULTS, isSceneSwitch } from "./components/sceneViewState";
 
 function colourMarkerInput(series) {
   if (!series?.colourMarker || !Array.isArray(series.markerDefinitions)) return null;
@@ -53,8 +55,8 @@ export default function Home() {
   const [selectedPoint, setSelectedPoint] = useState(null);
   const threeSceneRef = useRef(null);
   const sessionKeyRef = useRef(null); // which file's session to save to, or null for the initial mock demo (not persisted)
-  const cameraStateRef = useRef(null); // latest camera position/target, updated continuously as the user navigates
-  const pendingCameraRestoreRef = useRef(null);
+  const sceneCamerasRef = useRef({}); // { [sceneIndex]: camera state } recorded when a scene is left, so switching back restores its camera
+  const pendingCameraRestoreRef = useRef(null); // camera state to apply once the rebuilt ThreeScene has mounted
   const saveTimeoutRef = useRef(null);
   const currentScene = scenes[currentIndex];
   const pointSeries = useMemo(() => currentScene.pointClouds ?? [], [currentScene]);
@@ -163,6 +165,11 @@ export default function Home() {
     if (!sessionKeyRef.current) return;
     clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(() => {
+      // Read the live camera at save time: it is always the current scene's,
+      // whereas a value cached from the last camera event goes stale after a
+      // scene switch or a projection change (which reset the camera without
+      // the user moving it).
+      const liveCamera = threeSceneRef.current?.getCameraState() ?? null;
       saveSession(sessionKeyRef.current, {
         sceneIndex: currentIndex,
         filtersBySeries,
@@ -178,7 +185,10 @@ export default function Home() {
         annotationTextColor,
         annotationBackgroundColor,
         projectionMode,
-        camera: cameraStateRef.current,
+        camera: liveCamera,
+        sceneCameras: liveCamera
+          ? { ...sceneCamerasRef.current, [currentIndex]: liveCamera }
+          : sceneCamerasRef.current,
       });
     }, 400);
   }
@@ -208,17 +218,22 @@ export default function Home() {
   ]);
 
   // Applies a camera restore once the scene it belongs to has actually
-  // mounted (setCurrentIndex from applyRestoredSession() re-renders
-  // ThreeScene with a new sceneData first, which resets the camera to that
-  // scene's default — this runs after, overwriting it with the saved one).
+  // mounted. ThreeScene rebuilds whenever the scene or the projection mode
+  // changes, resetting the camera to that scene's default; this effect runs
+  // after that rebuild (child effects run first) and overwrites it with the
+  // remembered camera.
   useEffect(() => {
     if (!pendingCameraRestoreRef.current) return;
     threeSceneRef.current?.setCameraState(pendingCameraRestoreRef.current);
     pendingCameraRestoreRef.current = null;
-  }, [currentScene]);
+  }, [currentScene, projectionMode]);
 
   function applyRestoredSession(session) {
-    if (Number.isInteger(session.sceneIndex)) setCurrentIndex(session.sceneIndex);
+    const restoredIndex =
+      Number.isInteger(session.sceneIndex) && session.sceneIndex >= 0 && session.sceneIndex < scenes.length
+        ? session.sceneIndex
+        : currentIndex;
+    setCurrentIndex(restoredIndex);
     if (session.filtersBySeries) setFiltersBySeries(session.filtersBySeries);
     if (session.seriesVisibility) setSeriesVisibility(session.seriesVisibility);
     if (session.nullVisibility) setNullVisibility(session.nullVisibility);
@@ -235,8 +250,28 @@ export default function Home() {
     if ("annotationBackgroundColor" in annotationStyle) {
       setAnnotationBackgroundColor(annotationStyle.annotationBackgroundColor);
     }
+    const restoredProjection = session.projectionMode || projectionMode;
     if (session.projectionMode) setProjectionMode(session.projectionMode);
-    if (session.camera) pendingCameraRestoreRef.current = session.camera;
+
+    // Restore every scene's remembered camera, and the current scene's live
+    // camera on top. `camera` alone is what sessions saved before per-scene
+    // cameras hold.
+    const restoredCameras = sanitizeSceneCameras(session.sceneCameras, scenes.length);
+    const liveCamera = cameraStateForProjection(session.camera, restoredProjection);
+    if (liveCamera) restoredCameras[restoredIndex] = liveCamera;
+    sceneCamerasRef.current = restoredCameras;
+
+    const restoredCamera = cameraStateForProjection(restoredCameras[restoredIndex], restoredProjection);
+    if (restoredCamera) {
+      // ThreeScene only rebuilds (and so needs the camera applied afterwards)
+      // when the scene or projection actually changes; otherwise it is
+      // already mounted and can be moved straight away.
+      if (restoredIndex !== currentIndex || restoredProjection !== projectionMode) {
+        pendingCameraRestoreRef.current = restoredCamera;
+      } else {
+        threeSceneRef.current?.setCameraState(restoredCamera);
+      }
+    }
     setRestoreBanner(null);
   }
 
@@ -398,16 +433,18 @@ export default function Home() {
       // 第二步：Validate 通过后，才真正解析并渲染
       // Step 2: only parse and render once validation passes.
       const parsed = await parseExportFile(file);
+      // An export whose displays are all non-3D views (charts) parses to zero
+      // scenes; there is nothing to render, and the viewer needs a current
+      // scene to exist.
+      if (parsed.scenes.length === 0) {
+        setErrors(["This export has no 3D views to display."]);
+        return;
+      }
       setScenes(parsed.scenes);
       setCurrentIndex(0);
-      setSelectedSeries(0);
-      setFiltersBySeries({});
-      setSeriesVisibility({});
-      setNullVisibility({});
-      setMarkerSelections({});
-      setMarkerSeriesIndex(0);
-      setHoveredPoint(null);
-      setSelectedPoint(null);
+      resetSceneScopedState();
+      sceneCamerasRef.current = {};
+      pendingCameraRestoreRef.current = null;
 
       sessionKeyRef.current = sessionKeyFor(file);
       setRestoreBanner(null);
@@ -421,21 +458,33 @@ export default function Home() {
     }
   }
 
-  function switchToScene(index) {
-    setCurrentIndex(index);
-    setSelectedSeries(0);
-    setFiltersBySeries({});
-    setSeriesVisibility({});
-    setNullVisibility({});
-    setMarkerSelections({});
-    setMarkerSeriesIndex(0);
-    setRestoreBanner(null);
+  // Resets the state that belongs to one scene's data (see sceneViewState.js
+  // for what is reset and what is deliberately kept across a scene switch).
+  function resetSceneScopedState() {
+    setSelectedSeries(SCENE_SCOPED_STATE_DEFAULTS.selectedSeries);
+    setFiltersBySeries({ ...SCENE_SCOPED_STATE_DEFAULTS.filtersBySeries });
+    setSeriesVisibility({ ...SCENE_SCOPED_STATE_DEFAULTS.seriesVisibility });
+    setNullVisibility({ ...SCENE_SCOPED_STATE_DEFAULTS.nullVisibility });
+    setMarkerSelections({ ...SCENE_SCOPED_STATE_DEFAULTS.markerSelections });
+    setMarkerSeriesIndex(SCENE_SCOPED_STATE_DEFAULTS.markerSeriesIndex);
     setHoveredPoint(null);
     setSelectedPoint(null);
   }
 
-  function goToNextScene() {
-    switchToScene((currentIndex + 1) % scenes.length);
+  function switchToScene(index) {
+    if (!isSceneSwitch(index, currentIndex, scenes.length)) return;
+
+    // Remember where the camera was in the scene being left, and queue the
+    // target scene's remembered camera (if it has been visited and was seen
+    // through the same kind of camera) to be applied once it has mounted.
+    // Otherwise the scene opens on the export's own default camera.
+    const leavingCamera = threeSceneRef.current?.getCameraState();
+    if (leavingCamera) sceneCamerasRef.current[currentIndex] = leavingCamera;
+    pendingCameraRestoreRef.current = cameraStateForProjection(sceneCamerasRef.current[index], projectionMode);
+
+    setCurrentIndex(index);
+    resetSceneScopedState();
+    setRestoreBanner(null);
   }
 
   const dataState = errors.length > 0 ? "error" : isLoadingExport ? "loading" : "loaded";
@@ -574,10 +623,7 @@ export default function Home() {
             annotationTextColor={annotationTextColor}
             annotationBackgroundColor={annotationBackgroundColor}
             markerScale={markerScale}
-            onCameraChange={(state) => {
-              cameraStateRef.current = state;
-              scheduleSessionSave();
-            }}
+            onCameraChange={scheduleSessionSave}
             selectedPoint={activeSelectedPoint}
             onPointHover={setHoveredPoint}
             onPointSelect={setSelectedPoint}
