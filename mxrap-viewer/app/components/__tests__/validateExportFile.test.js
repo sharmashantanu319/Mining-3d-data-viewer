@@ -163,13 +163,63 @@ describe("validateExportFile - structure", () => {
     expect(result.errors).toHaveLength(2);
   });
 
-  it("does not validate non-3dview displays such as charts", async () => {
+  it("still ignores unknown display types other than chart", async () => {
     const result = await validateZip((zip) => {
-      zip.file("info.json", JSON.stringify({ slides: [{ displays: [{ folder: "chart" }] }] }));
-      zip.file("chart/config.json", JSON.stringify({ type: "chart", series: [{ type: "surface" }] }));
+      zip.file("info.json", JSON.stringify({ slides: [{ displays: [{ folder: "weird" }] }] }));
+      zip.file("weird/config.json", JSON.stringify({ type: "something-else", series: [{ type: "surface" }] }));
     });
 
     expect(result).toEqual({ valid: true, errors: [] });
+  });
+
+  it("accepts a chart display whose series' data/data-additional CSVs and axis/filter columns all exist", async () => {
+    const result = await validateZip((zip) => {
+      zip.file("info.json", JSON.stringify({ slides: [{ displays: [{ folder: "chart" }] }] }));
+      zip.file("chart/config.json", JSON.stringify({
+        type: "chart",
+        series: [{
+          name: "Events",
+          data: "events",
+          "data-additional": ["events-extra"],
+          filter: "AboveThreshold",
+          axisX: { side: "bottom", column: "DateTime" },
+          axisY: { side: "left", column: "ML" },
+        }],
+      }));
+      zip.file("data/events.csv", "ID,DateTime,ML\n1,2023-05-01 00:00:00,-1.5");
+      zip.file("data/events-extra.csv", "ID,AboveThreshold\n1,1");
+    });
+
+    expect(result).toEqual({ valid: true, errors: [] });
+  });
+
+  it("reports a chart series' missing data CSV and missing axis/filter columns", async () => {
+    const result = await validateZip((zip) => {
+      zip.file("info.json", JSON.stringify({ slides: [{ displays: [{ folder: "chart" }] }] }));
+      zip.file("chart/config.json", JSON.stringify({
+        type: "chart",
+        series: [{
+          name: "Events",
+          data: "events",
+          filter: "NotAColumn",
+          axisX: { side: "bottom", column: "NotAColumnEither" },
+          axisY: { side: "left", column: "ML" },
+        }, {
+          name: "Missing series",
+          data: "does-not-exist",
+          axisX: { side: "bottom", column: "DateTime" },
+          axisY: { side: "left", column: "ML" },
+        }],
+      }));
+      zip.file("data/events.csv", "ID,DateTime,ML\n1,2023-05-01 00:00:00,-1.5");
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.errors).toEqual(expect.arrayContaining([
+      'chart > Events: axis column "NotAColumnEither" not found in its data.',
+      'chart > Events: filter column "NotAColumn" not found in its data.',
+      'chart > Missing series data: file "data/does-not-exist.csv" not found.',
+    ]));
   });
 
   it("accepts an export nested under an export/ root folder", async () => {

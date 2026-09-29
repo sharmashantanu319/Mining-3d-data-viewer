@@ -237,6 +237,90 @@ describe("parseExportFile (full-scale real export: visualiser-export-2)", () => 
       up: { x: 0.0530927, y: 0.0799084, z: 0.995387 },
     });
   });
+
+  it("parses the Magnitude-Time chart display in slide 1, alongside its 3D view", () => {
+    expect(result.charts).toHaveLength(1);
+    const [chart] = result.charts;
+    expect(chart.id).toBe("s1-mag-time-chart");
+    expect(chart.title).toBe("Magnitude-Time Graph");
+    expect(chart.slideIndex).toBe(0);
+    expect(chart.slideTitle).toBe("Slide #1");
+    expect(chart.header).toBe("Magnitude-Time Graph");
+    expect(chart.footer).toContain("Num Events");
+  });
+
+  it("parses the chart's axes, filling the missing top axis with a disabled default", () => {
+    const [chart] = result.charts;
+    expect(chart.axes.bottom).toMatchObject({ enabled: true, title: "Date", scale: "datetime" });
+    expect(chart.axes.left).toMatchObject({ enabled: true, title: "Local Magnitude", scale: "linear" });
+    expect(chart.axes.right).toMatchObject({ enabled: true, title: "Cumulative Events", scale: "linear", minimum: 0 });
+    expect(chart.axes.top).toEqual({ enabled: false, title: "", scale: "linear", minimum: null, maximum: null });
+  });
+
+  it("joins and filters the three chart series against the real events CSVs (665 above / 5,238 below threshold)", () => {
+    const [chart] = result.charts;
+    expect(chart.series).toHaveLength(3);
+
+    const [above, below, cumulative] = chart.series;
+    expect(above.name).toBe("Events > threshold");
+    expect(above.points.x).toHaveLength(665);
+    expect(below.name).toBe("Events < threshold");
+    expect(below.points.x).toHaveLength(5238);
+    expect(cumulative.name).toBe("Cumulative number of events");
+    expect(cumulative.points.x).toHaveLength(665);
+  });
+
+  it("converts the datetime X axis to epoch ms and reads the real ML/cumulative Y values", () => {
+    const [chart] = result.charts;
+    const [above] = chart.series;
+
+    // The first AboveThreshold row in the raw CSV, not the very first CSV row
+    // (that one is a BelowThreshold event and belongs to the other series).
+    expect(above.points.x[0]).toBe(Date.UTC(2023, 4, 1, 10, 28, 12, 704));
+    expect(Number.isFinite(above.points.y[0])).toBe(true);
+    expect(above.points.rows[0].ML).toBeCloseTo(-0.91);
+  });
+
+  it("orders and groups the cumulative series into a single ascending-by-date line (no linesGroupBy in the sample)", () => {
+    const [chart] = result.charts;
+    const cumulative = chart.series.find((s) => s.name === "Cumulative number of events");
+
+    expect(cumulative.enableLines).toBe(true);
+    expect(cumulative.lines).toHaveLength(1);
+    expect(cumulative.lines[0].key).toBeNull();
+    const line = cumulative.lines[0];
+    for (let i = 1; i < line.x.length; i++) {
+      expect(line.x[i]).toBeGreaterThanOrEqual(line.x[i - 1]);
+    }
+    // CumulativeNumberOfEvents is filled 1..665 in row order for the above-threshold rows.
+    expect(line.rows.map((row) => row.CumulativeNumberOfEvents)).toEqual(
+      Array.from({ length: 665 }, (_, i) => i + 1),
+    );
+  });
+
+  it("does not build lines for a points-only series", () => {
+    const [chart] = result.charts;
+    const above = chart.series.find((s) => s.name === "Events > threshold");
+    expect(above.enableLines).toBe(false);
+    expect(above.lines).toEqual([]);
+  });
+
+  it("resolves the bottom/left/right axis ranges from the real data plus the right axis' fixed minimum", () => {
+    const [chart] = result.charts;
+    expect(chart.axisRanges.bottom).not.toBeNull();
+    expect(chart.axisRanges.bottom.min).toBeLessThanOrEqual(chart.axisRanges.bottom.max);
+    expect(chart.axisRanges.left).not.toBeNull();
+    expect(chart.axisRanges.right.min).toBe(0);
+    expect(chart.axisRanges.right.max).toBe(665);
+    expect(chart.axisRanges.top).toBeNull();
+  });
+
+  it("parses the chart's annotation in axis coordinates", () => {
+    const [chart] = result.charts;
+    expect(chart.annotations).toEqual([
+      { text: "A large spike<br>in events", location: { bottom: "2023-05-19 18:01:18.254", right: 400 }, color: "rgb(0,0,255)" },
+    ]);
+  });
 });
 
 describe("parseExportFile (error and skip branches)", () => {
@@ -255,7 +339,7 @@ describe("parseExportFile (error and skip branches)", () => {
     expect(result.scenes).toEqual([]);
   });
 
-  it("skips a display whose type is not 3dview", async () => {
+  it("keeps a chart display out of scenes, parsing it into charts instead", async () => {
     const info = {
       title: "Chart export",
       slides: [{ displays: [{ folder: "s1-chart", title: "Chart" }] }],
@@ -267,6 +351,23 @@ describe("parseExportFile (error and skip branches)", () => {
     });
     const result = await parseExportFile(zip);
     expect(result.scenes).toEqual([]);
+    expect(result.charts).toHaveLength(1);
+    expect(result.charts[0]).toMatchObject({ id: "s1-chart", title: "Chart", slideIndex: 0, series: [] });
+  });
+
+  it("skips a display whose type is neither 3dview nor chart", async () => {
+    const info = {
+      title: "Unknown display type",
+      slides: [{ displays: [{ folder: "s1-unknown", title: "Unknown" }] }],
+    };
+    const config = { type: "something-else" };
+    const zip = await makeZip({
+      "info.json": JSON.stringify(info),
+      "s1-unknown/config.json": JSON.stringify(config),
+    });
+    const result = await parseExportFile(zip);
+    expect(result.scenes).toEqual([]);
+    expect(result.charts).toEqual([]);
   });
 
   it("skips a series type that's still out of scope (text), leaving empty surfaces/pointClouds", async () => {
