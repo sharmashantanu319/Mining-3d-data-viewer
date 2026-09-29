@@ -21,6 +21,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import * as THREE from "three";
 import { buildAnnotation, disposeAnnotations, resolveLabelFont } from "./annotationsBuilder";
 import { buildSurfaceMesh } from "./geometryBuilder";
+import { createOrientationGizmo, renderOrientationGizmo } from "./orientationGizmo";
 import { buildPointCloud, getHardwarePointSizeRange } from "./pointsBuilder";
 import {
   resolveMarkerRenderOptions,
@@ -779,9 +780,10 @@ function createPointCloud(pointSeriesData) {
       }
     }
 
-    // 坐标轴辅助线，方便调试时确认方向
-    const axesHelper = new THREE.AxesHelper(2);
-    scene.add(axesHelper);
+    // Bottom-left XYZ orientation gizmo. It lives outside the scene graph (it
+    // is drawn in its own corner viewport), so it never affects picking or
+    // the scene bounds.
+    const orientationGizmo = createOrientationGizmo(camera, renderer.domElement);
 
     // ---------- 4. Resize 监听 ----------
     function handleResize() {
@@ -799,6 +801,7 @@ function createPointCloud(pointSeriesData) {
       controls.update();
       refreshOrthographicPointSizing();
       renderer.render(scene, camera);
+      renderOrientationGizmo(renderer, orientationGizmo);
     }
     animate();
 
@@ -832,6 +835,7 @@ function createPointCloud(pointSeriesData) {
 
       controls.removeEventListener("change", handleControlsChange);
       controls.dispose();
+      orientationGizmo.dispose();
       renderer.dispose();
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
