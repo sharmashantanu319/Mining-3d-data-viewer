@@ -64,17 +64,20 @@ describe("normalizeSizeMarker", () => {
     expect(m.errors.map((e) => e.code)).toContain("invalid-output-size");
   });
 
-  it("sizeMinimum > sizeMaximum is swapped with a warning", () => {
-    const m = normalizeSizeMarker(ML_SIZE_MARKER, {
-      ...SERIES,
-      sizeMinimum: 25,
-      sizeMaximum: 1,
-    });
-    expect(m.warnings.map((w) => w.code)).toContain("output-size-reordered");
-    expect(m.sizeMinimum).toBe(1);
-    expect(m.sizeMaximum).toBe(25);
-    expect(m.valid).toBe(true);
+  it("preserves an inverted output size range", () => {
+  const m = normalizeSizeMarker(ML_SIZE_MARKER, {
+    ...SERIES,
+    sizeMinimum: 25,
+    sizeMaximum: 1,
   });
+
+  expect(m.warnings.map((w) => w.code)).not.toContain(
+    "output-size-reordered"
+  );
+  expect(m.sizeMinimum).toBe(25);
+  expect(m.sizeMaximum).toBe(1);
+  expect(m.valid).toBe(true);
+});
 
   it("a missing nullSizes warns and falls back to the midpoint", () => {
     const m = normalizeSizeMarker(ML_SIZE_MARKER, { ...SERIES, nullSizes: undefined });
@@ -90,6 +93,18 @@ describe("normalizeSizeMarker", () => {
     expect(m.valid).toBe(false);
     expect(m.errors.map((e) => e.code)).toContain("domain-unresolved");
   });
+
+  it("maps an inverted output range without reordering it", () => {
+  const m = normalizeSizeMarker(ML_SIZE_MARKER, {
+    ...SERIES,
+    sizeMinimum: 25,
+    sizeMaximum: 1,
+  });
+
+  expect(mapSize(-2, m)).toBeCloseTo(25);
+  expect(mapSize(2, m)).toBeCloseTo(1);
+  expect(mapSize(0, m)).toBeCloseTo(13);
+});
 
   it("an unresolved domain resolves from data bounds when supplied", () => {
     const m = normalizeSizeMarker(

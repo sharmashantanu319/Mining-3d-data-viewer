@@ -93,7 +93,6 @@ export function buildSurfaceGeometry(vertices, faces, vertexColours) {
  */
 export function buildSurfaceMesh(surfaceData, vertexColours) {
   const geometry = buildSurfaceGeometry(surfaceData.vertices, surfaceData.faces, vertexColours);
-  const hasVertexColours = geometry.hasAttribute("color");
 
   // Preserve colours already supplied by Development's
   // vertexColours pipeline. Do not overwrite them.

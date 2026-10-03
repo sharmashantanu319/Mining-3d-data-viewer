@@ -19,10 +19,14 @@
 
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import * as THREE from "three";
-import { buildAnnotation, disposeAnnotation } from "./annotationsBuilder";
+import { buildAnnotation, disposeAnnotations, resolveLabelFont } from "./annotationsBuilder";
+import { applyCameraState, snapshotCameraState } from "./cameraState";
 import { buildSurfaceMesh } from "./geometryBuilder";
+import { createOrientationGizmo, renderOrientationGizmo } from "./orientationGizmo";
 import { buildPointCloud, getHardwarePointSizeRange } from "./pointsBuilder";
-import { resolveMarkerRenderOptions } from "./pointMarkerResolver";
+import {
+  resolveMarkerRenderOptions,
+} from "./pointMarkerResolver";
 import { resolveSurfaceVertexColours } from "./surfaceMarkerResolver";
 import {
   orthoParallelScaleFromCamera,
@@ -172,6 +176,17 @@ function applyAnnotationScale(object, factor) {
   }
 }
 
+// Shared between the initial scene build and the style-override rebuild
+// effect so the filter/build/baseScale logic only lives in one place.
+function buildAnnotationObjects(sceneData, style) {
+  return (sceneData.annotations ?? [])
+    .filter((annotationData) => annotationData?.text)
+    .map((annotationData) => ({
+      object: buildAnnotation(annotationData, style),
+      baseScale: Number.isFinite(annotationData.scale) ? annotationData.scale : 10,
+    }));
+}
+
 const ThreeScene = forwardRef(function ThreeScene(
   {
     sceneData,
@@ -179,6 +194,9 @@ const ThreeScene = forwardRef(function ThreeScene(
     projectionMode = "perspective",
     annotationsVisible = true,
     annotationScale = 1,
+    annotationFont = null,
+    annotationTextColor = null,
+    annotationBackgroundColor = null,
     markerScale = 0.5,
     onCameraChange = null,
     selectedPoint = null,
@@ -203,6 +221,10 @@ const ThreeScene = forwardRef(function ThreeScene(
   const annotationsRef = useRef([]);
   const annotationSettingsRef = useRef({ annotationsVisible, annotationScale });
   annotationSettingsRef.current = { annotationsVisible, annotationScale };
+  // `annotationFont` is a font-family string (e.g. from ANNOTATION_FONT_CHOICES);
+  // annotationsBuilder combines it with each annotation's own size/weight.
+  const annotationStyleRef = useRef({ fontFamily: annotationFont, textColor: annotationTextColor, backgroundColor: annotationBackgroundColor });
+  annotationStyleRef.current = { fontFamily: annotationFont, textColor: annotationTextColor, backgroundColor: annotationBackgroundColor };
   const onCameraChangeRef = useRef(onCameraChange);
   onCameraChangeRef.current = onCameraChange;
   const pointCallbacksRef = useRef({ onPointHover, onPointSelect });
@@ -217,6 +239,43 @@ const ThreeScene = forwardRef(function ThreeScene(
       applyAnnotationScale(object, baseScale * annotationScale);
     });
   }, [annotationsVisible, annotationScale]);
+
+  // Font/colour overrides change what's painted onto each label's canvas
+  // (and, for fonts, its measured size), so the labels are rebuilt from
+  // scratch rather than patched in place — same annotationsBuilder helpers
+  // the initial scene build uses, just re-run with the new style. Debounced
+  // (a colour <input type="color"> fires onChange continuously while
+  // dragging) and gated on the fonts actually being loaded, since a canvas
+  // draws with whatever font is available *now* and never gets repainted.
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    let cancelled = false;
+    const timeoutId = setTimeout(() => {
+      const style = annotationStyleRef.current;
+      const fonts = new Set(
+        (sceneData.annotations ?? [])
+          .filter((annotationData) => annotationData?.text)
+          .map((annotationData) => resolveLabelFont(annotationData, style.fontFamily))
+      );
+      Promise.all([...fonts].map((font) => document.fonts?.load(font).catch(() => {}))).then(() => {
+        if (cancelled || sceneRef.current !== scene) return;
+        const nextAnnotations = buildAnnotationObjects(sceneData, style);
+        disposeAnnotations(annotationsRef.current, scene);
+        nextAnnotations.forEach(({ object }) => scene.add(object));
+        annotationsRef.current = nextAnnotations;
+        annotationsRef.current.forEach(({ object, baseScale }) => {
+          object.visible = annotationSettingsRef.current.annotationsVisible;
+          applyAnnotationScale(object, baseScale * annotationSettingsRef.current.annotationScale);
+        });
+      });
+    }, 150);
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [annotationFont, annotationTextColor, annotationBackgroundColor]);
 
   // Bounding box of the currently rendered point clouds and surfaces (not
   // the annotations, rings, or axes helper), used by fitScene()/
@@ -257,28 +316,25 @@ const ThreeScene = forwardRef(function ThreeScene(
       cancelAnimationRef.current = animateCameraTo(camera, controls, home.position, home.target);
     },
 
-    // Current camera position/orbit target, for a caller (page.js's session
-    // persistence) to snapshot and later restore verbatim.
+    // Current camera state (position, orbit target, up vector, orthographic
+    // zoom and projection kind, see cameraState.js), for a caller (page.js's
+    // per-scene camera memory and session persistence) to snapshot and later
+    // restore verbatim.
     getCameraState() {
       const camera = cameraRef.current;
       const controls = controlsRef.current;
       if (!camera || !controls) return null;
-      return {
-        position: { x: camera.position.x, y: camera.position.y, z: camera.position.z },
-        target: { x: controls.target.x, y: controls.target.y, z: controls.target.z },
-      };
+      return snapshotCameraState(camera, controls.target);
     },
 
-    // Snaps straight to the given position/target — no animation, since this
-    // is "restore exactly where I left off", not a guided navigation.
+    // Snaps straight to the given state — no animation, since this is
+    // "restore exactly where I left off", not a guided navigation.
     setCameraState(state) {
       const camera = cameraRef.current;
       const controls = controlsRef.current;
-      if (!camera || !controls || !state?.position || !state?.target) return;
+      if (!camera || !controls) return;
       cancelAnimationRef.current?.();
-      camera.position.set(state.position.x, state.position.y, state.position.z);
-      controls.target.set(state.target.x, state.target.y, state.target.z);
-      controls.update();
+      applyCameraState(camera, controls, state);
     },
 
     // Reframes on the currently visible data, keeping the current viewing
@@ -408,10 +464,7 @@ const ThreeScene = forwardRef(function ThreeScene(
     homeViewRef.current = { position: camPos, target: camFocal };
 
     function handleControlsChange() {
-      onCameraChangeRef.current?.({
-        position: { x: camera.position.x, y: camera.position.y, z: camera.position.z },
-        target: { x: controls.target.x, y: controls.target.y, z: controls.target.z },
-      });
+      onCameraChangeRef.current?.(snapshotCameraState(camera, controls.target));
     }
     controls.addEventListener("change", handleControlsChange);
 
@@ -485,54 +538,92 @@ const ThreeScene = forwardRef(function ThreeScene(
     });
     meshesRef.current = meshes;
 
-    function createPointCloud(pointSeriesData) {
-      // Real marker-defs data (parsed from the export's markers.json) takes
-      // priority; mock scenes with no marker definitions fall back to the
-      // ml-based demo adapter.
-      const contentOptions =
-        resolveMarkerRenderOptions(pointSeriesData) ?? getDemoRenderOptions(pointSeriesData);
-      const renderOptions = {
-        ...contentOptions,
-        ...buildSharedPointSizing(currentPointSizing()),
-        markerDisplayScale: markerScaleRef.current,
-      };
-      if (!contentOptions.symbolFn) {
-        return buildPointCloud(pointSeriesData, renderOptions);
+function createPointCloud(pointSeriesData) {
+  const contentOptions =
+    resolveMarkerRenderOptions(pointSeriesData) ??
+    getDemoRenderOptions(pointSeriesData);
+
+  const renderOptions = {
+    ...contentOptions,
+    ...buildSharedPointSizing(currentPointSizing()),
+    markerDisplayScale: markerScaleRef.current,
+  };
+
+  // Seismic Events using the magnitude sphere style
+  // are rendered as procedurally shaded spheres.
+  if (contentOptions.renderAsShadedSphere) {
+    return buildPointCloud(
+      pointSeriesData,
+      {
+        ...renderOptions,
+        pointTexture: null,
+        renderAsShadedSphere: true,
       }
+    );
+  }
 
-      const batches = new Map();
-      for (const point of pointSeriesData.points ?? []) {
-        const symbol = contentOptions.symbolFn(point);
-        if (pointSeriesData.name === "Sensors") {
-            console.log({
-                configuration: point.Configuration,
-                selectedSymbol: symbol,
-                imageFound: Boolean(
-                    contentOptions.symbolAssets?.[symbol]
-                )
-            });
-        }
+  // No symbol mapping: render as normal points.
+  if (!contentOptions.symbolFn) {
+    return buildPointCloud(
+      pointSeriesData,
+      renderOptions
+    );
+  }
 
+  // Symbol-based series such as Sensors are grouped
+  // by texture.
+  const batches = new Map();
 
+  for (const point of pointSeriesData.points ?? []) {
+    const symbol =
+      contentOptions.symbolFn(point);
 
-        const dataUrl = symbol ? contentOptions.symbolAssets?.[symbol] : null;
-        const batchKey = dataUrl ?? "__circle_fallback__";
-        if (!batches.has(batchKey)) batches.set(batchKey, { dataUrl, points: [] });
-        batches.get(batchKey).points.push(point);
-      }
+    const dataUrl =
+      symbol
+        ? contentOptions.symbolAssets?.[symbol]
+        : null;
 
-      const group = new THREE.Group();
-      for (const batch of batches.values()) {
-        const pointTexture = getSymbolTexture(batch.dataUrl);
-        const points = buildPointCloud(
-          { ...pointSeriesData, points: batch.points },
-          { ...renderOptions, pointTexture }
-        );
-        group.add(points);
-      }
-      group.userData.symbolBatchCount = batches.size;
-      return group;
+    const batchKey =
+      dataUrl ?? "__no_texture__";
+
+    if (!batches.has(batchKey)) {
+      batches.set(batchKey, {
+        dataUrl,
+        points: [],
+      });
     }
+
+    batches.get(batchKey).points.push(point);
+  }
+
+  const group = new THREE.Group();
+
+  for (const batch of batches.values()) {
+    const pointTexture =
+      batch.dataUrl
+        ? getSymbolTexture(batch.dataUrl)
+        : null;
+
+    const points = buildPointCloud(
+      {
+        ...pointSeriesData,
+        points: batch.points,
+      },
+      {
+        ...renderOptions,
+        pointTexture,
+        tintTextureWithVertexColor: false,
+      }
+    );
+
+    group.add(points);
+  }
+
+  group.userData.symbolBatchCount =
+    batches.size;
+
+  return group;
+}
 
     function forEachPointObject(object, callback) {
       object?.traverse((child) => {
@@ -654,16 +745,8 @@ const ThreeScene = forwardRef(function ThreeScene(
     renderer.domElement.addEventListener("click", handleClick);
     syncSelectedHighlight(selectedPointRef.current);
 
-    const annotations = [];
-    (sceneData.annotations ?? []).forEach((annotationData) => {
-      if (!annotationData?.text) return;
-      const annotation = buildAnnotation(annotationData);
-      scene.add(annotation);
-      annotations.push({
-        object: annotation,
-        baseScale: Number.isFinite(annotationData.scale) ? annotationData.scale : 10,
-      });
-    });
+    const annotations = buildAnnotationObjects(sceneData, annotationStyleRef.current);
+    annotations.forEach(({ object }) => scene.add(object));
     annotationsRef.current = annotations;
     annotationsRef.current.forEach(({ object, baseScale }) => {
       object.visible = annotationSettingsRef.current.annotationsVisible;
@@ -692,9 +775,10 @@ const ThreeScene = forwardRef(function ThreeScene(
       }
     }
 
-    // 坐标轴辅助线，方便调试时确认方向
-    const axesHelper = new THREE.AxesHelper(2);
-    scene.add(axesHelper);
+    // Bottom-left XYZ orientation gizmo. It lives outside the scene graph (it
+    // is drawn in its own corner viewport), so it never affects picking or
+    // the scene bounds.
+    const orientationGizmo = createOrientationGizmo(camera, renderer.domElement);
 
     // ---------- 4. Resize 监听 ----------
     function handleResize() {
@@ -712,6 +796,7 @@ const ThreeScene = forwardRef(function ThreeScene(
       controls.update();
       refreshOrthographicPointSizing();
       renderer.render(scene, camera);
+      renderOrientationGizmo(renderer, orientationGizmo);
     }
     animate();
 
@@ -738,11 +823,14 @@ const ThreeScene = forwardRef(function ThreeScene(
         scene.remove(ring);
       });
 
-      annotations.forEach(({ object }) => disposeAnnotation(object));
+      // Dispose whatever labels are in the scene now — after a style change
+      // that is the rebuilt set, not the array built when the scene was created.
+      disposeAnnotations(annotationsRef.current);
       annotationsRef.current = [];
 
       controls.removeEventListener("change", handleControlsChange);
       controls.dispose();
+      orientationGizmo.dispose();
       renderer.dispose();
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);

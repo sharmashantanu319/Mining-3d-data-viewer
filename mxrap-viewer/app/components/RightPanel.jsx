@@ -1,4 +1,5 @@
-import { IconChevronLeft, IconChevronRight, IconLegend, IconInfo } from "./icons";
+import { useState } from "react";
+import { IconChevronLeft, IconChevronRight, IconLegend, IconInfo, IconChevronDown, IconChevronUp } from "./icons";
 
 const NA = <span style={{ color: "var(--color-fg-disabled)", fontStyle: "italic" }}>Not available</span>;
 
@@ -109,7 +110,7 @@ export function RightPanel({ open, onToggle, inspection, kind, onClear, legends 
             <div style={{ fontSize: 11, color: "var(--color-fg-disabled)" }}>No colour legend for the current selection.</div>
           )}
           {legends.map((legend, index) => (
-            <LegendCard legend={legend} key={`${legend.seriesName}-${legend.markerName ?? legend.input ?? index}`} />
+            <LegendCard legend={legend} key={`${index}-${legend.seriesName}-${legend.markerName ?? legend.input ?? ""}`} />
           ))}
         </div>
       </div>
@@ -118,79 +119,107 @@ export function RightPanel({ open, onToggle, inspection, kind, onClear, legends 
 }
 
 function LegendCard({ legend }) {
+  const [collapsed, setCollapsed] = useState(false);
+
   // Sanitised for use as an SVG id/url(#...) reference: unescaped spaces
   // (e.g. a marker named "Magnitude colour") break the url() lookup, so the
   // gradient silently fails to resolve and the ramp renders as plain black.
   const gradientId = `grad-${(legend.markerName ?? legend.input ?? "ramp").replace(/[^a-zA-Z0-9_-]/g, "-")}`;
   return (
     <div style={{ marginBottom: 14 }} aria-label={`${legend.title} legend`}>
-      <div style={{ fontSize: 11, fontWeight: 600, color: "var(--color-fg)", marginBottom: 1 }}>
-        {legend.title}
-        {legend.units ? <span style={{ fontWeight: 400, color: "var(--color-fg-muted)" }}> ({legend.units})</span> : null}
-      </div>
-      <div style={{ fontSize: 9, color: "var(--color-fg-muted)", marginBottom: 5 }}>
-        {legend.seriesName}
-        {legend.input ? ` · ${legend.input}` : ""}
-      </div>
-
-      {legend.kind === "error" && (
-        <div style={{ fontSize: 10, color: "var(--color-danger)" }}>Colour configuration unavailable</div>
-      )}
-
-      {legend.kind === "categorical" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          {legend.categories.map((category) => (
-            <div key={`${category.value}-${category.label}`} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span className="swatch" style={{ backgroundColor: category.colour }} />
-              <span style={{ fontSize: 11, color: "var(--color-fg-dim)" }}>{category.label}</span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {legend.kind === "ramp" && (
-        <>
-          <svg width="100%" height="14" style={{ display: "block", borderRadius: 3, overflow: "hidden" }}>
-            <defs>
-              <linearGradient id={gradientId} x1="0%" y1="0%" x2="100%" y2="0%">
-                {legend.samples.map((sample) => (
-                  <stop key={sample.position} offset={`${sample.position * 100}%`} stopColor={sample.colour} />
-                ))}
-              </linearGradient>
-            </defs>
-            <rect x="0" y="0" width="100%" height="14" fill={`url(#${gradientId})`} />
-          </svg>
-          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 3 }}>
-            {legend.ticks.map((tick) => (
-              <span key={tick.position} style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: "var(--color-fg-muted)" }}>
-                {tick.label}
-              </span>
-            ))}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 6, marginBottom: 1 }}>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 600, color: "var(--color-fg)" }}>
+            {legend.title}
+            {legend.units ? <span style={{ fontWeight: 400, color: "var(--color-fg-muted)" }}> ({legend.units})</span> : null}
           </div>
+          <div style={{ fontSize: 9, color: "var(--color-fg-muted)", marginBottom: 5 }}>
+            {legend.seriesName}
+            {legend.input ? ` · ${legend.input}` : ""}
+          </div>
+        </div>
+        <button
+          type="button"
+          className="strip-btn"
+          onClick={() => setCollapsed((value) => !value)}
+          aria-expanded={!collapsed}
+          aria-label={collapsed ? `Expand ${legend.title} legend` : `Collapse ${legend.title} legend`}
+          style={{ width: 18, height: 18, flexShrink: 0 }}
+        >
+          {collapsed ? <IconChevronDown size={10} /> : <IconChevronUp size={10} />}
+        </button>
+      </div>
+
+      {!collapsed && (
+        <>
+          {legend.kind === "error" && (
+            <div style={{ fontSize: 10, color: "var(--color-danger)" }} role="status">Colour configuration unavailable</div>
+          )}
+
+          {legend.kind === "categorical" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {legend.categories.map((category) => (
+                <div key={`${category.value}-${category.label}`} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span className="swatch" style={{ backgroundColor: category.colour }} />
+                  <span style={{ fontSize: 11, color: "var(--color-fg-dim)" }}>{category.label}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {legend.kind === "ramp" && (
+            <>
+              <svg width="100%" height="14" style={{ display: "block", borderRadius: 3, overflow: "hidden" }}>
+                <defs>
+                  <linearGradient id={gradientId} x1="0%" y1="0%" x2="100%" y2="0%">
+                    {legend.samples.map((sample) => (
+                      <stop key={sample.position} offset={`${sample.position * 100}%`} stopColor={sample.colour} />
+                    ))}
+                  </linearGradient>
+                </defs>
+                <rect x="0" y="0" width="100%" height="14" fill={`url(#${gradientId})`} />
+              </svg>
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 3 }}>
+                {legend.ticks.map((tick) => (
+                  <span key={tick.position} style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: "var(--color-fg-muted)" }}>
+                    {tick.label}
+                  </span>
+                ))}
+              </div>
+            </>
+          )}
+
+          {legend.noVisiblePoints && (legend.kind === "ramp" || legend.kind === "categorical") && (
+            <div style={{ marginTop: 3, fontSize: 9, color: "var(--color-fg-muted)", fontStyle: "italic" }}>
+              No visible points — showing the full dataset&rsquo;s range
+            </div>
+          )}
+
           {legend.fullRange && (
             <div style={{ marginTop: 3, fontSize: 9, color: "var(--color-fg-muted)" }}>
-              Full range: {legend.fullRange.minLabel} – {legend.fullRange.maxLabel}
+              Visible: {legend.ticks[0]?.label} – {legend.ticks[legend.ticks.length - 1]?.label} · Full range:{" "}
+              {legend.fullRange.minLabel} – {legend.fullRange.maxLabel}
+            </div>
+          )}
+
+          {legend.kind !== "error" && (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
+              <span className="swatch" style={{ backgroundColor: legend.nullEntry.colour }} />
+              <span style={{ fontSize: 10, color: "var(--color-fg-dim)" }}>
+                {legend.nullEntry.label}
+                {Number.isFinite(legend.missingCount) ? ` (${legend.missingCount.toLocaleString()})` : ""}
+              </span>
+              {!legend.nullEntry.visible && <span style={{ fontSize: 9, color: "var(--color-fg-muted)", fontStyle: "italic" }}>hidden</span>}
+            </div>
+          )}
+
+          {(legend.sizeLabel || legend.symbolLabel) && (
+            <div style={{ marginTop: 6, fontSize: 9, color: "var(--color-fg-muted)", display: "flex", flexDirection: "column", gap: 2 }}>
+              {legend.sizeLabel && <span>Size: {legend.sizeLabel}</span>}
+              {legend.symbolLabel && <span>Symbol: {legend.symbolLabel}</span>}
             </div>
           )}
         </>
-      )}
-
-      {legend.kind !== "error" && (
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
-          <span className="swatch" style={{ backgroundColor: legend.nullEntry.colour }} />
-          <span style={{ fontSize: 10, color: "var(--color-fg-dim)" }}>
-            {legend.nullEntry.label}
-            {Number.isFinite(legend.missingCount) ? ` (${legend.missingCount.toLocaleString()})` : ""}
-          </span>
-          {!legend.nullEntry.visible && <span style={{ fontSize: 9, color: "var(--color-fg-muted)", fontStyle: "italic" }}>hidden</span>}
-        </div>
-      )}
-
-      {(legend.sizeLabel || legend.symbolLabel) && (
-        <div style={{ marginTop: 6, fontSize: 9, color: "var(--color-fg-muted)", display: "flex", flexDirection: "column", gap: 2 }}>
-          {legend.sizeLabel && <span>Size: {legend.sizeLabel}</span>}
-          {legend.symbolLabel && <span>Symbol: {legend.symbolLabel}</span>}
-        </div>
       )}
     </div>
   );

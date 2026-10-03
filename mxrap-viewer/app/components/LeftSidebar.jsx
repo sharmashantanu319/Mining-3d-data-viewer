@@ -6,6 +6,7 @@ import {
   IconSurface, IconDot, IconTag, IconSettings,
 } from "./icons";
 import { createCategoryFilter, createRangeFilter } from "./dataFilters";
+import { ANNOTATION_FONT_CHOICES } from "./annotationStyleOptions";
 
 function toDateInput(epoch) {
   if (!Number.isFinite(epoch)) return "";
@@ -41,6 +42,36 @@ function summariseFilter(field, filter) {
   return `${Number(min).toLocaleString()} – ${Number(max).toLocaleString()}`;
 }
 
+// A labelled colour override with a checkbox to switch between "use the
+// export/theme default" (value === null, swatch disabled) and a custom
+// colour the user picks.
+function ColourOverrideRow({ label, value, onChange, fallback, ariaLabel }) {
+  return (
+    <div className="ctrl-row" style={{ justifyContent: "space-between" }}>
+      <span className="ctrl-label">{label}</span>
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <input
+          type="color"
+          value={value ?? fallback}
+          disabled={!value}
+          onChange={(e) => onChange(e.target.value)}
+          aria-label={ariaLabel}
+          style={{ width: 22, height: 22, padding: 0, border: "1px solid var(--color-border)", borderRadius: 3, background: "none" }}
+        />
+        <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: "var(--color-fg-dim)", cursor: "pointer" }}>
+          <input
+            type="checkbox"
+            checked={Boolean(value)}
+            onChange={(e) => onChange(e.target.checked ? (value ?? fallback) : null)}
+            aria-label={`${ariaLabel} override`}
+          />
+          Custom
+        </label>
+      </div>
+    </div>
+  );
+}
+
 const layerIcon = (type) => {
   if (type === "surface") return <IconSurface size={11} />;
   if (type === "event") return <IconDot size={11} />;
@@ -67,15 +98,29 @@ export function LeftSidebar({
   sizeChoices,
   colourValue,
   sizeValue,
+  sizeMinValue,
+  sizeMaxValue,
+  invertSize,
   markerScale,
   onMarkerScaleChange,
   onColourChange,
   onSizeChange,
+  onSizeMinChange,
+  onSizeMaxChange,
+  onInvertSizeChange,
   resolvedSymbolLabel,
   annotScale,
   onAnnotScaleChange,
   annotationsVisible,
   onAnnotationsVisibleChange,
+  annotationFont,
+  onAnnotationFontChange,
+  annotationTextColor,
+  onAnnotationTextColorChange,
+  annotationTextColorFallback,
+  annotationBackgroundColor,
+  onAnnotationBackgroundColorChange,
+  annotationBackgroundColorFallback,
   hasNullVisibility,
   showNulls,
   onShowNullsChange,
@@ -269,6 +314,42 @@ export function LeftSidebar({
                   ))}
                 </select>
               </div>
+              <div className="ctrl-row">
+                <span className="ctrl-label">Min size</span>
+                <input
+                  type="number"
+                  aria-label="Marker size at the low end of the range"
+                  min="0"
+                  step="0.5"
+                  value={Number.isNaN(sizeMinValue) ? "" : sizeMinValue}
+                  onChange={(e) => onSizeMinChange(e.target.value === "" ? NaN : Number(e.target.value))}
+                  style={{ width: 60 }}
+                />
+              </div>
+              <div className="ctrl-row">
+                <span className="ctrl-label">Max size</span>
+                <input
+                  type="number"
+                  aria-label="Marker size at the high end of the range"
+                  min="0"
+                  step="0.5"
+                  value={Number.isNaN(sizeMaxValue) ? "" : sizeMaxValue}
+                  onChange={(e) => onSizeMaxChange(e.target.value === "" ? NaN : Number(e.target.value))}
+                  style={{ width: 60 }}
+                />
+              </div>
+              <div className="ctrl-row" style={{ justifyContent: "space-between" }}>
+                <span className="ctrl-label">Invert size</span>
+                <label className="toggle">
+                  <input
+                    type="checkbox"
+                    aria-label="Invert size mapping (small values get the larger marker)"
+                    checked={invertSize}
+                    onChange={(e) => onInvertSizeChange(e.target.checked)}
+                  />
+                  <div className="toggle-track"><div className="toggle-thumb" /></div>
+                </label>
+              </div>
               <label className="ctrl-row">
                 <span className="ctrl-label">Marker size</span>
                 <input
@@ -329,6 +410,34 @@ export function LeftSidebar({
                   aria-label="Annotation size"
                 />
               </div>
+              <div className="ctrl-row">
+                <span className="ctrl-label">Font</span>
+                <select
+                  className="ctrl-select"
+                  value={annotationFont ?? ""}
+                  onChange={(e) => onAnnotationFontChange(e.target.value || null)}
+                  style={{ maxWidth: 140 }}
+                  aria-label="Annotation font"
+                >
+                  {ANNOTATION_FONT_CHOICES.map((choice) => (
+                    <option key={choice.label} value={choice.value}>{choice.label}</option>
+                  ))}
+                </select>
+              </div>
+              <ColourOverrideRow
+                label="Text colour"
+                value={annotationTextColor}
+                onChange={onAnnotationTextColorChange}
+                fallback={annotationTextColorFallback}
+                ariaLabel="Annotation text colour"
+              />
+              <ColourOverrideRow
+                label="Background colour"
+                value={annotationBackgroundColor}
+                onChange={onAnnotationBackgroundColorChange}
+                fallback={annotationBackgroundColorFallback}
+                ariaLabel="Annotation background colour"
+              />
               {hasNullVisibility && (
                 <div className="ctrl-row" style={{ justifyContent: "space-between" }}>
                   <span className="ctrl-label">Show null marker values</span>

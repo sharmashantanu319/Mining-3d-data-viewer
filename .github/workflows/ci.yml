@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [Development, main]
+  # No branch filter on pull_request so stacked PRs (whose base is another
+  # feature branch rather than Development) are checked too.
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mxrap-viewer
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Vitest 5 needs Node ^22.12 || ^24 || >=26; keep this in sync with
+          # the version developers run locally.
+          node-version: 24
+          cache: npm
+          cache-dependency-path: mxrap-viewer/package-lock.json
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
