@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import ThreeScene from "./components/ThreeScene";
+import ChartView from "./components/ChartView";
 import Header from "./components/Header";
 import { LeftSidebar } from "./components/LeftSidebar";
 import { RightPanel } from "./components/RightPanel";
@@ -31,6 +32,9 @@ function colourMarkerInput(series) {
 
 export default function Home() {
   const [scenes, setScenes] = useState(mockScenes); // 初始用 mock 数据占位，上传真实文件后会替换
+  const [charts, setCharts] = useState([]); // chart displays from the export (none for the mock demo)
+  const [activeView, setActiveView] = useState("3d"); // "3d" or "chart"
+  const [chartIndex, setChartIndex] = useState(0);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [errors, setErrors] = useState([]);
   const [fileName, setFileName] = useState(null);
@@ -441,6 +445,9 @@ export default function Home() {
         return;
       }
       setScenes(parsed.scenes);
+      setCharts(parsed.charts ?? []);
+      setChartIndex(0);
+      setActiveView("3d");
       setCurrentIndex(0);
       resetSceneScopedState();
       sceneCamerasRef.current = {};
@@ -486,6 +493,9 @@ export default function Home() {
     resetSceneScopedState();
     setRestoreBanner(null);
   }
+
+  const activeChart = charts[Math.min(chartIndex, charts.length - 1)] ?? null;
+  const showChart = activeView === "chart" && activeChart !== null;
 
   const dataState = errors.length > 0 ? "error" : isLoadingExport ? "loading" : "loaded";
 
@@ -628,6 +638,53 @@ export default function Home() {
             onPointHover={setHoveredPoint}
             onPointSelect={setSelectedPoint}
           />
+
+          {charts.length > 0 && (
+            <div
+              role="tablist"
+              aria-label="Workspace view"
+              style={{ position: "absolute", top: 10, left: "50%", transform: "translateX(-50%)", zIndex: 7, display: "flex", gap: 6, alignItems: "center" }}
+            >
+              <div style={{ display: "flex", border: "1px solid var(--color-border)", borderRadius: "var(--radius-sm)", overflow: "hidden", background: "rgba(18,25,24,0.85)" }}>
+                <button
+                  role="tab"
+                  aria-selected={!showChart}
+                  className={`vp-btn ${!showChart ? "active" : ""}`}
+                  style={{ border: "none", borderRadius: 0, padding: "0 12px", fontSize: 12, whiteSpace: "nowrap", width: "auto", height: 28 }}
+                  onClick={() => setActiveView("3d")}
+                >
+                  3D View
+                </button>
+                <button
+                  role="tab"
+                  aria-selected={showChart}
+                  className={`vp-btn ${showChart ? "active" : ""}`}
+                  style={{ border: "none", borderRadius: 0, borderLeft: "1px solid var(--color-border)", padding: "0 12px", fontSize: 12, whiteSpace: "nowrap", width: "auto", height: 28 }}
+                  onClick={() => setActiveView("chart")}
+                >
+                  Chart
+                </button>
+              </div>
+              {showChart && charts.length > 1 && (
+                <select
+                  aria-label="Chart"
+                  value={chartIndex}
+                  onChange={(e) => setChartIndex(Number(e.target.value))}
+                  style={{ fontSize: 12 }}
+                >
+                  {charts.map((chart, index) => (
+                    <option key={chart.id} value={index}>{chart.title}</option>
+                  ))}
+                </select>
+              )}
+            </div>
+          )}
+
+          {showChart && (
+            <div style={{ position: "absolute", inset: 0, zIndex: 6, background: "var(--color-panel)", paddingTop: 44 }}>
+              <ChartView key={activeChart.id} chart={activeChart} />
+            </div>
+          )}
 
           {/* Viewport toolbar — the single place camera controls live (not
               duplicated in the sidebar). A real segmented pair for
