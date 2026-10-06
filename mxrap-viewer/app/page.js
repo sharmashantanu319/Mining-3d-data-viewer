@@ -21,7 +21,8 @@ import {
 import { buildColourLegend } from "./components/colourLegend";
 import { getMarkerChoices, applyMarkerSelections } from "./components/markerSelection";
 import { resolveMarkerRenderOptions } from "./components/pointMarkerResolver";
-import { IconFitView, IconPerspective, IconOrtho, IconRefresh } from "./components/icons";
+import { IconFitView, IconPerspective, IconOrtho, IconRefresh, IconCamera, IconFolder } from "./components/icons";
+import { canPickFolder, pickSnapshotFolder, saveSnapshot, snapshotFilename } from "./components/snapshot";
 import { loadSession, saveSession, sanitizeAnnotationStyle, sessionKeyFor } from "./components/viewerSession";
 import { cameraStateForProjection, sanitizeSceneCameras } from "./components/cameraState";
 import { SCENE_SCOPED_STATE_DEFAULTS, isSceneSwitch } from "./components/sceneViewState";
@@ -56,6 +57,13 @@ export default function Home() {
   const [hoveredPoint, setHoveredPoint] = useState(null);
   const [selectedPoint, setSelectedPoint] = useState(null);
   const threeSceneRef = useRef(null);
+  const snapshotFolderRef = useRef(null);
+  const [snapshotFolderName, setSnapshotFolderName] = useState(null);
+  const [snapshotNotice, setSnapshotNotice] = useState(null);
+  const [folderPickerAvailable, setFolderPickerAvailable] = useState(false);
+      useEffect(() => {
+      setFolderPickerAvailable(canPickFolder());
+    }, []);
   const sessionKeyRef = useRef(null); // which file's session to save to, or null for the initial mock demo (not persisted)
   const sceneCamerasRef = useRef({}); // { [sceneIndex]: camera state } recorded when a scene is left, so switching back restores its camera
   const pendingCameraRestoreRef = useRef(null); // camera state to apply once the rebuilt ThreeScene has mounted
@@ -497,6 +505,24 @@ export default function Home() {
 
   const isDraggingFile = useFileDrop(loadExportFile, (message) => setErrors([message]), isLoadingExport);
 
+  async function handleTakeSnapshot() {
+    const blob = await threeSceneRef.current?.captureSnapshot();
+    if (!blob) return;
+    const filename = snapshotFilename(currentScene?.title);
+    const destination = await saveSnapshot(blob, filename, snapshotFolderRef.current);
+    setSnapshotNotice(
+      destination === "folder" ? `Saved ${filename} to ${snapshotFolderName}` : `Downloaded ${filename}`
+    );
+    setTimeout(() => setSnapshotNotice(null), 4000);
+  }
+
+  async function handleChooseSnapshotFolder() {
+    const handle = await pickSnapshotFolder();
+    if (!handle) return;
+    snapshotFolderRef.current = handle;
+    setSnapshotFolderName(handle.name);
+  }
+
   const dataState = errors.length > 0 ? "error" : isLoadingExport ? "loading" : "loaded";
 
   return (
@@ -640,6 +666,20 @@ export default function Home() {
             onPointSelect={setSelectedPoint}
           />
 
+          {snapshotNotice && (
+            <div
+              role="status"
+              style={{
+                position: "absolute", bottom: 12, left: "50%", transform: "translateX(-50%)", zIndex: 6,
+                padding: "5px 12px", fontSize: 11, color: "var(--color-fg)",
+                background: "rgba(18,25,24,0.92)", border: "1px solid var(--color-border)",
+                borderRadius: "var(--radius-sm)",
+              }}
+            >
+              {snapshotNotice}
+            </div>
+          )}
+
           {/* Viewport toolbar — the single place camera controls live (not
               duplicated in the sidebar). A real segmented pair for
               Perspective/Orthographic, not one button that swaps its own
@@ -651,6 +691,22 @@ export default function Home() {
             <button className="vp-btn" onClick={() => threeSceneRef.current?.resetView()} title="Reset View — return to the export's original camera">
               <IconRefresh size={14} />
             </button>
+            <button
+              className="vp-btn"
+              onClick={handleTakeSnapshot}
+              title={snapshotFolderName ? `Take Snapshot — save a PNG to "${snapshotFolderName}"` : "Take Snapshot — download a PNG of the current view"}
+            >
+              <IconCamera size={14} />
+            </button>
+            {folderPickerAvailable && (
+              <button
+                className={`vp-btn ${snapshotFolderName ? "active" : ""}`}
+                onClick={handleChooseSnapshotFolder}
+                title={snapshotFolderName ? `Snapshot folder: ${snapshotFolderName} (click to change)` : "Choose a folder to save snapshots into"}
+              >
+                <IconFolder size={14} />
+              </button>
+            )}
             <div style={{ display: "flex", border: "1px solid var(--color-border)", borderRadius: "var(--radius-sm)", overflow: "hidden" }}>
               <button
                 className={`vp-btn ${projectionMode === "perspective" ? "active" : ""}`}
