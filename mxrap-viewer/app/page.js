@@ -57,9 +57,13 @@ export default function Home() {
   const [hoveredPoint, setHoveredPoint] = useState(null);
   const [selectedPoint, setSelectedPoint] = useState(null);
   const threeSceneRef = useRef(null);
-  const snapshotFolderRef = useRef(null); // FileSystemDirectoryHandle chosen for this browser session, if any
+  const snapshotFolderRef = useRef(null);
   const [snapshotFolderName, setSnapshotFolderName] = useState(null);
   const [snapshotNotice, setSnapshotNotice] = useState(null);
+  const [folderPickerAvailable, setFolderPickerAvailable] = useState(false);
+      useEffect(() => {
+      setFolderPickerAvailable(canPickFolder());
+    }, []);
   const sessionKeyRef = useRef(null); // which file's session to save to, or null for the initial mock demo (not persisted)
   const sceneCamerasRef = useRef({}); // { [sceneIndex]: camera state } recorded when a scene is left, so switching back restores its camera
   const pendingCameraRestoreRef = useRef(null); // camera state to apply once the rebuilt ThreeScene has mounted
@@ -694,7 +698,7 @@ export default function Home() {
             >
               <IconCamera size={14} />
             </button>
-            {canPickFolder() && (
+            {folderPickerAvailable && (
               <button
                 className={`vp-btn ${snapshotFolderName ? "active" : ""}`}
                 onClick={handleChooseSnapshotFolder}
