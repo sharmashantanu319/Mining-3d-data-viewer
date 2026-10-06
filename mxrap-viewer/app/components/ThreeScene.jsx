@@ -207,6 +207,8 @@ const ThreeScene = forwardRef(function ThreeScene(
 ) {
   const containerRef = useRef(null);
   const cameraRef = useRef(null);
+  const rendererRef = useRef(null);
+  const gizmoRef = useRef(null);
   const controlsRef = useRef(null);
   const homeViewRef = useRef(null); // { position, target } to return to on reset
   const cancelAnimationRef = useRef(null);
@@ -305,6 +307,7 @@ const ThreeScene = forwardRef(function ThreeScene(
     return (Math.max(radius, 1e-6) / Math.sin(THREE.MathUtils.degToRad(fovDegrees / 2))) * 1.2;
   }
 
+
   useImperativeHandle(ref, () => ({
     resetView() {
       const camera = cameraRef.current;
@@ -335,6 +338,20 @@ const ThreeScene = forwardRef(function ThreeScene(
       if (!camera || !controls) return;
       cancelAnimationRef.current?.();
       applyCameraState(camera, controls, state);
+    },
+
+    // Renders the current frame (scene + orientation gizmo) and returns it as
+    // a PNG Blob. The render and toBlob happen in the same task, which is what
+    // lets this work without `preserveDrawingBuffer` (a per-frame cost):
+    // toBlob copies the bitmap at call time.
+    captureSnapshot() {
+      const renderer = rendererRef.current;
+      const camera = cameraRef.current;
+      const scene = sceneRef.current;
+      if (!renderer || !camera || !scene) return Promise.resolve(null);
+      renderer.render(scene, camera);
+      if (gizmoRef.current) renderOrientationGizmo(renderer, gizmoRef.current);
+      return new Promise((resolve) => renderer.domElement.toBlob(resolve, "image/png"));
     },
 
     // Reframes on the currently visible data, keeping the current viewing
@@ -422,6 +439,7 @@ const ThreeScene = forwardRef(function ThreeScene(
     renderer.setSize(container.clientWidth, container.clientHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     container.appendChild(renderer.domElement);
+    rendererRef.current = renderer;
 
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
@@ -779,6 +797,7 @@ function createPointCloud(pointSeriesData) {
     // is drawn in its own corner viewport), so it never affects picking or
     // the scene bounds.
     const orientationGizmo = createOrientationGizmo(camera, renderer.domElement);
+    gizmoRef.current = orientationGizmo;
 
     // ---------- 4. Resize 监听 ----------
     function handleResize() {
@@ -837,6 +856,8 @@ function createPointCloud(pointSeriesData) {
       }
 
       cameraRef.current = null;
+      rendererRef.current = null;
+      gizmoRef.current = null;
       controlsRef.current = null;
       sceneRef.current = null;
       pointCloudsRef.current = [];
@@ -890,3 +911,4 @@ function createPointCloud(pointSeriesData) {
 });
 
 export default ThreeScene;
+
