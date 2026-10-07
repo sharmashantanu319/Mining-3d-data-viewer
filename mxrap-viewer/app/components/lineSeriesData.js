@@ -11,7 +11,9 @@ export function buildLineSeries(vertexRows, lineRows, config, markerDefinitions 
   const byId = new Map(vertices.map((vertex) => [vertex.id, vertex]));
   const grouped = new Map();
   for (const row of lineRows) {
-    if (row.LineID == null || row.VertexID == null) continue;
+    const validLineId = (typeof row.LineID === "number" && Number.isFinite(row.LineID)) ||
+      (typeof row.LineID === "string" && row.LineID.trim() !== "");
+    if (!validLineId) continue;
     if (!grouped.has(row.LineID)) grouped.set(row.LineID, []);
     grouped.get(row.LineID).push(byId.get(row.VertexID));
   }
@@ -19,7 +21,7 @@ export function buildLineSeries(vertexRows, lineRows, config, markerDefinitions 
   for (const [id, points] of grouped) {
     // Reject the whole malformed line rather than bridging across a missing
     // vertex and inventing a connection that the export never contained.
-    if (points.length < 2 || points.some((point) => !point || ![point.x, point.y, point.z].every(Number.isFinite))) {
+    if (points.length < 2 || points.some((point) => !point || ![point.x, point.y, point.z].every((value) => Number.isFinite(value) && Number.isFinite(Math.fround(value))))) {
       console.warn(`Skipping invalid line ${id} in ${config.name ?? "line series"}`);
       continue;
     }

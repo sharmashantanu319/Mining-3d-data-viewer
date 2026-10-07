@@ -5,6 +5,7 @@ import ThreeScene from "./components/ThreeScene";
 import { lineColourSeries } from "./components/lineSeriesData";
 import ChartView from "./components/ChartView";
 import Header from "./components/Header";
+import ImportReport from "./components/ImportReport";
 import { LeftSidebar } from "./components/LeftSidebar";
 import { RightPanel } from "./components/RightPanel";
 import { StatusBar } from "./components/StatusBar";
@@ -38,6 +39,7 @@ export default function Home() {
   const [chartIndex, setChartIndex] = useState(0);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [errors, setErrors] = useState([]);
+  const [importReport, setImportReport] = useState({ warnings: [], summaries: [] });
   const [fileName, setFileName] = useState(null);
   const [isLoadingExport, setIsLoadingExport] = useState(false);
   const [projectionMode, setProjectionMode] = useState("perspective");
@@ -456,12 +458,14 @@ export default function Home() {
 
     setFileName(file.name);
     setErrors([]);
+    setImportReport({ warnings: [], summaries: [] });
     setIsLoadingExport(true);
 
     try {
       // 第一步：先做 Validate（只检查，不渲染）
       // Step 1: validate first (checks only, no rendering).
       const validation = await validateExportFile(file);
+      setImportReport({ warnings: validation.warnings ?? [], summaries: [] });
       if (!validation.valid) {
         setErrors(validation.errors);
         return; // 检查不通过，不继续往下解析/渲染
@@ -478,6 +482,7 @@ export default function Home() {
         return;
       }
       setScenes(parsed.scenes);
+      setImportReport({ warnings: validation.warnings ?? [], summaries: validation.summaries ?? [] });
       setCharts(parsed.charts ?? []);
       setChartIndex(0);
       setActiveView("3d");
@@ -572,6 +577,7 @@ export default function Home() {
         </div>
       )}
 
+      <ImportReport warnings={importReport.warnings} summaries={importReport.summaries} />
       <div style={{ flex: 1, display: "flex", overflow: "hidden", minHeight: 0 }}>
         <LeftSidebar
           open={leftOpen}
@@ -763,7 +769,8 @@ export default function Home() {
           {errors.length > 0 && (
             <div
               style={{
-                position: "absolute", top: 44, left: 10, right: 10, zIndex: 5,
+                position: "absolute", top: 44, left: 10, right: 10, zIndex: 8,
+                maxHeight: 160, overflowY: "auto",
                 padding: "8px 10px", background: "rgba(18,25,24,0.92)", border: "1px solid var(--color-danger-border)",
                 borderRadius: 6, fontSize: 11, color: "var(--color-danger)",
               }}

@@ -32,7 +32,7 @@ describe("validateExportFile - annotations", () => {
     }));
 
     await expect(validateExportFile(await zip.generateAsync({ type: "uint8array" })))
-      .resolves.toEqual({ valid: true, errors: [] });
+      .resolves.toMatchObject({ valid: true, errors: [] });
   });
 
   it("rejects top-level annotations with invalid location or missing text", async () => {
@@ -61,7 +61,7 @@ describe("validateExportFile - annotations", () => {
       csv: "X,Y,Z,Text\n10,20,30,Portal A",
     });
 
-    await expect(validateExportFile(file)).resolves.toEqual({ valid: true, errors: [] });
+    await expect(validateExportFile(file)).resolves.toMatchObject({ valid: true, errors: [] });
   });
 
   it("requires orientation columns for fixed 3D annotations", async () => {
@@ -169,7 +169,7 @@ describe("validateExportFile - structure", () => {
       zip.file("weird/config.json", JSON.stringify({ type: "something-else", series: [{ type: "surface" }] }));
     });
 
-    expect(result).toEqual({ valid: true, errors: [] });
+    expect(result).toMatchObject({ valid: true, errors: [] });
   });
 
   it("accepts a chart display whose series' data/data-additional CSVs and axis/filter columns all exist", async () => {
@@ -177,6 +177,7 @@ describe("validateExportFile - structure", () => {
       zip.file("info.json", JSON.stringify({ slides: [{ displays: [{ folder: "chart" }] }] }));
       zip.file("chart/config.json", JSON.stringify({
         type: "chart",
+        axes: { bottom: { enabled: true, scale: "datetime" }, left: { enabled: true, scale: "linear" } },
         series: [{
           name: "Events",
           data: "events",
@@ -190,7 +191,7 @@ describe("validateExportFile - structure", () => {
       zip.file("data/events-extra.csv", "ID,AboveThreshold\n1,1");
     });
 
-    expect(result).toEqual({ valid: true, errors: [] });
+    expect(result).toMatchObject({ valid: true, errors: [] });
   });
 
   it("reports a chart series' missing data CSV and missing axis/filter columns", async () => {
@@ -229,13 +230,13 @@ describe("validateExportFile - structure", () => {
       csv: "X,Y,Z,Text\n1,2,3,A",
     });
 
-    await expect(validateExportFile(file)).resolves.toEqual({ valid: true, errors: [] });
+    await expect(validateExportFile(file)).resolves.toMatchObject({ valid: true, errors: [] });
   });
 });
 
 describe("validateExportFile - surfaces", () => {
   it("accepts a well-formed surface", async () => {
-    await expect(validateExportFile(await buildSurfaceExport())).resolves.toEqual({ valid: true, errors: [] });
+    await expect(validateExportFile(await buildSurfaceExport())).resolves.toMatchObject({ valid: true, errors: [] });
   });
 
   it("reports missing vertices and faces CSV files", async () => {
