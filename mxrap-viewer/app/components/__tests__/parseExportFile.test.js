@@ -165,11 +165,21 @@ describe("parseExportFile (full-scale real export: visualiser-export-2)", () => 
     }
   });
 
-  it("skips the lines series in the second display, keeping its surface and no point clouds", () => {
+  it("loads RMQ intervals alongside the shared geometry without inventing point clouds", () => {
     const s2 = result.scenes.find((s) => s.id === "s2-3dview");
     // s2-3dview declares RMQ Intervals (lines) and Geometry Model (surface).
     expect(s2.surfaces).toHaveLength(1);
     expect(s2.pointClouds).toEqual([]);
+    expect(s2.lineSeries).toHaveLength(1);
+    const [rmq] = s2.lineSeries;
+    expect(rmq.vertices).toHaveLength(17754);
+    expect(rmq.lines).toHaveLength(8877);
+    expect(rmq.lineWidth).toBe(5);
+    expect(rmq.lines[0]).toMatchObject({ id: 33591, points: [
+      { id: 67182, x: 10326.02, y: 10212.7, z: 3045.73, RQD: 95 },
+      { id: 67183, x: 10326.05, y: 10215.61, z: 3044.99, RQD: 95 },
+    ] });
+    expect(rmq.usesDefaultRqdPalette).toBe(true);
   });
 
   it("parses the full-size geometry model (158,168 vertices / 231,024 faces)", () => {

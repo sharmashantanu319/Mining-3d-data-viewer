@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import ThreeScene from "./components/ThreeScene";
+import { lineColourSeries } from "./components/lineSeriesData";
 import Header from "./components/Header";
 import { LeftSidebar } from "./components/LeftSidebar";
 import { RightPanel } from "./components/RightPanel";
@@ -39,6 +40,7 @@ export default function Home() {
   const [filtersBySeries, setFiltersBySeries] = useState({});
   const [selectedSeries, setSelectedSeries] = useState(0);
   const [seriesVisibility, setSeriesVisibility] = useState({});
+  const [lineVisibility, setLineVisibility] = useState({});
   const [nullVisibility, setNullVisibility] = useState({});
   const [annotationsVisible, setAnnotationsVisible] = useState(true);
   const [annotationScale, setAnnotationScale] = useState(1);
@@ -286,7 +288,7 @@ export default function Home() {
   // to compute the full-dataset range comparison.
   const colourLegends = useMemo(
     () =>
-      renderedPointClouds
+      [...renderedPointClouds, ...(currentScene.lineSeries ?? []).map(lineColourSeries)]
         .map((series, index) => (series?.legend === true ? { series, index } : null))
         .filter(Boolean)
         .map(({ series, index }) => {
@@ -305,7 +307,7 @@ export default function Home() {
           return { ...legend, missingCount, sizeLabel: series.sizeMarker || "Constant", symbolLabel };
         })
         .filter(Boolean),
-    [renderedPointClouds, fullRenderedPointClouds]
+    [renderedPointClouds, fullRenderedPointClouds, currentScene]
   );
 
   // Selection survives a filter/visibility change as long as the selected
@@ -361,6 +363,11 @@ export default function Home() {
     const annotationCount = currentScene.annotations?.length ?? 0;
     return [
       ...seriesLayers,
+      ...(currentScene.lineSeries ?? []).map((series, index) => ({
+        id: `line-${index}`, name: series.name || `Line series ${index + 1}`,
+        type: "line", visible: lineVisibility[index] ?? series.visible !== false,
+        count: series.lines.length, color: "var(--color-fg-dim)",
+      })),
       ...(surfaceCount > 0
         ? [{ id: "surfaces", name: "Surfaces", type: "surface", visible: true, count: surfaceCount, color: "#3B82F6" }]
         : []),
@@ -368,9 +375,18 @@ export default function Home() {
         ? [{ id: "annotations", name: "Annotations", type: "annotation", visible: annotationsVisible, count: annotationCount, color: "#A3A3A3" }]
         : []),
     ];
-  }, [pointSeries, seriesVisibility, currentScene, annotationsVisible]);
+  }, [pointSeries, seriesVisibility, lineVisibility, currentScene, annotationsVisible]);
 
   function handleLayerToggle(id) {
+    const lineMatch = id.match(/^line-(\d+)$/);
+    if (lineMatch) {
+      const index = Number(lineMatch[1]);
+      setLineVisibility((current) => ({
+        ...current,
+        [index]: !(current[index] ?? currentScene.lineSeries[index].visible !== false),
+      }));
+      return;
+    }
     if (id === "annotations") {
       setAnnotationsVisible((visible) => !visible);
       return;
@@ -464,6 +480,7 @@ export default function Home() {
     setSelectedSeries(SCENE_SCOPED_STATE_DEFAULTS.selectedSeries);
     setFiltersBySeries({ ...SCENE_SCOPED_STATE_DEFAULTS.filtersBySeries });
     setSeriesVisibility({ ...SCENE_SCOPED_STATE_DEFAULTS.seriesVisibility });
+    setLineVisibility({});
     setNullVisibility({ ...SCENE_SCOPED_STATE_DEFAULTS.nullVisibility });
     setMarkerSelections({ ...SCENE_SCOPED_STATE_DEFAULTS.markerSelections });
     setMarkerSeriesIndex(SCENE_SCOPED_STATE_DEFAULTS.markerSeriesIndex);
@@ -616,6 +633,7 @@ export default function Home() {
             ref={threeSceneRef}
             sceneData={currentScene}
             visiblePointClouds={renderedPointClouds}
+            lineVisibility={lineVisibility}
             projectionMode={projectionMode}
             annotationsVisible={annotationsVisible}
             annotationScale={annotationScale}
