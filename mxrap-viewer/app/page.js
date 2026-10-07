@@ -41,6 +41,7 @@ export default function Home() {
   const [selectedSeries, setSelectedSeries] = useState(0);
   const [seriesVisibility, setSeriesVisibility] = useState({});
   const [lineVisibility, setLineVisibility] = useState({});
+  const [surfaceVisibility, setSurfaceVisibility] = useState({});
   const [nullVisibility, setNullVisibility] = useState({});
   const [annotationsVisible, setAnnotationsVisible] = useState(true);
   const [annotationScale, setAnnotationScale] = useState(1);
@@ -176,6 +177,7 @@ export default function Home() {
         sceneIndex: currentIndex,
         filtersBySeries,
         seriesVisibility,
+        surfaceVisibility,
         nullVisibility,
         markerSelections,
         markerSeriesIndex,
@@ -206,6 +208,7 @@ export default function Home() {
     currentIndex,
     filtersBySeries,
     seriesVisibility,
+    surfaceVisibility,
     nullVisibility,
     markerSelections,
     markerSeriesIndex,
@@ -238,6 +241,7 @@ export default function Home() {
     setCurrentIndex(restoredIndex);
     if (session.filtersBySeries) setFiltersBySeries(session.filtersBySeries);
     if (session.seriesVisibility) setSeriesVisibility(session.seriesVisibility);
+    setSurfaceVisibility(session.surfaceVisibility ?? {});
     if (session.nullVisibility) setNullVisibility(session.nullVisibility);
     if (session.markerSelections) setMarkerSelections(session.markerSelections);
     if (Number.isInteger(session.markerSeriesIndex)) setMarkerSeriesIndex(session.markerSeriesIndex);
@@ -359,7 +363,6 @@ export default function Home() {
       // decoratively here.
       color: "var(--color-fg-dim)",
     }));
-    const surfaceCount = currentScene.surfaces?.length ?? 0;
     const annotationCount = currentScene.annotations?.length ?? 0;
     return [
       ...seriesLayers,
@@ -368,16 +371,27 @@ export default function Home() {
         type: "line", visible: lineVisibility[index] ?? series.visible !== false,
         count: series.lines.length, color: "var(--color-fg-dim)",
       })),
-      ...(surfaceCount > 0
-        ? [{ id: "surfaces", name: "Surfaces", type: "surface", visible: true, count: surfaceCount, color: "#3B82F6" }]
-        : []),
+      ...(currentScene.surfaces ?? []).map((surface, index) => ({
+        id: `surface-${index}`, name: surface.name || `Surface ${index + 1}`,
+        type: "surface", visible: surfaceVisibility[index] ?? surface.visible !== false,
+        count: surface.faces?.length ?? 0, color: "#3B82F6",
+      })),
       ...(annotationCount > 0
         ? [{ id: "annotations", name: "Annotations", type: "annotation", visible: annotationsVisible, count: annotationCount, color: "#A3A3A3" }]
         : []),
     ];
-  }, [pointSeries, seriesVisibility, lineVisibility, currentScene, annotationsVisible]);
+  }, [pointSeries, seriesVisibility, lineVisibility, surfaceVisibility, currentScene, annotationsVisible]);
 
   function handleLayerToggle(id) {
+    const surfaceMatch = id.match(/^surface-(\d+)$/);
+    if (surfaceMatch) {
+      const index = Number(surfaceMatch[1]);
+      setSurfaceVisibility((current) => ({
+        ...current,
+        [index]: !(current[index] ?? currentScene.surfaces[index].visible !== false),
+      }));
+      return;
+    }
     const lineMatch = id.match(/^line-(\d+)$/);
     if (lineMatch) {
       const index = Number(lineMatch[1]);
@@ -391,7 +405,6 @@ export default function Home() {
       setAnnotationsVisible((visible) => !visible);
       return;
     }
-    if (id === "surfaces") return; // no per-surface visibility toggle in the render pipeline yet
     const match = id.match(/^series-(\d+)$/);
     if (!match) return;
     const index = Number(match[1]);
@@ -481,6 +494,7 @@ export default function Home() {
     setFiltersBySeries({ ...SCENE_SCOPED_STATE_DEFAULTS.filtersBySeries });
     setSeriesVisibility({ ...SCENE_SCOPED_STATE_DEFAULTS.seriesVisibility });
     setLineVisibility({});
+    setSurfaceVisibility({});
     setNullVisibility({ ...SCENE_SCOPED_STATE_DEFAULTS.nullVisibility });
     setMarkerSelections({ ...SCENE_SCOPED_STATE_DEFAULTS.markerSelections });
     setMarkerSeriesIndex(SCENE_SCOPED_STATE_DEFAULTS.markerSeriesIndex);
@@ -634,6 +648,7 @@ export default function Home() {
             sceneData={currentScene}
             visiblePointClouds={renderedPointClouds}
             lineVisibility={lineVisibility}
+            surfaceVisibility={surfaceVisibility}
             projectionMode={projectionMode}
             annotationsVisible={annotationsVisible}
             annotationScale={annotationScale}

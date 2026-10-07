@@ -193,6 +193,7 @@ const ThreeScene = forwardRef(function ThreeScene(
     sceneData,
     visiblePointClouds = null,
     lineVisibility = {},
+    surfaceVisibility = {},
     projectionMode = "perspective",
     annotationsVisible = true,
     annotationScale = 1,
@@ -223,6 +224,15 @@ const ThreeScene = forwardRef(function ThreeScene(
   const sceneRef = useRef(null);
   const pointCloudsRef = useRef([]);
   const meshesRef = useRef([]);
+  const surfaceVisibilityRef = useRef(surfaceVisibility);
+  useEffect(() => {
+    surfaceVisibilityRef.current = surfaceVisibility;
+    // Change only the mesh visibility. Rebuilding the scene here would reset
+    // the camera and unnecessarily recreate the point and RMQ geometry.
+    meshesRef.current.forEach((mesh, index) => {
+      mesh.visible = surfaceVisibility[index] ?? sceneData.surfaces?.[index]?.visible !== false;
+    });
+  }, [surfaceVisibility, sceneData]);
   const markerScaleRef = useRef(markerScale);
   markerScaleRef.current = markerScale;
   const buildPointCloudRef = useRef(null);
@@ -537,12 +547,13 @@ const ThreeScene = forwardRef(function ThreeScene(
 
     // ---------- 3. 根据 sceneData 加载真实内容 ----------
     const meshes = [];
-    (sceneData.surfaces ?? []).forEach((surfaceData) => {
+    (sceneData.surfaces ?? []).forEach((surfaceData, index) => {
       // Real marker-def data (parsed from the export's markers.json) takes
       // priority; surfaces with no resolvable colour marker fall back to
       // the flat placeholder colour buildSurfaceMesh's own default handles.
       const vertexColours = resolveSurfaceVertexColours(surfaceData);
       const mesh = buildSurfaceMesh(surfaceData, vertexColours);
+      mesh.visible = surfaceVisibilityRef.current[index] ?? surfaceData.visible !== false;
       scene.add(mesh);
       meshes.push(mesh);
     });

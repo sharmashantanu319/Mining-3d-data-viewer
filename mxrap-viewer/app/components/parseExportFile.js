@@ -323,6 +323,7 @@ async function parseSurfaceSeries(zip, series, root) {
 
     return {
         color: 0x4f8ef7,
+        name: series.name,
         visible: series.visible !== false,
         colourMarker: series.colourMarker ?? null,
         markerDefinitions,
