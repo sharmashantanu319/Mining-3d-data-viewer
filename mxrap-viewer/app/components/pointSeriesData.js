@@ -13,10 +13,10 @@ const Z_KEYS = ["Z", "z", "Location Z"];
 function readCoord(row, keys) {
   for (const key of keys) {
     const value = row[key];
-    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "number" && Number.isFinite(value) && Number.isFinite(Math.fround(value))) return value;
     if (typeof value === "string" && value.trim() !== "") {
       const n = Number(value);
-      if (Number.isFinite(n)) return n;
+      if (Number.isFinite(n) && Number.isFinite(Math.fround(n))) return n;
     }
   }
   return null;

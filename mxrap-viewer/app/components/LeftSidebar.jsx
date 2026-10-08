@@ -74,6 +74,7 @@ function ColourOverrideRow({ label, value, onChange, fallback, ariaLabel }) {
 
 const layerIcon = (type) => {
   if (type === "surface") return <IconSurface size={11} />;
+  if (type === "line") return <IconMap size={11} />;
   if (type === "event") return <IconDot size={11} />;
   if (type === "sensor") return <IconMap size={11} />;
   if (type === "marker") return <IconTag size={11} />;

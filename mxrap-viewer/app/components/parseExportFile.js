@@ -20,13 +20,13 @@
 //   └── s2-3dview/config.json     另一个 display
 //
 // Scope: handles series.type === "surface", "points", and "text" for 3D
-// view displays, plus chart displays (see parseChartDisplay below). Lines
-// series remain outside the viewer scope.
+// view displays, including lines, plus chart displays.
 
 import JSZip from "jszip";
 import Papa from "papaparse";
 import { buildPointSeries } from "./pointSeriesData";
 import { parseColourRampCsv } from "./colourMapping";
+import { buildLineSeries } from "./lineSeriesData";
 import { parseChartConfig } from "./parseChartConfig";
 import {
     joinChartRows,
@@ -160,6 +160,7 @@ async function parseChartDisplay(zip, displayRef, config, root, slideIndex, slid
 async function parseDisplayConfig(zip, displayRef, config, root, surfaceMenus) {
     const surfaces = [];
     const pointClouds = [];
+    const lineSeries = [];
     const annotations = parseDisplayAnnotations(config.annotations, displayRef.folder);
 
     for (const series of config.series ?? []) {
@@ -173,6 +174,15 @@ async function parseDisplayConfig(zip, displayRef, config, root, surfaceMenus) {
         } else if (series.type === "points") {
             const pointCloud = await parsePointSeries(zip, series, root);
             if (pointCloud) pointClouds.push(pointCloud);
+        } else if (series.type === "lines") {
+            const vertices = await readCsv(zip, series["data-vertices"], root);
+            const lines = await readCsv(zip, series["data-lines"], root);
+            if (!vertices || !lines) {
+                console.warn(`Skipping line series with missing data: ${series.name}`);
+                continue;
+            }
+            const definitions = await loadMarkerDefinitions(zip, series.markerMenu, root);
+            lineSeries.push(buildLineSeries(vertices, lines, series, definitions));
         } else if (series.type === "text" || series.type === "annotation") {
             const seriesAnnotations = await parseAnnotationSeries(zip, series, root);
             annotations.push(...seriesAnnotations);
@@ -187,6 +197,7 @@ async function parseDisplayConfig(zip, displayRef, config, root, surfaceMenus) {
         camera: parseCameraConfig(config.camera),
         surfaces,
         pointClouds,
+        lineSeries,
         annotations,
     };
 }
@@ -321,6 +332,7 @@ async function parseSurfaceSeries(zip, series, root) {
 
     return {
         color: 0x4f8ef7,
+        name: series.name,
         visible: series.visible !== false,
         colourMarker: series.colourMarker ?? null,
         markerDefinitions,

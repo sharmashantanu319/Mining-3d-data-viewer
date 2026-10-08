@@ -18,17 +18,19 @@
 // 2. 数据引用完整性（Data-reference）：surface/text 引用的 CSV 是否存在、
 //    能否解析，以及 surface faces / text coordinates 是否有效
 //
-// 范围说明 / Scope note: points/lines remain outside this validator. Chart
-// displays are checked at the series level (data/data-additional CSVs
-// exist, axis/filter columns are present) but not point-by-point.
+// Validate surfaces, points, lines, annotations, chart joins and markers.
+// Recoverable record problems are warnings; unusable or ambiguous data is an error.
 
 import JSZip from "jszip";
 import Papa from "papaparse";
 import { surfaceVertexErrors } from "./surfaceValidation";
 import { parseChartConfig } from "./parseChartConfig";
+import { checkIds, checkPointData, checkLineData, requireColumns } from "./dataValidation";
+import { checkMarkers } from "./markerValidation";
+import { joinChartRows, filterChartRows, buildChartSeriesColumns } from "./chartData";
 
 /**
- * @typedef {{ valid: boolean, errors: string[] }} ValidationResult
+ * @typedef {{ valid: boolean, errors: string[], warnings?: string[], summaries?: Array<{label: string, kind: string, total: number, loaded: number, skipped: number}> }} ValidationResult
  */
 
 /**
@@ -38,6 +40,8 @@ import { parseChartConfig } from "./parseChartConfig";
  */
 export async function validateExportFile(file) {
     const errors = [];
+    const warnings = [];
+    const summaries = [];
 
     let zip;
     try {
@@ -64,7 +68,7 @@ export async function validateExportFile(file) {
         return { valid: false, errors };
     }
 
-    if (!Array.isArray(info.slides) || info.slides.length === 0) {
+    if (!Array.isArray(info?.slides) || info.slides.length === 0) {
         errors.push("info.json has no slides defined.");
         return { valid: false, errors };
     }
@@ -95,6 +99,19 @@ export async function validateExportFile(file) {
         });
     });
 
+    const surfaceMenus = new Map();
+    for (const { configEntry } of validDisplays) {
+        try {
+            const config = JSON.parse(await configEntry.async("text"));
+            for (const series of Array.isArray(config?.series) ? config.series : []) {
+                if (series?.type !== "surface" || !series.markerMenu) continue;
+                const ref = series["data-vertices"];
+                if (!surfaceMenus.has(ref)) surfaceMenus.set(ref, new Set());
+                surfaceMenus.get(ref).add(series.markerMenu);
+            }
+        } catch { /* Invalid JSON is reported below. */ }
+    }
+
     // ---------- 第二层：数据引用完整性 ----------
     // 只对结构上已经确认存在的 display 做进一步检查
     for (const { folder, configEntry, root: displayRoot } of validDisplays) {
@@ -106,8 +123,12 @@ export async function validateExportFile(file) {
             continue;
         }
 
+        if (!config || typeof config !== "object") {
+            errors.push(`${folder}: display configuration must be an object.`);
+            continue;
+        }
         if (config.type === "chart") {
-            errors.push(...await checkChartSeriesReferences(zip, config, folder, displayRoot));
+            errors.push(...await checkChartSeriesReferences(zip, config, folder, displayRoot, warnings, summaries));
             continue;
         }
 
@@ -118,7 +139,15 @@ export async function validateExportFile(file) {
 
         errors.push(...checkDisplayAnnotations(config.annotations, `${folder} > annotations`));
 
+        if (config.series !== undefined && !Array.isArray(config.series)) {
+            errors.push(`${folder}: series must be an array.`);
+            continue;
+        }
         for (const series of config.series ?? []) {
+            if (!series || typeof series !== "object") {
+                errors.push(`${folder}: invalid series configuration.`);
+                continue;
+            }
             const seriesLabel = series.name ?? "unnamed series";
             if (series.type === "surface") {
                 const verticesResult = await checkCsvExists(zip, series["data-vertices"], `${folder} > ${seriesLabel} vertices`, displayRoot);
@@ -128,14 +157,39 @@ export async function validateExportFile(file) {
                 errors.push(...facesResult.errors);
 
                 if (verticesResult.rows) {
+                    errors.push(...requireColumns(verticesResult.rows, [["ID"], ["Location X"], ["Location Y"], ["Location Z"]], `${folder} > ${seriesLabel} vertices`));
                     errors.push(...surfaceVertexErrors(verticesResult.rows.map((row) => ({
                         id: row.ID, x: row["Location X"], y: row["Location Y"], z: row["Location Z"],
                     }))).map((message) => `${folder} > ${seriesLabel}: ${message}`));
                 }
 
                 if (verticesResult.rows && facesResult.rows) {
+                    errors.push(...requireColumns(facesResult.rows, [["V1"], ["V2"], ["V3"]], `${folder} > ${seriesLabel} faces`));
                     const idErrors = checkFaceVertexReferences(verticesResult.rows, facesResult.rows, `${folder} > ${seriesLabel}`);
                     errors.push(...idErrors);
+                    summaries.push({ label: `${folder} > ${seriesLabel}`, kind: "surface faces", total: facesResult.rows.length, loaded: facesResult.rows.length, skipped: 0 });
+                }
+                if (verticesResult.rows) {
+                    const menus = surfaceMenus.get(series["data-vertices"]);
+                    const markerMenu = series.markerMenu ?? (menus?.size === 1 ? [...menus][0] : undefined);
+                    warnings.push(...await checkMarkers(zip, { ...series, markerMenu }, verticesResult.rows, `${folder} > ${seriesLabel}`, displayRoot));
+                }
+            } else if (series.type === "points" || series.type === "lines") {
+                const label = `${folder} > ${seriesLabel}`;
+                const vertices = await checkCsvExists(zip, series.type === "points" ? series.data : series["data-vertices"], label, displayRoot);
+                errors.push(...vertices.errors);
+                let lines = null;
+                if (series.type === "lines") {
+                    lines = await checkCsvExists(zip, series["data-lines"], `${label} lines`, displayRoot);
+                    errors.push(...lines.errors);
+                }
+                if (vertices.rows && (series.type === "points" || lines?.rows)) {
+                    const result = series.type === "points"
+                        ? checkPointData(vertices.rows, series, label)
+                        : checkLineData(vertices.rows, lines.rows, series, label);
+                    errors.push(...result.errors);
+                    warnings.push(...result.warnings, ...await checkMarkers(zip, series, vertices.rows, label, displayRoot));
+                    summaries.push(result.summary);
                 }
             } else if (series.type === "text" || series.type === "annotation") {
                 const textResult = await checkCsvExists(zip, series.data, `${folder} > ${seriesLabel} annotations`, displayRoot);
@@ -147,49 +201,58 @@ export async function validateExportFile(file) {
         }
     }
 
-    return { valid: errors.length === 0, errors };
+    return { valid: errors.length === 0, errors, warnings: [...new Set(warnings)], summaries };
 }
 
 /**
  * 检查一个 chart display 的每个 series：data / data-additional 引用的 CSV
  * 是否存在且能解析，以及 axisX/axisY 和 filter 用到的列名是否真的出现在
- * 数据里。不逐行校验数值（那是解析阶段 chartData.js 的事），只确认这份
- * chart 能被 parseExportFile.js 正常消费。
+ * 数据里。Also check join IDs and count unusable axis values using the same
+ * data-shaping functions as the parser.
  * @returns {Promise<string[]>}
  */
-async function checkChartSeriesReferences(zip, config, folder, root) {
+async function checkChartSeriesReferences(zip, config, folder, root, warnings, summaries) {
     const chart = parseChartConfig(config, folder);
-    if (!chart) {
-        return [`"${folder}/config.json" is not a valid chart display.`];
-    }
-
+    if (!chart) return [`"${folder}/config.json" is not a valid chart display.`];
     const errors = [];
+    if (!Array.isArray(config.series) || chart.series.length !== config.series.length) {
+        errors.push(`${folder}: chart contains missing or invalid series references.`);
+    }
     for (const series of chart.series) {
-        const seriesLabel = series.name ?? "unnamed series";
-
-        const primaryResult = await checkCsvExists(zip, series.data, `${folder} > ${seriesLabel} data`, root);
-        errors.push(...primaryResult.errors);
-
-        const additionalRowSamples = [];
+        const label = `${folder} > ${series.name ?? "unnamed series"}`;
+        const primary = await checkCsvExists(zip, series.data, `${label} data`, root);
+        errors.push(...primary.errors);
+        const additionalSets = [];
         for (const ref of series.dataAdditional) {
-            const result = await checkCsvExists(zip, ref, `${folder} > ${seriesLabel} data-additional (${ref})`, root);
-            errors.push(...result.errors);
-            if (result.rows) additionalRowSamples.push(result.rows[0]);
-        }
-
-        if (!primaryResult.rows) continue;
-
-        const rowSamples = [primaryResult.rows[0], ...additionalRowSamples];
-        for (const column of [series.axisX.column, series.axisY.column]) {
-            if (!rowSamples.some((row) => hasColumn([row], [column]))) {
-                errors.push(`${folder} > ${seriesLabel}: axis column "${column}" not found in its data.`);
+            const extra = await checkCsvExists(zip, ref, `${label} data-additional (${ref})`, root);
+            errors.push(...extra.errors);
+            if (!extra.rows) continue;
+            errors.push(...requireColumns(extra.rows, [["ID"]], `${label} ${ref}`), ...checkIds(extra.rows, "ID", `${label} ${ref}`));
+            additionalSets.push(extra.rows);
+            if (primary.rows) {
+                const known = new Set(primary.rows.map((row) => row.ID));
+                const extraIds = new Set(extra.rows.map((row) => row.ID));
+                const unknown = extra.rows.filter((row) => !known.has(row.ID)).length;
+                const missing = primary.rows.filter((row) => !extraIds.has(row.ID)).length;
+                if (unknown) warnings.push(`${label}: ${ref} contains ${unknown} unknown event ID(s); unmatched additional rows are ignored.`);
+                if (missing) warnings.push(`${label}: ${missing} event(s) have no matching row in ${ref}; missing joined values may exclude them from the chart.`);
             }
         }
-        if (series.filter && !rowSamples.some((row) => hasColumn([row], [series.filter]))) {
-            errors.push(`${folder} > ${seriesLabel}: filter column "${series.filter}" not found in its data.`);
+        if (!primary.rows) continue;
+        errors.push(...checkIds(primary.rows, "ID", label, series.dataAdditional.length > 0));
+        const joined = joinChartRows(primary.rows, additionalSets);
+        for (const column of [series.axisX.column, series.axisY.column]) {
+            if (!hasColumn(joined, [column])) errors.push(`${label}: axis column "${column}" not found in its data.`);
         }
+        if (series.filter && !hasColumn(joined, [series.filter])) errors.push(`${label}: filter column "${series.filter}" not found in its data.`);
+        const selected = filterChartRows(joined, series.filter);
+        const points = buildChartSeriesColumns(selected, series, chart.axes);
+        const skipped = selected.length - points.x.length;
+        if (skipped) warnings.push(`${label}: ${skipped} selected chart row(s) skipped because axis values are missing, invalid or incompatible with the scale.`);
+        if (selected.length && !points.x.length) errors.push(`${label}: no selected chart rows have valid axis values.`);
+        summaries.push({ label, kind: "chart rows", total: selected.length, loaded: points.x.length, skipped });
+        warnings.push(...await checkMarkers(zip, series, selected, label, root));
     }
-
     return errors;
 }
 
@@ -210,7 +273,9 @@ async function checkCsvExists(zip, fileRef, label, root = "") {
     const text = await entry.async("text");
     const parsed = Papa.parse(text, { header: true, dynamicTyping: true, skipEmptyLines: true });
 
-    if (parsed.errors.length > 0) {
+    // A legitimate single-column CSV has no delimiter to infer. Papa's
+    // detection warning is not a malformed CSV; still check its columns.
+    if (parsed.errors.some((error) => error.code !== "UndetectableDelimiter")) {
         return { rows: null, errors: [`${label}: CSV parse error in "${root}data/${fileRef}.csv".`] };
     }
     if (parsed.data.length === 0) {

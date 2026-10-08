@@ -2,8 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import ThreeScene from "./components/ThreeScene";
+import { lineColourSeries } from "./components/lineSeriesData";
 import ChartView from "./components/ChartView";
 import Header from "./components/Header";
+import ImportReport from "./components/ImportReport";
 import { LeftSidebar } from "./components/LeftSidebar";
 import { RightPanel } from "./components/RightPanel";
 import { StatusBar } from "./components/StatusBar";
@@ -37,12 +39,15 @@ export default function Home() {
   const [chartIndex, setChartIndex] = useState(0);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [errors, setErrors] = useState([]);
+  const [importReport, setImportReport] = useState({ warnings: [], summaries: [] });
   const [fileName, setFileName] = useState(null);
   const [isLoadingExport, setIsLoadingExport] = useState(false);
   const [projectionMode, setProjectionMode] = useState("perspective");
   const [filtersBySeries, setFiltersBySeries] = useState({});
   const [selectedSeries, setSelectedSeries] = useState(0);
   const [seriesVisibility, setSeriesVisibility] = useState({});
+  const [lineVisibility, setLineVisibility] = useState({});
+  const [surfaceVisibility, setSurfaceVisibility] = useState({});
   const [nullVisibility, setNullVisibility] = useState({});
   const [annotationsVisible, setAnnotationsVisible] = useState(true);
   const [annotationScale, setAnnotationScale] = useState(1);
@@ -63,6 +68,8 @@ export default function Home() {
   const pendingCameraRestoreRef = useRef(null); // camera state to apply once the rebuilt ThreeScene has mounted
   const saveTimeoutRef = useRef(null);
   const currentScene = scenes[currentIndex];
+  const activeChart = charts[Math.min(chartIndex, charts.length - 1)] ?? null;
+  const showChart = activeView === "chart" && activeChart !== null;
   const pointSeries = useMemo(() => currentScene.pointClouds ?? [], [currentScene]);
   const safeSelectedSeries = Math.min(selectedSeries, Math.max(0, pointSeries.length - 1));
   const safeMarkerSeriesIndex = Math.min(markerSeriesIndex, Math.max(0, pointSeries.length - 1));
@@ -178,6 +185,7 @@ export default function Home() {
         sceneIndex: currentIndex,
         filtersBySeries,
         seriesVisibility,
+        surfaceVisibility,
         nullVisibility,
         markerSelections,
         markerSeriesIndex,
@@ -208,6 +216,7 @@ export default function Home() {
     currentIndex,
     filtersBySeries,
     seriesVisibility,
+    surfaceVisibility,
     nullVisibility,
     markerSelections,
     markerSeriesIndex,
@@ -240,6 +249,7 @@ export default function Home() {
     setCurrentIndex(restoredIndex);
     if (session.filtersBySeries) setFiltersBySeries(session.filtersBySeries);
     if (session.seriesVisibility) setSeriesVisibility(session.seriesVisibility);
+    setSurfaceVisibility(session.surfaceVisibility ?? {});
     if (session.nullVisibility) setNullVisibility(session.nullVisibility);
     if (session.markerSelections) setMarkerSelections(session.markerSelections);
     if (Number.isInteger(session.markerSeriesIndex)) setMarkerSeriesIndex(session.markerSeriesIndex);
@@ -290,11 +300,13 @@ export default function Home() {
   // to compute the full-dataset range comparison.
   const colourLegends = useMemo(
     () =>
-      renderedPointClouds
+      (showChart
+        ? activeChart.series.map((series) => ({ ...series, points: series.points.rows }))
+        : [...renderedPointClouds, ...(currentScene.lineSeries ?? []).map(lineColourSeries)])
         .map((series, index) => (series?.legend === true ? { series, index } : null))
         .filter(Boolean)
         .map(({ series, index }) => {
-          const legend = buildColourLegend(series, undefined, fullRenderedPointClouds[index]);
+          const legend = buildColourLegend(series, undefined, showChart ? null : fullRenderedPointClouds[index]);
           if (!legend) return null;
           const missingCount = (series.points ?? []).filter((point) => {
             const value = point?.[legend.input];
@@ -309,7 +321,7 @@ export default function Home() {
           return { ...legend, missingCount, sizeLabel: series.sizeMarker || "Constant", symbolLabel };
         })
         .filter(Boolean),
-    [renderedPointClouds, fullRenderedPointClouds]
+    [renderedPointClouds, fullRenderedPointClouds, currentScene, activeChart, showChart]
   );
 
   // Selection survives a filter/visibility change as long as the selected
@@ -361,25 +373,48 @@ export default function Home() {
       // decoratively here.
       color: "var(--color-fg-dim)",
     }));
-    const surfaceCount = currentScene.surfaces?.length ?? 0;
     const annotationCount = currentScene.annotations?.length ?? 0;
     return [
       ...seriesLayers,
-      ...(surfaceCount > 0
-        ? [{ id: "surfaces", name: "Surfaces", type: "surface", visible: true, count: surfaceCount, color: "#3B82F6" }]
-        : []),
+      ...(currentScene.lineSeries ?? []).map((series, index) => ({
+        id: `line-${index}`, name: series.name || `Line series ${index + 1}`,
+        type: "line", visible: lineVisibility[index] ?? series.visible !== false,
+        count: series.lines.length, color: "var(--color-fg-dim)",
+      })),
+      ...(currentScene.surfaces ?? []).map((surface, index) => ({
+        id: `surface-${index}`, name: surface.name || `Surface ${index + 1}`,
+        type: "surface", visible: surfaceVisibility[index] ?? surface.visible !== false,
+        count: surface.faces?.length ?? 0, color: "#3B82F6",
+      })),
       ...(annotationCount > 0
         ? [{ id: "annotations", name: "Annotations", type: "annotation", visible: annotationsVisible, count: annotationCount, color: "#A3A3A3" }]
         : []),
     ];
-  }, [pointSeries, seriesVisibility, currentScene, annotationsVisible]);
+  }, [pointSeries, seriesVisibility, lineVisibility, surfaceVisibility, currentScene, annotationsVisible]);
 
   function handleLayerToggle(id) {
+    const surfaceMatch = id.match(/^surface-(\d+)$/);
+    if (surfaceMatch) {
+      const index = Number(surfaceMatch[1]);
+      setSurfaceVisibility((current) => ({
+        ...current,
+        [index]: !(current[index] ?? currentScene.surfaces[index].visible !== false),
+      }));
+      return;
+    }
+    const lineMatch = id.match(/^line-(\d+)$/);
+    if (lineMatch) {
+      const index = Number(lineMatch[1]);
+      setLineVisibility((current) => ({
+        ...current,
+        [index]: !(current[index] ?? currentScene.lineSeries[index].visible !== false),
+      }));
+      return;
+    }
     if (id === "annotations") {
       setAnnotationsVisible((visible) => !visible);
       return;
     }
-    if (id === "surfaces") return; // no per-surface visibility toggle in the render pipeline yet
     const match = id.match(/^series-(\d+)$/);
     if (!match) return;
     const index = Number(match[1]);
@@ -423,12 +458,14 @@ export default function Home() {
 
     setFileName(file.name);
     setErrors([]);
+    setImportReport({ warnings: [], summaries: [] });
     setIsLoadingExport(true);
 
     try {
       // 第一步：先做 Validate（只检查，不渲染）
       // Step 1: validate first (checks only, no rendering).
       const validation = await validateExportFile(file);
+      setImportReport({ warnings: validation.warnings ?? [], summaries: [] });
       if (!validation.valid) {
         setErrors(validation.errors);
         return; // 检查不通过，不继续往下解析/渲染
@@ -445,6 +482,7 @@ export default function Home() {
         return;
       }
       setScenes(parsed.scenes);
+      setImportReport({ warnings: validation.warnings ?? [], summaries: validation.summaries ?? [] });
       setCharts(parsed.charts ?? []);
       setChartIndex(0);
       setActiveView("3d");
@@ -471,6 +509,8 @@ export default function Home() {
     setSelectedSeries(SCENE_SCOPED_STATE_DEFAULTS.selectedSeries);
     setFiltersBySeries({ ...SCENE_SCOPED_STATE_DEFAULTS.filtersBySeries });
     setSeriesVisibility({ ...SCENE_SCOPED_STATE_DEFAULTS.seriesVisibility });
+    setLineVisibility({});
+    setSurfaceVisibility({});
     setNullVisibility({ ...SCENE_SCOPED_STATE_DEFAULTS.nullVisibility });
     setMarkerSelections({ ...SCENE_SCOPED_STATE_DEFAULTS.markerSelections });
     setMarkerSeriesIndex(SCENE_SCOPED_STATE_DEFAULTS.markerSeriesIndex);
@@ -493,9 +533,6 @@ export default function Home() {
     resetSceneScopedState();
     setRestoreBanner(null);
   }
-
-  const activeChart = charts[Math.min(chartIndex, charts.length - 1)] ?? null;
-  const showChart = activeView === "chart" && activeChart !== null;
 
   const dataState = errors.length > 0 ? "error" : isLoadingExport ? "loading" : "loaded";
 
@@ -540,6 +577,7 @@ export default function Home() {
         </div>
       )}
 
+      <ImportReport warnings={importReport.warnings} summaries={importReport.summaries} />
       <div style={{ flex: 1, display: "flex", overflow: "hidden", minHeight: 0 }}>
         <LeftSidebar
           open={leftOpen}
@@ -626,6 +664,8 @@ export default function Home() {
             ref={threeSceneRef}
             sceneData={currentScene}
             visiblePointClouds={renderedPointClouds}
+            lineVisibility={lineVisibility}
+            surfaceVisibility={surfaceVisibility}
             projectionMode={projectionMode}
             annotationsVisible={annotationsVisible}
             annotationScale={annotationScale}
@@ -680,8 +720,8 @@ export default function Home() {
             </div>
           )}
 
-          {showChart && (
-            <div style={{ position: "absolute", inset: 0, zIndex: 6, background: "var(--color-panel)", paddingTop: 44 }}>
+          {activeChart && (
+            <div hidden={!showChart} style={{ position: "absolute", inset: 0, zIndex: 6, background: "var(--color-panel)", paddingTop: 44 }}>
               <ChartView key={activeChart.id} chart={activeChart} />
             </div>
           )}
@@ -729,7 +769,8 @@ export default function Home() {
           {errors.length > 0 && (
             <div
               style={{
-                position: "absolute", top: 44, left: 10, right: 10, zIndex: 5,
+                position: "absolute", top: 44, left: 10, right: 10, zIndex: 8,
+                maxHeight: 160, overflowY: "auto",
                 padding: "8px 10px", background: "rgba(18,25,24,0.92)", border: "1px solid var(--color-danger-border)",
                 borderRadius: 6, fontSize: 11, color: "var(--color-danger)",
               }}

@@ -22,6 +22,7 @@ import * as THREE from "three";
 import { buildAnnotation, disposeAnnotations, resolveLabelFont } from "./annotationsBuilder";
 import { applyCameraState, snapshotCameraState } from "./cameraState";
 import { buildSurfaceMesh } from "./geometryBuilder";
+import { buildLineSegments } from "./linesBuilder";
 import { createOrientationGizmo, renderOrientationGizmo } from "./orientationGizmo";
 import { buildPointCloud, getHardwarePointSizeRange } from "./pointsBuilder";
 import {
@@ -191,6 +192,8 @@ const ThreeScene = forwardRef(function ThreeScene(
   {
     sceneData,
     visiblePointClouds = null,
+    lineVisibility = {},
+    surfaceVisibility = {},
     projectionMode = "perspective",
     annotationsVisible = true,
     annotationScale = 1,
@@ -206,6 +209,14 @@ const ThreeScene = forwardRef(function ThreeScene(
   ref
 ) {
   const containerRef = useRef(null);
+  const linesRef = useRef([]);
+  const lineVisibilityRef = useRef(lineVisibility);
+  useEffect(() => {
+    lineVisibilityRef.current = lineVisibility;
+    linesRef.current.forEach((object, index) => {
+      object.visible = (lineVisibility[index] ?? sceneData.lineSeries?.[index]?.visible !== false) && object.geometry.instanceCount > 0;
+    });
+  }, [lineVisibility, sceneData]);
   const cameraRef = useRef(null);
   const controlsRef = useRef(null);
   const homeViewRef = useRef(null); // { position, target } to return to on reset
@@ -213,6 +224,15 @@ const ThreeScene = forwardRef(function ThreeScene(
   const sceneRef = useRef(null);
   const pointCloudsRef = useRef([]);
   const meshesRef = useRef([]);
+  const surfaceVisibilityRef = useRef(surfaceVisibility);
+  useEffect(() => {
+    surfaceVisibilityRef.current = surfaceVisibility;
+    // Change only the mesh visibility. Rebuilding the scene here would reset
+    // the camera and unnecessarily recreate the point and RMQ geometry.
+    meshesRef.current.forEach((mesh, index) => {
+      mesh.visible = surfaceVisibility[index] ?? sceneData.surfaces?.[index]?.visible !== false;
+    });
+  }, [surfaceVisibility, sceneData]);
   const markerScaleRef = useRef(markerScale);
   markerScaleRef.current = markerScale;
   const buildPointCloudRef = useRef(null);
@@ -277,7 +297,7 @@ const ThreeScene = forwardRef(function ThreeScene(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [annotationFont, annotationTextColor, annotationBackgroundColor]);
 
-  // Bounding box of the currently rendered point clouds and surfaces (not
+  // Bounding box of the currently rendered point clouds, lines and surfaces (not
   // the annotations, rings, or axes helper), used by fitScene()/
   // setPresetView() to frame what's actually visible right now rather than
   // the export's original camera framing (which can be badly off after
@@ -285,7 +305,7 @@ const ThreeScene = forwardRef(function ThreeScene(
   function computeSceneBounds() {
     const box = new THREE.Box3();
     let hasContent = false;
-    for (const object of [...pointCloudsRef.current, ...meshesRef.current]) {
+    for (const object of [...pointCloudsRef.current, ...linesRef.current, ...meshesRef.current]) {
       if (!object.visible) continue;
       const objectBox = new THREE.Box3().setFromObject(object);
       if (Number.isFinite(objectBox.min.x) && Number.isFinite(objectBox.max.x)) {
@@ -527,16 +547,24 @@ const ThreeScene = forwardRef(function ThreeScene(
 
     // ---------- 3. 根据 sceneData 加载真实内容 ----------
     const meshes = [];
-    (sceneData.surfaces ?? []).forEach((surfaceData) => {
+    (sceneData.surfaces ?? []).forEach((surfaceData, index) => {
       // Real marker-def data (parsed from the export's markers.json) takes
       // priority; surfaces with no resolvable colour marker fall back to
       // the flat placeholder colour buildSurfaceMesh's own default handles.
       const vertexColours = resolveSurfaceVertexColours(surfaceData);
       const mesh = buildSurfaceMesh(surfaceData, vertexColours);
+      mesh.visible = surfaceVisibilityRef.current[index] ?? surfaceData.visible !== false;
       scene.add(mesh);
       meshes.push(mesh);
     });
     meshesRef.current = meshes;
+    const lineObjects = (sceneData.lineSeries ?? []).map((series, index) => {
+      const object = buildLineSegments(series);
+      object.visible = (lineVisibilityRef.current[index] ?? series.visible !== false) && object.geometry.instanceCount > 0;
+      scene.add(object);
+      return object;
+    });
+    linesRef.current = lineObjects;
 
 function createPointCloud(pointSeriesData) {
   const contentOptions =
@@ -813,6 +841,11 @@ function createPointCloud(pointSeriesData) {
         mesh.geometry.dispose();
         mesh.material.dispose();
       });
+      lineObjects.forEach((object) => {
+        object.geometry.dispose();
+        object.material.dispose();
+      });
+      linesRef.current = [];
 
       pointCloudsRef.current.forEach(disposePointObject);
       textureCache.forEach((texture) => texture.dispose());

@@ -35,7 +35,7 @@ function resolveRanges(chart) {
   return ranges;
 }
 
-function drawChart(canvas, chart, ranges, toggles, seriesColours) {
+export function drawChart(canvas, chart, ranges, toggles, seriesColours) {
   const dpr = window.devicePixelRatio || 1;
   const width = canvas.clientWidth;
   const height = canvas.clientHeight;
@@ -148,7 +148,14 @@ function drawChart(canvas, chart, ranges, toggles, seriesColours) {
           const x1 = toX(axisX.side, line.x[i]);
           const y1 = toY(axisY.side, line.y[i]);
           if (x0 === null || y0 === null || x1 === null || y1 === null) continue;
-          ctx.strokeStyle = colours ? colours[i - 1] : seriesColours[index].lineColour;
+          if (colours && colours[i - 1] !== colours[i] && (x0 !== x1 || y0 !== y1)) {
+            const gradient = ctx.createLinearGradient(x0, y0, x1, y1);
+            gradient.addColorStop(0, colours[i - 1]);
+            gradient.addColorStop(1, colours[i]);
+            ctx.strokeStyle = gradient;
+          } else {
+            ctx.strokeStyle = colours ? colours[i - 1] : seriesColours[index].lineColour;
+          }
           ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
         }
       });
