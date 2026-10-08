@@ -108,6 +108,7 @@ async function parseChartDisplay(zip, displayRef, config, root, slideIndex, slid
     }
 
     const series = [];
+    const markerMenus = new Map();
     for (const seriesConfig of chart.series) {
         const primaryRows = await readCsv(zip, seriesConfig.data, root);
         if (!primaryRows) {
@@ -131,7 +132,15 @@ async function parseChartDisplay(zip, displayRef, config, root, slideIndex, slid
             lines = groupChartColumns(ordered, seriesConfig.linesGroupBy);
         }
 
-        series.push({ ...seriesConfig, points, lines });
+        // Colour markers are optional for a chart: a menu that is missing or
+        // unreadable leaves the series with no definitions (default colour).
+        const menu = seriesConfig.markerMenu;
+        if (menu && !markerMenus.has(menu)) {
+            markerMenus.set(menu, await loadMarkerDefinitions(zip, menu, root));
+        }
+        const markerDefinitions = menu ? markerMenus.get(menu) : [];
+
+        series.push({ ...seriesConfig, markerDefinitions, points, lines });
     }
 
     return {
