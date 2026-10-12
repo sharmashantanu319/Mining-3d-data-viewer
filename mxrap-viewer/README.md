@@ -154,7 +154,6 @@ Mining-3d-data-viewer/
 - [Three.js versus VTK.js technology analysis](../tech-docs/VTK.js%20vs%20Three.js%20-%20Technology%20Selection%20Analysis.docx)
 - [Pull requests and implementation history](https://github.com/sharmashantanu319/Mining-3d-data-viewer/pulls?q=is%3Apr)
 - [Tracked issues and future work](https://github.com/sharmashantanu319/Mining-3d-data-viewer/issues)
-- [Hongfei Peng's original individual contribution/testing notes](../docs/contributor-notes-hongfei-peng.md), preserved from the earlier application README
 
 ### Responsible use of generative AI
 
@@ -162,4 +161,4 @@ The earlier application README explicitly recorded that a contributor used **Cla
 
 ## Maintainers and licence
 
-Group project repository: [sharmashantanu319/Mining-3d-data-viewer](https://github.com/sharmashantanu319/Mining-3d-data-viewer). Contributor attribution is traceable through GitHub PRs/commits and the preserved notes above. No repository software licence is declared here; do not assume third-party reuse permissions.
+Group project repository: [sharmashantanu319/Mining-3d-data-viewer](https://github.com/sharmashantanu319/Mining-3d-data-viewer). Implementation history and reviews are available through [GitHub pull requests](https://github.com/sharmashantanu319/Mining-3d-data-viewer/pulls?q=is%3Apr). No repository software licence is declared here; do not assume third-party reuse permissions.
