@@ -45,7 +45,18 @@ export function formatLegendValue(value, marker) {
 }
 
 export function buildColourLegend(pointSeriesData, sampleCount = DEFAULT_SAMPLE_COUNT, fullPointSeriesData = null) {
-  const marker = resolveColourMarker(pointSeriesData ?? {});
+  const visiblePointCount = Array.isArray(pointSeriesData?.points) ? pointSeriesData.points.length : 0;
+  const fullPointCount = Array.isArray(fullPointSeriesData?.points) ? fullPointSeriesData.points.length : 0;
+
+  // A hidden series or a filter that removes every point leaves no
+  // data-derived domain to resolve from. Fall back to the full series so the
+  // legend still reflects the marker's real (dataset-wide) range instead of
+  // reporting a false "Colour configuration unavailable" error; this is a
+  // no-op whenever the domain is configured rather than data-derived, since
+  // both series then resolve to the same domain anyway. Only report an error
+  // when the full series itself is invalid (below).
+  const noVisiblePoints = visiblePointCount === 0 && fullPointCount > 0;
+  const marker = resolveColourMarker((noVisiblePoints ? fullPointSeriesData : pointSeriesData) ?? {});
   if (!marker) return null;
 
   const title = marker.legend?.title || marker.name || marker.input || "Colour";
@@ -58,6 +69,7 @@ export function buildColourLegend(pointSeriesData, sampleCount = DEFAULT_SAMPLE_
     valid: marker.valid,
     errors: marker.errors ?? [],
     warnings: marker.warnings ?? [],
+    noVisiblePoints,
     nullEntry: {
       label: "Missing / invalid",
       colour: toCssRgba(marker.nullColour),
@@ -95,23 +107,27 @@ export function buildColourLegend(pointSeriesData, sampleCount = DEFAULT_SAMPLE_
     label: formatLegendValue(value, marker),
   }));
 
-  // Only meaningful for a data-derived domain (no configured minimum/maximum):
-  // that's the only case where filtering can narrow it. A configured domain
-  // is a fixed export setting, not something a filter view could "hide" —
-  // showing it back to the user as if it might differ would be misleading.
+  // Each end of the range is only meaningful to compare when it is itself
+  // data-derived (configuredMin/Max null for that end): that's the only case
+  // where filtering can narrow it. A "mixed" domain (one end configured, the
+  // other from data) still needs the data-derived end checked on its own —
+  // requiring BOTH ends to be unconfigured would miss a real narrowing on
+  // the one end that is. A configured end is a fixed export setting, not
+  // something a filter view could "hide".
   let fullRange = null;
-  if (fullPointSeriesData && marker.configuredMin === null && marker.configuredMax === null) {
+  if (fullPointSeriesData && !noVisiblePoints) {
     const fullMarker = resolveColourMarker(fullPointSeriesData);
-    if (
-      fullMarker?.valid &&
-      (fullMarker.domainMin !== marker.domainMin || fullMarker.domainMax !== marker.domainMax)
-    ) {
-      fullRange = {
-        min: fullMarker.domainMin,
-        max: fullMarker.domainMax,
-        minLabel: formatLegendValue(fullMarker.domainMin, fullMarker),
-        maxLabel: formatLegendValue(fullMarker.domainMax, fullMarker),
-      };
+    if (fullMarker?.valid) {
+      const fullMin = marker.configuredMin === null ? fullMarker.domainMin : marker.domainMin;
+      const fullMax = marker.configuredMax === null ? fullMarker.domainMax : marker.domainMax;
+      if (fullMin !== marker.domainMin || fullMax !== marker.domainMax) {
+        fullRange = {
+          min: fullMin,
+          max: fullMax,
+          minLabel: formatLegendValue(fullMin, marker),
+          maxLabel: formatLegendValue(fullMax, marker),
+        };
+      }
     }
   }
 

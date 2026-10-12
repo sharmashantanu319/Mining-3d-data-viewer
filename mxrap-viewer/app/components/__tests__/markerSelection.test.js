@@ -45,4 +45,58 @@ describe("applyMarkerSelections", () => {
     );
     expect(result[0].sizeMarker).toBeNull();
   });
+
+  it("leaves sizeMinimum/sizeMaximum untouched with no min/max/invert selection", () => {
+    const result = applyMarkerSelections(
+      [{ sizeMinimum: 1, sizeMaximum: 25 }],
+      { 0: { colourMarker: "Date" } }
+    );
+    expect(result[0].sizeMinimum).toBe(1);
+    expect(result[0].sizeMaximum).toBe(25);
+  });
+
+  it("overrides sizeMinimum/sizeMaximum from explicit Min size / Max size", () => {
+    const result = applyMarkerSelections(
+      [{ sizeMinimum: 1, sizeMaximum: 25 }],
+      { 0: { minSize: 5, maxSize: 40 } }
+    );
+    expect(result[0].sizeMinimum).toBe(5);
+    expect(result[0].sizeMaximum).toBe(40);
+  });
+
+  it("invert swaps the resolved min/max without requiring the user to re-enter them", () => {
+    const result = applyMarkerSelections(
+      [{ sizeMinimum: 1, sizeMaximum: 25 }],
+      { 0: { minSize: 5, maxSize: 40, invertSize: true } }
+    );
+    expect(result[0].sizeMinimum).toBe(40);
+    expect(result[0].sizeMaximum).toBe(5);
+  });
+
+  it("invert alone (no min/max touched) swaps the series' existing range", () => {
+    const result = applyMarkerSelections(
+      [{ sizeMinimum: 1, sizeMaximum: 25 }],
+      { 0: { invertSize: true } }
+    );
+    expect(result[0].sizeMinimum).toBe(25);
+    expect(result[0].sizeMaximum).toBe(1);
+  });
+
+  it("a partial override (only Min size touched) keeps the series' existing max", () => {
+    const result = applyMarkerSelections(
+      [{ sizeMinimum: 1, sizeMaximum: 25 }],
+      { 0: { minSize: 8 } }
+    );
+    expect(result[0].sizeMinimum).toBe(8);
+    expect(result[0].sizeMaximum).toBe(25);
+  });
+
+  it("turning invert back off restores the non-inverted order", () => {
+    const result = applyMarkerSelections(
+      [{ sizeMinimum: 1, sizeMaximum: 25 }],
+      { 0: { minSize: 5, maxSize: 40, invertSize: false } }
+    );
+    expect(result[0].sizeMinimum).toBe(5);
+    expect(result[0].sizeMaximum).toBe(40);
+  });
 });

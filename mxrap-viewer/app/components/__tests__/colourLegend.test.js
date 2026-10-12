@@ -118,6 +118,68 @@ describe("buildColourLegend", () => {
     expect(legend.fullRange).toBeNull();
   });
 
+  it("reports a narrowed full range on just the data-derived end of a mixed domain (max configured)", () => {
+    const mixedMaxConfigured = series({
+      markerDefinitions: [
+        { ...series().markerDefinitions[0], minimum: undefined, maximum: 2 },
+      ],
+    });
+    const filtered = { ...mixedMaxConfigured, points: [{ ML: -1 }, { ML: 2 }] };
+    const legend = buildColourLegend(filtered, undefined, mixedMaxConfigured);
+    // The min end is data-derived and has narrowed (-2 -> -1); the max end
+    // is configured and can never differ, so it stays 2 on both sides.
+    expect(legend.fullRange).toEqual({ min: -2, max: 2, minLabel: "-2", maxLabel: "2" });
+  });
+
+  it("reports a narrowed full range on just the data-derived end of a mixed domain (min configured)", () => {
+    const mixedMinConfigured = series({
+      markerDefinitions: [
+        { ...series().markerDefinitions[0], minimum: -2, maximum: undefined },
+      ],
+    });
+    const filtered = { ...mixedMinConfigured, points: [{ ML: -2 }, { ML: 1 }] };
+    const legend = buildColourLegend(filtered, undefined, mixedMinConfigured);
+    // The max end is data-derived and has narrowed (2 -> 1); the min end is
+    // configured and stays -2 on both sides.
+    expect(legend.fullRange).toEqual({ min: -2, max: 2, minLabel: "-2", maxLabel: "2" });
+  });
+
+  it("falls back to the full series when the visible set is empty but the full series is valid", () => {
+    const withoutConfiguredRange = series({
+      markerDefinitions: [
+        { ...series().markerDefinitions[0], minimum: undefined, maximum: undefined },
+      ],
+    });
+    const hidden = { ...withoutConfiguredRange, points: [] };
+    const legend = buildColourLegend(hidden, undefined, withoutConfiguredRange);
+    expect(legend.kind).not.toBe("error");
+    expect(legend.valid).toBe(true);
+    expect(legend.noVisiblePoints).toBe(true);
+    expect(legend.ticks.map((tick) => tick.value)).toEqual([-2, 0, 2]);
+  });
+
+  it("still reports an error when the visible set is empty and the full series is also invalid", () => {
+    const invalidFull = series({
+      markerDefinitions: [
+        { name: "Magnitude", input: "ML", rampCsv: "bad,csv\n1,2" },
+      ],
+      points: [],
+    });
+    const legend = buildColourLegend(invalidFull, undefined, invalidFull);
+    expect(legend.kind).toBe("error");
+  });
+
+  it("does not fall back when the visible set is non-empty, even if narrower than the full one", () => {
+    const withoutConfiguredRange = series({
+      markerDefinitions: [
+        { ...series().markerDefinitions[0], minimum: undefined, maximum: undefined },
+      ],
+    });
+    const narrowed = { ...withoutConfiguredRange, points: [{ ML: 0 }] };
+    const legend = buildColourLegend(narrowed, undefined, withoutConfiguredRange);
+    expect(legend.noVisiblePoints).toBe(false);
+  });
+
   it("builds labelled swatches for a categorical legend", () => {
     const categorical = series({
       markerDefinitions: [
@@ -140,5 +202,63 @@ describe("buildColourLegend", () => {
       "Triaxial",
     ]);
     expect(legend.categories[0].colour).not.toBe(legend.categories[1].colour);
+  });
+
+  it("ignores the full-range argument for a categorical legend", () => {
+    const categoricalDef = {
+      ...series().markerDefinitions[0],
+      legend: {
+        title: "Sensor type",
+        categories: [
+          { value: -2, description: "Uniaxial" },
+          { value: 2, description: "Triaxial" },
+        ],
+      },
+    };
+    const categorical = series({ markerDefinitions: [categoricalDef] });
+    const narrowed = { ...categorical, points: [{ ML: -2 }] };
+    const legend = buildColourLegend(narrowed, undefined, categorical);
+    expect(legend.kind).toBe("categorical");
+    expect(legend.fullRange).toBeUndefined();
+  });
+
+  it("labels ticks as dates for a date-scaled marker", () => {
+    const dateSeries = series({
+      points: [
+        { ML: Date.UTC(2023, 0, 1) },
+        { ML: Date.UTC(2023, 5, 1) },
+        { ML: Date.UTC(2023, 11, 31) },
+      ],
+      markerDefinitions: [
+        {
+          ...series().markerDefinitions[0],
+          inputType: "date",
+          scale: "date",
+          minimum: Date.UTC(2023, 0, 1),
+          maximum: Date.UTC(2023, 11, 31),
+        },
+      ],
+    });
+    const legend = buildColourLegend(dateSeries);
+    expect(legend.ticks[0].label).toMatch(/2023/);
+    expect(legend.ticks[0].label).not.toBe("—");
+  });
+
+  it("resolves a logarithmic marker's domain and full range in log space", () => {
+    const logDef = {
+      ...series().markerDefinitions[0],
+      scale: "logarithmic",
+      minimum: undefined,
+      maximum: undefined,
+    };
+    const full = series({
+      points: [{ ML: 1e5 }, { ML: 1e13 }],
+      markerDefinitions: [logDef],
+    });
+    const narrowed = { ...full, points: [{ ML: 1e8 }, { ML: 1e10 }] };
+    const legend = buildColourLegend(narrowed, undefined, full);
+    expect(legend.ticks.map((tick) => tick.value)).toEqual([1e8, 1e9, 1e10]);
+    expect(legend.fullRange.min).toBe(1e5);
+    expect(legend.fullRange.max).toBe(1e13);
   });
 });

@@ -2,13 +2,18 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import ThreeScene from "./components/ThreeScene";
+import { lineColourSeries } from "./components/lineSeriesData";
+import ChartView from "./components/ChartView";
 import Header from "./components/Header";
+import ImportReport from "./components/ImportReport";
 import { LeftSidebar } from "./components/LeftSidebar";
 import { RightPanel } from "./components/RightPanel";
 import { StatusBar } from "./components/StatusBar";
 import { mockScenes } from "./components/mockScenes";
 import { validateExportFile } from "./components/validateExportFile";
 import { parseExportFile } from "./components/parseExportFile";
+import { resolveLabelStyle } from "./components/annotationsBuilder";
+import { pickReadableTextColour, toHexColour } from "./components/annotationStyleOptions";
 import {
   applyFiltersWithStats,
   applyNullVisibility,
@@ -18,7 +23,9 @@ import { buildColourLegend } from "./components/colourLegend";
 import { getMarkerChoices, applyMarkerSelections } from "./components/markerSelection";
 import { resolveMarkerRenderOptions } from "./components/pointMarkerResolver";
 import { IconFitView, IconPerspective, IconOrtho, IconRefresh } from "./components/icons";
-import { loadSession, saveSession, sessionKeyFor } from "./components/viewerSession";
+import { loadSession, saveSession, sanitizeAnnotationStyle, sessionKeyFor } from "./components/viewerSession";
+import { cameraStateForProjection, sanitizeSceneCameras } from "./components/cameraState";
+import { SCENE_SCOPED_STATE_DEFAULTS, isSceneSwitch } from "./components/sceneViewState";
 
 function colourMarkerInput(series) {
   if (!series?.colourMarker || !Array.isArray(series.markerDefinitions)) return null;
@@ -27,17 +34,26 @@ function colourMarkerInput(series) {
 
 export default function Home() {
   const [scenes, setScenes] = useState(mockScenes); // 初始用 mock 数据占位，上传真实文件后会替换
+  const [charts, setCharts] = useState([]); // chart displays from the export (none for the mock demo)
+  const [activeView, setActiveView] = useState("3d"); // "3d" or "chart"
+  const [chartIndex, setChartIndex] = useState(0);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [errors, setErrors] = useState([]);
+  const [importReport, setImportReport] = useState({ warnings: [], summaries: [] });
   const [fileName, setFileName] = useState(null);
   const [isLoadingExport, setIsLoadingExport] = useState(false);
   const [projectionMode, setProjectionMode] = useState("perspective");
   const [filtersBySeries, setFiltersBySeries] = useState({});
   const [selectedSeries, setSelectedSeries] = useState(0);
   const [seriesVisibility, setSeriesVisibility] = useState({});
+  const [lineVisibility, setLineVisibility] = useState({});
+  const [surfaceVisibility, setSurfaceVisibility] = useState({});
   const [nullVisibility, setNullVisibility] = useState({});
   const [annotationsVisible, setAnnotationsVisible] = useState(true);
   const [annotationScale, setAnnotationScale] = useState(1);
+  const [annotationFont, setAnnotationFont] = useState(null);
+  const [annotationTextColor, setAnnotationTextColor] = useState(null);
+  const [annotationBackgroundColor, setAnnotationBackgroundColor] = useState(null);
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
   const [markerSelections, setMarkerSelections] = useState({});
@@ -48,10 +64,12 @@ export default function Home() {
   const [selectedPoint, setSelectedPoint] = useState(null);
   const threeSceneRef = useRef(null);
   const sessionKeyRef = useRef(null); // which file's session to save to, or null for the initial mock demo (not persisted)
-  const cameraStateRef = useRef(null); // latest camera position/target, updated continuously as the user navigates
-  const pendingCameraRestoreRef = useRef(null);
+  const sceneCamerasRef = useRef({}); // { [sceneIndex]: camera state } recorded when a scene is left, so switching back restores its camera
+  const pendingCameraRestoreRef = useRef(null); // camera state to apply once the rebuilt ThreeScene has mounted
   const saveTimeoutRef = useRef(null);
   const currentScene = scenes[currentIndex];
+  const activeChart = charts[Math.min(chartIndex, charts.length - 1)] ?? null;
+  const showChart = activeView === "chart" && activeChart !== null;
   const pointSeries = useMemo(() => currentScene.pointClouds ?? [], [currentScene]);
   const safeSelectedSeries = Math.min(selectedSeries, Math.max(0, pointSeries.length - 1));
   const safeMarkerSeriesIndex = Math.min(markerSeriesIndex, Math.max(0, pointSeries.length - 1));
@@ -95,6 +113,49 @@ export default function Home() {
     invalidCount: 0,
   };
 
+  // What the swatches show when "Custom" is off: the colour actually drawn
+  // for the first labelled annotation, matching resolveLabelStyle's own
+  // precedence rather than an arbitrary hard-coded value.
+  const firstAnnotationWithText = useMemo(
+    () => currentScene.annotations?.find((annotation) => annotation?.text) ?? null,
+    [currentScene]
+  );
+  const defaultLabelStyle = useMemo(
+    () => resolveLabelStyle(firstAnnotationWithText ?? {}, {}),
+    [firstAnnotationWithText]
+  );
+
+  // Whether the current custom text colour was filled in automatically when a
+  // custom background was chosen (as opposed to picked by the user). Only an
+  // auto-filled colour is re-evaluated as the background changes, and cleared
+  // again when the background override is turned off.
+  const textColourAutoSeededRef = useRef(false);
+
+  function handleAnnotationTextColorChange(value) {
+    textColourAutoSeededRef.current = false;
+    setAnnotationTextColor(value);
+  }
+
+  function handleAnnotationBackgroundColorChange(value) {
+    setAnnotationBackgroundColor(value);
+    if (!value) {
+      if (textColourAutoSeededRef.current) {
+        textColourAutoSeededRef.current = false;
+        setAnnotationTextColor(null);
+      }
+      return;
+    }
+    // A colour the user picked themselves is never touched.
+    if (annotationTextColor && !textColourAutoSeededRef.current) return;
+    // Otherwise make sure the label stays readable: seed a contrasting text
+    // colour only when the colour that would be drawn doesn't already read
+    // well on the new background (a light card behind the default light text
+    // is unreadable, but an export's own readable text colour should stay).
+    const seeded = pickReadableTextColour(value, defaultLabelStyle.textColor);
+    textColourAutoSeededRef.current = seeded !== null;
+    setAnnotationTextColor(seeded);
+  }
+
   const renderedPointClouds = useMemo(
     () => applyMarkerSelections(visiblePointClouds, markerSelections),
     [visiblePointClouds, markerSelections]
@@ -115,10 +176,16 @@ export default function Home() {
     if (!sessionKeyRef.current) return;
     clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(() => {
+      // Read the live camera at save time: it is always the current scene's,
+      // whereas a value cached from the last camera event goes stale after a
+      // scene switch or a projection change (which reset the camera without
+      // the user moving it).
+      const liveCamera = threeSceneRef.current?.getCameraState() ?? null;
       saveSession(sessionKeyRef.current, {
         sceneIndex: currentIndex,
         filtersBySeries,
         seriesVisibility,
+        surfaceVisibility,
         nullVisibility,
         markerSelections,
         markerSeriesIndex,
@@ -126,8 +193,14 @@ export default function Home() {
         rightOpen,
         annotationsVisible,
         annotationScale,
+        annotationFont,
+        annotationTextColor,
+        annotationBackgroundColor,
         projectionMode,
-        camera: cameraStateRef.current,
+        camera: liveCamera,
+        sceneCameras: liveCamera
+          ? { ...sceneCamerasRef.current, [currentIndex]: liveCamera }
+          : sceneCamerasRef.current,
       });
     }, 400);
   }
@@ -143,6 +216,7 @@ export default function Home() {
     currentIndex,
     filtersBySeries,
     seriesVisibility,
+    surfaceVisibility,
     nullVisibility,
     markerSelections,
     markerSeriesIndex,
@@ -150,23 +224,32 @@ export default function Home() {
     rightOpen,
     annotationsVisible,
     annotationScale,
+    annotationFont,
+    annotationTextColor,
+    annotationBackgroundColor,
     projectionMode,
   ]);
 
   // Applies a camera restore once the scene it belongs to has actually
-  // mounted (setCurrentIndex from applyRestoredSession() re-renders
-  // ThreeScene with a new sceneData first, which resets the camera to that
-  // scene's default — this runs after, overwriting it with the saved one).
+  // mounted. ThreeScene rebuilds whenever the scene or the projection mode
+  // changes, resetting the camera to that scene's default; this effect runs
+  // after that rebuild (child effects run first) and overwrites it with the
+  // remembered camera.
   useEffect(() => {
     if (!pendingCameraRestoreRef.current) return;
     threeSceneRef.current?.setCameraState(pendingCameraRestoreRef.current);
     pendingCameraRestoreRef.current = null;
-  }, [currentScene]);
+  }, [currentScene, projectionMode]);
 
   function applyRestoredSession(session) {
-    if (Number.isInteger(session.sceneIndex)) setCurrentIndex(session.sceneIndex);
+    const restoredIndex =
+      Number.isInteger(session.sceneIndex) && session.sceneIndex >= 0 && session.sceneIndex < scenes.length
+        ? session.sceneIndex
+        : currentIndex;
+    setCurrentIndex(restoredIndex);
     if (session.filtersBySeries) setFiltersBySeries(session.filtersBySeries);
     if (session.seriesVisibility) setSeriesVisibility(session.seriesVisibility);
+    setSurfaceVisibility(session.surfaceVisibility ?? {});
     if (session.nullVisibility) setNullVisibility(session.nullVisibility);
     if (session.markerSelections) setMarkerSelections(session.markerSelections);
     if (Number.isInteger(session.markerSeriesIndex)) setMarkerSeriesIndex(session.markerSeriesIndex);
@@ -174,8 +257,35 @@ export default function Home() {
     if (typeof session.rightOpen === "boolean") setRightOpen(session.rightOpen);
     if (typeof session.annotationsVisible === "boolean") setAnnotationsVisible(session.annotationsVisible);
     if (Number.isFinite(session.annotationScale)) setAnnotationScale(session.annotationScale);
+    const annotationStyle = sanitizeAnnotationStyle(session);
+    textColourAutoSeededRef.current = false;
+    if ("annotationFont" in annotationStyle) setAnnotationFont(annotationStyle.annotationFont);
+    if ("annotationTextColor" in annotationStyle) setAnnotationTextColor(annotationStyle.annotationTextColor);
+    if ("annotationBackgroundColor" in annotationStyle) {
+      setAnnotationBackgroundColor(annotationStyle.annotationBackgroundColor);
+    }
+    const restoredProjection = session.projectionMode || projectionMode;
     if (session.projectionMode) setProjectionMode(session.projectionMode);
-    if (session.camera) pendingCameraRestoreRef.current = session.camera;
+
+    // Restore every scene's remembered camera, and the current scene's live
+    // camera on top. `camera` alone is what sessions saved before per-scene
+    // cameras hold.
+    const restoredCameras = sanitizeSceneCameras(session.sceneCameras, scenes.length);
+    const liveCamera = cameraStateForProjection(session.camera, restoredProjection);
+    if (liveCamera) restoredCameras[restoredIndex] = liveCamera;
+    sceneCamerasRef.current = restoredCameras;
+
+    const restoredCamera = cameraStateForProjection(restoredCameras[restoredIndex], restoredProjection);
+    if (restoredCamera) {
+      // ThreeScene only rebuilds (and so needs the camera applied afterwards)
+      // when the scene or projection actually changes; otherwise it is
+      // already mounted and can be moved straight away.
+      if (restoredIndex !== currentIndex || restoredProjection !== projectionMode) {
+        pendingCameraRestoreRef.current = restoredCamera;
+      } else {
+        threeSceneRef.current?.setCameraState(restoredCamera);
+      }
+    }
     setRestoreBanner(null);
   }
 
@@ -190,11 +300,13 @@ export default function Home() {
   // to compute the full-dataset range comparison.
   const colourLegends = useMemo(
     () =>
-      renderedPointClouds
+      (showChart
+        ? activeChart.series.map((series) => ({ ...series, points: series.points.rows }))
+        : [...renderedPointClouds, ...(currentScene.lineSeries ?? []).map(lineColourSeries)])
         .map((series, index) => (series?.legend === true ? { series, index } : null))
         .filter(Boolean)
         .map(({ series, index }) => {
-          const legend = buildColourLegend(series, undefined, fullRenderedPointClouds[index]);
+          const legend = buildColourLegend(series, undefined, showChart ? null : fullRenderedPointClouds[index]);
           if (!legend) return null;
           const missingCount = (series.points ?? []).filter((point) => {
             const value = point?.[legend.input];
@@ -209,7 +321,7 @@ export default function Home() {
           return { ...legend, missingCount, sizeLabel: series.sizeMarker || "Constant", symbolLabel };
         })
         .filter(Boolean),
-    [renderedPointClouds, fullRenderedPointClouds]
+    [renderedPointClouds, fullRenderedPointClouds, currentScene, activeChart, showChart]
   );
 
   // Selection survives a filter/visibility change as long as the selected
@@ -261,25 +373,48 @@ export default function Home() {
       // decoratively here.
       color: "var(--color-fg-dim)",
     }));
-    const surfaceCount = currentScene.surfaces?.length ?? 0;
     const annotationCount = currentScene.annotations?.length ?? 0;
     return [
       ...seriesLayers,
-      ...(surfaceCount > 0
-        ? [{ id: "surfaces", name: "Surfaces", type: "surface", visible: true, count: surfaceCount, color: "#3B82F6" }]
-        : []),
+      ...(currentScene.lineSeries ?? []).map((series, index) => ({
+        id: `line-${index}`, name: series.name || `Line series ${index + 1}`,
+        type: "line", visible: lineVisibility[index] ?? series.visible !== false,
+        count: series.lines.length, color: "var(--color-fg-dim)",
+      })),
+      ...(currentScene.surfaces ?? []).map((surface, index) => ({
+        id: `surface-${index}`, name: surface.name || `Surface ${index + 1}`,
+        type: "surface", visible: surfaceVisibility[index] ?? surface.visible !== false,
+        count: surface.faces?.length ?? 0, color: "#3B82F6",
+      })),
       ...(annotationCount > 0
         ? [{ id: "annotations", name: "Annotations", type: "annotation", visible: annotationsVisible, count: annotationCount, color: "#A3A3A3" }]
         : []),
     ];
-  }, [pointSeries, seriesVisibility, currentScene, annotationsVisible]);
+  }, [pointSeries, seriesVisibility, lineVisibility, surfaceVisibility, currentScene, annotationsVisible]);
 
   function handleLayerToggle(id) {
+    const surfaceMatch = id.match(/^surface-(\d+)$/);
+    if (surfaceMatch) {
+      const index = Number(surfaceMatch[1]);
+      setSurfaceVisibility((current) => ({
+        ...current,
+        [index]: !(current[index] ?? currentScene.surfaces[index].visible !== false),
+      }));
+      return;
+    }
+    const lineMatch = id.match(/^line-(\d+)$/);
+    if (lineMatch) {
+      const index = Number(lineMatch[1]);
+      setLineVisibility((current) => ({
+        ...current,
+        [index]: !(current[index] ?? currentScene.lineSeries[index].visible !== false),
+      }));
+      return;
+    }
     if (id === "annotations") {
       setAnnotationsVisible((visible) => !visible);
       return;
     }
-    if (id === "surfaces") return; // no per-surface visibility toggle in the render pipeline yet
     const match = id.match(/^series-(\d+)$/);
     if (!match) return;
     const index = Number(match[1]);
@@ -299,6 +434,15 @@ export default function Home() {
   const sizeValue = Object.hasOwn(markerActiveSelection, "sizeMarker")
     ? markerActiveSelection.sizeMarker ?? ""
     : markerActiveSeries?.sizeMarker ?? "";
+  const sizeMinValue = Object.hasOwn(markerActiveSelection, "minSize")
+    ? markerActiveSelection.minSize
+    : (markerActiveSeries?.sizeMinimum ?? "");
+  const sizeMaxValue = Object.hasOwn(markerActiveSelection, "maxSize")
+    ? markerActiveSelection.maxSize
+    : (markerActiveSeries?.sizeMaximum ?? "");
+  const invertSize = Object.hasOwn(markerActiveSelection, "invertSize")
+    ? markerActiveSelection.invertSize === true
+    : false;
 
   const resolvedSymbolLabel = useMemo(() => {
     if (!markerActiveSeries) return null;
@@ -314,12 +458,14 @@ export default function Home() {
 
     setFileName(file.name);
     setErrors([]);
+    setImportReport({ warnings: [], summaries: [] });
     setIsLoadingExport(true);
 
     try {
       // 第一步：先做 Validate（只检查，不渲染）
       // Step 1: validate first (checks only, no rendering).
       const validation = await validateExportFile(file);
+      setImportReport({ warnings: validation.warnings ?? [], summaries: [] });
       if (!validation.valid) {
         setErrors(validation.errors);
         return; // 检查不通过，不继续往下解析/渲染
@@ -328,16 +474,22 @@ export default function Home() {
       // 第二步：Validate 通过后，才真正解析并渲染
       // Step 2: only parse and render once validation passes.
       const parsed = await parseExportFile(file);
+      // An export whose displays are all non-3D views (charts) parses to zero
+      // scenes; there is nothing to render, and the viewer needs a current
+      // scene to exist.
+      if (parsed.scenes.length === 0) {
+        setErrors(["This export has no 3D views to display."]);
+        return;
+      }
       setScenes(parsed.scenes);
+      setImportReport({ warnings: validation.warnings ?? [], summaries: validation.summaries ?? [] });
+      setCharts(parsed.charts ?? []);
+      setChartIndex(0);
+      setActiveView("3d");
       setCurrentIndex(0);
-      setSelectedSeries(0);
-      setFiltersBySeries({});
-      setSeriesVisibility({});
-      setNullVisibility({});
-      setMarkerSelections({});
-      setMarkerSeriesIndex(0);
-      setHoveredPoint(null);
-      setSelectedPoint(null);
+      resetSceneScopedState();
+      sceneCamerasRef.current = {};
+      pendingCameraRestoreRef.current = null;
 
       sessionKeyRef.current = sessionKeyFor(file);
       setRestoreBanner(null);
@@ -351,21 +503,35 @@ export default function Home() {
     }
   }
 
-  function switchToScene(index) {
-    setCurrentIndex(index);
-    setSelectedSeries(0);
-    setFiltersBySeries({});
-    setSeriesVisibility({});
-    setNullVisibility({});
-    setMarkerSelections({});
-    setMarkerSeriesIndex(0);
-    setRestoreBanner(null);
+  // Resets the state that belongs to one scene's data (see sceneViewState.js
+  // for what is reset and what is deliberately kept across a scene switch).
+  function resetSceneScopedState() {
+    setSelectedSeries(SCENE_SCOPED_STATE_DEFAULTS.selectedSeries);
+    setFiltersBySeries({ ...SCENE_SCOPED_STATE_DEFAULTS.filtersBySeries });
+    setSeriesVisibility({ ...SCENE_SCOPED_STATE_DEFAULTS.seriesVisibility });
+    setLineVisibility({});
+    setSurfaceVisibility({});
+    setNullVisibility({ ...SCENE_SCOPED_STATE_DEFAULTS.nullVisibility });
+    setMarkerSelections({ ...SCENE_SCOPED_STATE_DEFAULTS.markerSelections });
+    setMarkerSeriesIndex(SCENE_SCOPED_STATE_DEFAULTS.markerSeriesIndex);
     setHoveredPoint(null);
     setSelectedPoint(null);
   }
 
-  function goToNextScene() {
-    switchToScene((currentIndex + 1) % scenes.length);
+  function switchToScene(index) {
+    if (!isSceneSwitch(index, currentIndex, scenes.length)) return;
+
+    // Remember where the camera was in the scene being left, and queue the
+    // target scene's remembered camera (if it has been visited and was seen
+    // through the same kind of camera) to be applied once it has mounted.
+    // Otherwise the scene opens on the export's own default camera.
+    const leavingCamera = threeSceneRef.current?.getCameraState();
+    if (leavingCamera) sceneCamerasRef.current[currentIndex] = leavingCamera;
+    pendingCameraRestoreRef.current = cameraStateForProjection(sceneCamerasRef.current[index], projectionMode);
+
+    setCurrentIndex(index);
+    resetSceneScopedState();
+    setRestoreBanner(null);
   }
 
   const dataState = errors.length > 0 ? "error" : isLoadingExport ? "loading" : "loaded";
@@ -411,6 +577,7 @@ export default function Home() {
         </div>
       )}
 
+      <ImportReport warnings={importReport.warnings} summaries={importReport.summaries} />
       <div style={{ flex: 1, display: "flex", overflow: "hidden", minHeight: 0 }}>
         <LeftSidebar
           open={leftOpen}
@@ -429,6 +596,9 @@ export default function Home() {
           sizeChoices={markerChoices.size}
           colourValue={colourValue}
           sizeValue={sizeValue}
+          sizeMinValue={sizeMinValue}
+          sizeMaxValue={sizeMaxValue}
+          invertSize={invertSize}
           markerScale={markerScale}
           onMarkerScaleChange={setMarkerScale}
           onColourChange={(value) =>
@@ -443,11 +613,37 @@ export default function Home() {
               [safeMarkerSeriesIndex]: { ...current[safeMarkerSeriesIndex], sizeMarker: value || null },
             }))
           }
+          onSizeMinChange={(value) =>
+            setMarkerSelections((current) => ({
+              ...current,
+              [safeMarkerSeriesIndex]: { ...current[safeMarkerSeriesIndex], minSize: value },
+            }))
+          }
+          onSizeMaxChange={(value) =>
+            setMarkerSelections((current) => ({
+              ...current,
+              [safeMarkerSeriesIndex]: { ...current[safeMarkerSeriesIndex], maxSize: value },
+            }))
+          }
+          onInvertSizeChange={(value) =>
+            setMarkerSelections((current) => ({
+              ...current,
+              [safeMarkerSeriesIndex]: { ...current[safeMarkerSeriesIndex], invertSize: value },
+            }))
+          }
           resolvedSymbolLabel={resolvedSymbolLabel}
           annotScale={annotationScale}
           onAnnotScaleChange={setAnnotationScale}
           annotationsVisible={annotationsVisible}
           onAnnotationsVisibleChange={() => setAnnotationsVisible((v) => !v)}
+          annotationFont={annotationFont}
+          onAnnotationFontChange={setAnnotationFont}
+          annotationTextColor={annotationTextColor}
+          onAnnotationTextColorChange={handleAnnotationTextColorChange}
+          annotationTextColorFallback={toHexColour(defaultLabelStyle.textColor) ?? "#000000"}
+          annotationBackgroundColor={annotationBackgroundColor}
+          onAnnotationBackgroundColorChange={handleAnnotationBackgroundColorChange}
+          annotationBackgroundColorFallback={toHexColour(defaultLabelStyle.backgroundColor) ?? "#1f2a27"}
           hasNullVisibility={Boolean(colourMarkerInput(pointSeries[safeSelectedSeries]))}
           showNulls={
             nullVisibility[safeSelectedSeries] ?? pointSeries[safeSelectedSeries]?.showNullColours !== false
@@ -468,18 +664,67 @@ export default function Home() {
             ref={threeSceneRef}
             sceneData={currentScene}
             visiblePointClouds={renderedPointClouds}
+            lineVisibility={lineVisibility}
+            surfaceVisibility={surfaceVisibility}
             projectionMode={projectionMode}
             annotationsVisible={annotationsVisible}
             annotationScale={annotationScale}
+            annotationFont={annotationFont}
+            annotationTextColor={annotationTextColor}
+            annotationBackgroundColor={annotationBackgroundColor}
             markerScale={markerScale}
-            onCameraChange={(state) => {
-              cameraStateRef.current = state;
-              scheduleSessionSave();
-            }}
+            onCameraChange={scheduleSessionSave}
             selectedPoint={activeSelectedPoint}
             onPointHover={setHoveredPoint}
             onPointSelect={setSelectedPoint}
           />
+
+          {charts.length > 0 && (
+            <div
+              role="tablist"
+              aria-label="Workspace view"
+              style={{ position: "absolute", top: 10, left: "50%", transform: "translateX(-50%)", zIndex: 7, display: "flex", gap: 6, alignItems: "center" }}
+            >
+              <div style={{ display: "flex", border: "1px solid var(--color-border)", borderRadius: "var(--radius-sm)", overflow: "hidden", background: "rgba(18,25,24,0.85)" }}>
+                <button
+                  role="tab"
+                  aria-selected={!showChart}
+                  className={`vp-btn ${!showChart ? "active" : ""}`}
+                  style={{ border: "none", borderRadius: 0, padding: "0 12px", fontSize: 12, whiteSpace: "nowrap", width: "auto", height: 28 }}
+                  onClick={() => setActiveView("3d")}
+                >
+                  3D View
+                </button>
+                <button
+                  role="tab"
+                  aria-selected={showChart}
+                  className={`vp-btn ${showChart ? "active" : ""}`}
+                  style={{ border: "none", borderRadius: 0, borderLeft: "1px solid var(--color-border)", padding: "0 12px", fontSize: 12, whiteSpace: "nowrap", width: "auto", height: 28 }}
+                  onClick={() => setActiveView("chart")}
+                >
+                  Chart
+                </button>
+              </div>
+              {showChart && charts.length > 1 && (
+                <select
+                  aria-label="Chart"
+                  value={chartIndex}
+                  onChange={(e) => setChartIndex(Number(e.target.value))}
+                  style={{ fontSize: 12 }}
+                >
+                  {charts.map((chart, index) => (
+                    <option key={chart.id} value={index}>{chart.title}</option>
+                  ))}
+                </select>
+              )}
+            </div>
+          )}
+
+          {activeChart && (
+            <div hidden={!showChart} style={{ position: "absolute", inset: 0, zIndex: 6, background: "var(--color-panel)", paddingTop: 44 }}>
+              <ChartView key={activeChart.id} chart={activeChart} />
+            </div>
+          )}
 
           {/* Viewport toolbar — the single place camera controls live (not
               duplicated in the sidebar). A real segmented pair for
@@ -524,7 +769,8 @@ export default function Home() {
           {errors.length > 0 && (
             <div
               style={{
-                position: "absolute", top: 44, left: 10, right: 10, zIndex: 5,
+                position: "absolute", top: 44, left: 10, right: 10, zIndex: 8,
+                maxHeight: 160, overflowY: "auto",
                 padding: "8px 10px", background: "rgba(18,25,24,0.92)", border: "1px solid var(--color-danger-border)",
                 borderRadius: 6, fontSize: 11, color: "var(--color-danger)",
               }}

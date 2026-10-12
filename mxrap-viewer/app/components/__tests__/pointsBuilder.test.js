@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import * as THREE from "three";
 import { buildPointCloud, buildPointFragmentShaderSource } from "../pointsBuilder";
 
+// Shader source is formatted across multiple lines, so compare it with all
+// whitespace removed to keep the assertions independent of code formatting.
+const compact = (source) => source.replace(/\s+/g, "");
+
 describe("point symbol rendering", () => {
   it.each([0.5, 1, 1.5])("scales display size by %s without changing exported marker sizes", (scale) => {
     const cloud = buildPointCloud({ points: [{ x: 1, y: 2, z: 3 }] }, {
@@ -15,22 +19,42 @@ describe("point symbol rendering", () => {
   });
 
   it("emits a texture-sampling shader only for symbol batches", () => {
-    const textured = buildPointFragmentShaderSource({ hasTexture: true });
-    const circular = buildPointFragmentShaderSource({ hasTexture: false });
-    expect(textured).toContain("uniform sampler2D pointTexture");
-    expect(textured).toContain("texture2D(pointTexture, gl_PointCoord)");
-    expect(textured).toContain("texel.a < 0.05");
+    const textured = compact(buildPointFragmentShaderSource({ hasTexture: true }));
+    const circular = compact(buildPointFragmentShaderSource({ hasTexture: false }));
+    expect(textured).toContain("uniformsampler2DpointTexture");
+    expect(textured).toContain("texture2D(pointTexture,gl_PointCoord)");
+    expect(textured).toContain("texel.a<0.05");
     expect(circular).not.toContain("sampler2D");
-    expect(circular).toContain("length(coord) > 0.5");
+    expect(circular).toContain("length(coord)>0.5");
   });
 
-  it("shows the symbol texture's own colour, never tinted by the colour marker", () => {
+  it("shows the symbol texture's own colour by default, never tinted by the colour marker", () => {
     // Client decision: symbol colour must reflect the data file regardless
-    // of the active colour marker, so the fragment shader must not multiply
-    // texel.rgb by vColor.
-    const textured = buildPointFragmentShaderSource({ hasTexture: true });
-    expect(textured).toContain("gl_FragColor = vec4(texel.rgb, texel.a)");
-    expect(textured).not.toContain("vColor * texel");
+    // of the active colour marker, so by default the fragment shader must not
+    // multiply texel.rgb by vColor.
+    const textured = compact(buildPointFragmentShaderSource({ hasTexture: true }));
+    expect(textured).toContain("gl_FragColor=vec4(texel.rgb,texel.a)");
+    expect(textured).not.toContain("texel.rgb*vColor");
+  });
+
+  it("only multiplies the symbol texture by the vertex colour when tinting is requested", () => {
+    const tinted = compact(
+      buildPointFragmentShaderSource({ hasTexture: true, tintTextureWithVertexColor: true })
+    );
+    const untinted = compact(
+      buildPointFragmentShaderSource({ hasTexture: true, tintTextureWithVertexColor: false })
+    );
+    expect(tinted).toContain("gl_FragColor=vec4(texel.rgb*vColor,texel.a)");
+    expect(untinted).toContain("gl_FragColor=vec4(texel.rgb,texel.a)");
+    expect(untinted).not.toContain("texel.rgb*vColor");
+  });
+
+  it("colours procedural shaded spheres from the vertex colour and never samples a texture", () => {
+    const sphere = compact(
+      buildPointFragmentShaderSource({ hasTexture: false, renderAsShadedSphere: true })
+    );
+    expect(sphere).not.toContain("sampler2D");
+    expect(sphere).toContain("vColor*lighting");
   });
 
   it("disables vertex-colour tinting on the PointsMaterial fallback when a symbol texture is present", () => {

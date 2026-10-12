@@ -16,16 +16,26 @@
 //   │   └── ...
 //   ├── marker-defs/              颜色/marker 定义（本版本暂不处理）
 //   ├── s1-3dview/config.json     一个 display：type, camera, series[]
-//   ├── s1-mag-time-chart/...     图表类型 display（本版本跳过，非 MVP 范围）
+//   ├── s1-mag-time-chart/...     图表类型 display（type: "chart"，见下方 parseChartDisplay）
 //   └── s2-3dview/config.json     另一个 display
 //
-// Scope: handles series.type === "surface", "points", and "text".
-// Lines and chart series remain outside the viewer scope.
+// Scope: handles series.type === "surface", "points", and "text" for 3D
+// view displays, including lines, plus chart displays.
 
 import JSZip from "jszip";
 import Papa from "papaparse";
 import { buildPointSeries } from "./pointSeriesData";
 import { parseColourRampCsv } from "./colourMapping";
+import { buildLineSeries } from "./lineSeriesData";
+import { parseChartConfig } from "./parseChartConfig";
+import {
+    joinChartRows,
+    filterChartRows,
+    buildChartSeriesColumns,
+    orderChartColumns,
+    groupChartColumns,
+    computeChartAxisRanges,
+} from "./chartData";
 
 export async function parseExportFile(file) {
     const zip = await JSZip.loadAsync(file);
@@ -37,9 +47,10 @@ export async function parseExportFile(file) {
     }
     const info = JSON.parse(await infoEntry.async("text"));
 
-    const displays = [];
+    const sceneDisplays = [];
+    const chartDisplays = [];
     const surfaceMenus = new Map();
-    for (const slide of info.slides ?? []) {
+    for (const [slideIndex, slide] of (info.slides ?? []).entries()) {
         for (const displayRef of slide.displays ?? []) {
             const configEntry = zip.file(`${root}${displayRef.folder}/config.json`);
             if (!configEntry) {
@@ -48,34 +59,108 @@ export async function parseExportFile(file) {
             }
             const config = JSON.parse(await configEntry.async("text"));
 
-            if (config.type !== "3dview") {
-                console.info(`Skipping non-3dview display: ${displayRef.folder} (type: ${config.type})`);
-                continue;
-            }
-
-            displays.push({ displayRef, config });
-            for (const series of config.series ?? []) {
-                if (series.type !== "surface" || !series.markerMenu) continue;
-                const key = series["data-vertices"];
-                if (!surfaceMenus.has(key)) surfaceMenus.set(key, new Set());
-                surfaceMenus.get(key).add(series.markerMenu);
+            if (config.type === "3dview") {
+                sceneDisplays.push({ displayRef, config });
+                for (const series of config.series ?? []) {
+                    if (series.type !== "surface" || !series.markerMenu) continue;
+                    const key = series["data-vertices"];
+                    if (!surfaceMenus.has(key)) surfaceMenus.set(key, new Set());
+                    surfaceMenus.get(key).add(series.markerMenu);
+                }
+            } else if (config.type === "chart") {
+                chartDisplays.push({ displayRef, config, slideIndex, slideTitle: slide.title ?? null });
+            } else {
+                console.info(`Skipping display: ${displayRef.folder} (type: ${config.type})`);
             }
         }
     }
 
     const scenes = [];
-    for (const { displayRef, config } of displays) {
+    for (const { displayRef, config } of sceneDisplays) {
         scenes.push(await parseDisplayConfig(zip, displayRef, config, root, surfaceMenus));
     }
+
+    const charts = [];
+    for (const { displayRef, config, slideIndex, slideTitle } of chartDisplays) {
+        const chart = await parseChartDisplay(zip, displayRef, config, root, slideIndex, slideTitle);
+        if (chart) charts.push(chart);
+    }
+
     return {
         title: info.title ?? "Untitled",
         scenes,
+        charts,
+    };
+}
+
+// Turns a chart display's config.json plus its series' CSVs into a fully
+// resolved chart: each series' plotted points (and, for line series, its
+// ordered/grouped lines) as column arrays, and every enabled axis' final
+// plotted range. Returns null for a display that isn't a valid chart at
+// all (parseChartConfig already logs why); a series with no usable CSV
+// data is dropped rather than failing the whole chart, matching every
+// other series parser in this file.
+async function parseChartDisplay(zip, displayRef, config, root, slideIndex, slideTitle) {
+    const chart = parseChartConfig(config, displayRef.folder);
+    if (!chart) {
+        console.warn(`Skipping invalid chart display: ${displayRef.folder}`);
+        return null;
+    }
+
+    const series = [];
+    const markerMenus = new Map();
+    for (const seriesConfig of chart.series) {
+        const primaryRows = await readCsv(zip, seriesConfig.data, root);
+        if (!primaryRows) {
+            console.warn(`Skipping chart series with missing data: ${seriesConfig.name}`);
+            continue;
+        }
+
+        const additionalRowSets = [];
+        for (const ref of seriesConfig.dataAdditional) {
+            const rows = await readCsv(zip, ref, root);
+            if (rows) additionalRowSets.push(rows);
+        }
+
+        const joinedRows = joinChartRows(primaryRows, additionalRowSets);
+        const filteredRows = filterChartRows(joinedRows, seriesConfig.filter);
+        const points = buildChartSeriesColumns(filteredRows, seriesConfig, chart.axes);
+
+        let lines = [];
+        if (seriesConfig.enableLines) {
+            const ordered = orderChartColumns(points, seriesConfig.linePlotOrder);
+            lines = groupChartColumns(ordered, seriesConfig.linesGroupBy);
+        }
+
+        // Colour markers are optional for a chart: a menu that is missing or
+        // unreadable leaves the series with no definitions (default colour).
+        const menu = seriesConfig.markerMenu;
+        if (menu && !markerMenus.has(menu)) {
+            markerMenus.set(menu, await loadMarkerDefinitions(zip, menu, root));
+        }
+        const markerDefinitions = menu ? markerMenus.get(menu) : [];
+
+        series.push({ ...seriesConfig, markerDefinitions, points, lines });
+    }
+
+    return {
+        id: displayRef.folder,
+        title: displayRef.title ?? chart.name,
+        slideIndex,
+        slideTitle,
+        header: chart.header,
+        footer: chart.footer,
+        annotations: chart.annotations,
+        axes: chart.axes,
+        axisRanges: computeChartAxisRanges(chart.axes, series),
+        series,
     };
 }
 
 async function parseDisplayConfig(zip, displayRef, config, root, surfaceMenus) {
     const surfaces = [];
     const pointClouds = [];
+    const lineSeries = [];
     const annotations = parseDisplayAnnotations(config.annotations, displayRef.folder);
 
     for (const series of config.series ?? []) {
@@ -89,6 +174,15 @@ async function parseDisplayConfig(zip, displayRef, config, root, surfaceMenus) {
         } else if (series.type === "points") {
             const pointCloud = await parsePointSeries(zip, series, root);
             if (pointCloud) pointClouds.push(pointCloud);
+        } else if (series.type === "lines") {
+            const vertices = await readCsv(zip, series["data-vertices"], root);
+            const lines = await readCsv(zip, series["data-lines"], root);
+            if (!vertices || !lines) {
+                console.warn(`Skipping line series with missing data: ${series.name}`);
+                continue;
+            }
+            const definitions = await loadMarkerDefinitions(zip, series.markerMenu, root);
+            lineSeries.push(buildLineSeries(vertices, lines, series, definitions));
         } else if (series.type === "text" || series.type === "annotation") {
             const seriesAnnotations = await parseAnnotationSeries(zip, series, root);
             annotations.push(...seriesAnnotations);
@@ -103,6 +197,7 @@ async function parseDisplayConfig(zip, displayRef, config, root, surfaceMenus) {
         camera: parseCameraConfig(config.camera),
         surfaces,
         pointClouds,
+        lineSeries,
         annotations,
     };
 }
@@ -237,9 +332,10 @@ async function parseSurfaceSeries(zip, series, root) {
 
     return {
         color: 0x4f8ef7,
+        name: series.name,
         visible: series.visible !== false,
-        colourMarker: series.colourMarker,
-        markerDefinitions: await loadMarkerDefinitions(zip, series.markerMenu, root),
+        colourMarker: series.colourMarker ?? null,
+        markerDefinitions,
         vertexAttributes: verticesCsv,
         vertices,
         faces,
