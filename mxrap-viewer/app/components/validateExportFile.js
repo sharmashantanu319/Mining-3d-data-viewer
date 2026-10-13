@@ -29,16 +29,48 @@ import { checkIds, checkPointData, checkLineData, requireColumns } from "./dataV
 import { checkMarkers } from "./markerValidation";
 import { joinChartRows, filterChartRows, buildChartSeriesColumns } from "./chartData";
 
+// A conservative academic-MVP limit for the *compressed* ZIP archive.
+// NEXT_PUBLIC_ values are embedded at build time in Next.js, so hosts can
+// configure the limit without editing code. Invalid values fall back to 100 MB.
+const DEFAULT_MAX_EXPORT_SIZE_MB = 100;
+const configuredMaxSizeMb = Number(process.env.NEXT_PUBLIC_MAX_EXPORT_SIZE_MB ?? DEFAULT_MAX_EXPORT_SIZE_MB);
+const maxExportSizeMb = Number.isFinite(configuredMaxSizeMb) && configuredMaxSizeMb > 0 &&
+    configuredMaxSizeMb <= Number.MAX_SAFE_INTEGER / 1_000_000
+    ? configuredMaxSizeMb
+    : DEFAULT_MAX_EXPORT_SIZE_MB;
+export const MAX_EXPORT_FILE_SIZE_BYTES = Math.floor(maxExportSizeMb * 1_000_000);
+
+function exportFileSizeBytes(file) {
+    // Browser File/Blob objects expose .size; ZIP fixtures in Vitest are
+    // Uint8Array/Buffer/ArrayBuffer and expose .byteLength instead.
+    if (typeof file?.size === "number" && Number.isFinite(file.size) && file.size >= 0) {
+        return file.size;
+    }
+    if (file instanceof ArrayBuffer || ArrayBuffer.isView(file)) return file.byteLength;
+    return null;
+}
+
 /**
  * @typedef {{ valid: boolean, errors: string[], warnings?: string[], summaries?: Array<{label: string, kind: string, total: number, loaded: number, skipped: number}> }} ValidationResult
  */
 
 /**
  * 校验一份导出 zip 文件。
- * @param {File|Buffer} file
+ * @param {File|Blob|Uint8Array|ArrayBuffer|Buffer} file
+ * @param {{ maxSizeBytes?: number }} [options] Optional limit override for testing.
  * @returns {Promise<ValidationResult>}
  */
-export async function validateExportFile(file) {
+export async function validateExportFile(file, { maxSizeBytes = MAX_EXPORT_FILE_SIZE_BYTES } = {}) {
+    // Reject before JSZip.loadAsync: otherwise the browser may spend memory
+    // unpacking data that is already beyond the configured input size limit.
+    const size = exportFileSizeBytes(file);
+    if (size !== null && size > maxSizeBytes) {
+        return {
+            valid: false,
+            errors: [`Export ZIP exceeds the ${maxSizeBytes / 1_000_000} MB file-size limit. Choose a smaller export.`],
+        };
+    }
+
     const errors = [];
     const warnings = [];
     const summaries = [];
