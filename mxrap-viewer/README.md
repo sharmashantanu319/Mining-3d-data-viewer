@@ -71,26 +71,27 @@ components only wire that logic to the UI.
 
 ## Import ZIP file-size limit
 
-To prevent inadvertently decompressing an extremely large archive, the viewer rejects
-**compressed ZIP files larger than 100 MB (100,000,000 bytes)** *before* JSZip reads the
-archive. An oversized file shows a clear validation error and is not imported.
-The limit can be changed at **build time** with the optional environment variable
-`NEXT_PUBLIC_MAX_EXPORT_SIZE_MB` (a positive number, measured in decimal MB):
+The viewer checks the **compressed ZIP input size** before JSZip decompresses it. The
+default is **100 MB (100,000,000 bytes)**. To change the limit, edit the tracked
+[`viewer.config.json`](viewer.config.json) file in this folder:
 
-```bash
-NEXT_PUBLIC_MAX_EXPORT_SIZE_MB=250 npm run build
+```json
+{
+  "imports": {
+    "maxCompressedZipMB": 100
+  }
+}
 ```
 
-On Windows PowerShell, set `$env:NEXT_PUBLIC_MAX_EXPORT_SIZE_MB="250"` before the build;
-for local development the same setting must be present when starting `npm run dev`.
-No setting is required to use the default 100 MB limit. If a deployment changes the
-limit, it should also update its user guidance accordingly. A larger compressed ZIP
-limit increases browser memory risk; always test on intended client hardware.
+Set `maxCompressedZipMB` to a positive number in **decimal MB**, then restart
+`npm run dev` or rebuild and redeploy the production application. No
+PowerShell environment variable is required. Missing/invalid values fall back
+to 100 MB; keep the value finite and realistic for available browser memory.
 
-**Important:** This is a guard on the *compressed input size*, not a memory quota.
-A small ZIP can expand to many times its compressed size; the app still loads the
-export in browser memory and does not stream ZIP contents. Supporting exceptionally
-large mine exports remains future work.
+A file larger than the limit is rejected with a readable validation error
+before decompression. This **does not limit the expanded ZIP size or bound
+memory use**: a small compressed ZIP can expand greatly. Very large exports
+still require size-aware/streamed loading beyond the current MVP.
 
 ## Known limitations
 
