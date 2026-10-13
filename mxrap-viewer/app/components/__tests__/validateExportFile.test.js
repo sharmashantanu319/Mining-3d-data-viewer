@@ -343,3 +343,36 @@ describe("validateExportFile - annotation CSV rows", () => {
     expect(result.errors).toEqual(["s1-3dview > annotations: annotations must be an array."]);
   });
 });
+
+import { MAX_EXPORT_FILE_SIZE_BYTES } from "../validateExportFile";
+
+// Use a tiny configurable test threshold: no need to allocate large archives.
+describe("validateExportFile - compressed ZIP size limit", () => {
+  it("rejects an oversized browser file before attempting to parse the ZIP", async () => {
+    const tooLarge = new Blob([new Uint8Array(11)]);
+    const result = await validateExportFile(tooLarge, { maxSizeBytes: 10 });
+    expect(result).toMatchObject({ valid: false });
+    expect(result.errors[0]).toContain("file-size limit");
+  });
+
+  it("rejects an oversized Uint8Array fixture before parsing", async () => {
+    const result = await validateExportFile(new Uint8Array(11), { maxSizeBytes: 10 });
+    expect(result.valid).toBe(false);
+    expect(result.errors[0]).toContain("Choose a smaller export");
+  });
+
+  it("does not reject a file exactly at the configured limit", async () => {
+    const result = await validateExportFile(new Uint8Array(10), { maxSizeBytes: 10 });
+    expect(result.errors).toEqual(["File is not a valid zip archive."]);
+  });
+
+  it("continues validating a normal valid export below the limit", async () => {
+    const zip = await buildSurfaceExport();
+    const result = await validateExportFile(zip, { maxSizeBytes: zip.byteLength });
+    expect(result.valid).toBe(true);
+  });
+
+  it("has a positive default 100 MB compressed ZIP limit", () => {
+    expect(MAX_EXPORT_FILE_SIZE_BYTES).toBe(100_000_000);
+  });
+});
