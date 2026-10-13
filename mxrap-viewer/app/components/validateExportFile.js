@@ -29,12 +29,14 @@ import { checkIds, checkPointData, checkLineData, requireColumns } from "./dataV
 import { checkMarkers } from "./markerValidation";
 import { joinChartRows, filterChartRows, buildChartSeriesColumns } from "./chartData";
 
-// A conservative academic-MVP limit for the *compressed* ZIP archive.
-// NEXT_PUBLIC_ values are embedded at build time in Next.js, so hosts can
-// configure the limit without editing code. Invalid values fall back to 100 MB.
+// Checked-in application configuration; edit viewer.config.json to change the
+// compressed ZIP input limit, then restart/rebuild the application.
+import viewerConfig from "../../viewer.config.json";
+
+const configuredMaxSizeMb = viewerConfig?.imports?.maxCompressedZipMB;
 const DEFAULT_MAX_EXPORT_SIZE_MB = 100;
-const configuredMaxSizeMb = Number(process.env.NEXT_PUBLIC_MAX_EXPORT_SIZE_MB ?? DEFAULT_MAX_EXPORT_SIZE_MB);
-const maxExportSizeMb = Number.isFinite(configuredMaxSizeMb) && configuredMaxSizeMb > 0 &&
+const maxExportSizeMb = typeof configuredMaxSizeMb === "number" &&
+    Number.isFinite(configuredMaxSizeMb) && configuredMaxSizeMb > 0 &&
     configuredMaxSizeMb <= Number.MAX_SAFE_INTEGER / 1_000_000
     ? configuredMaxSizeMb
     : DEFAULT_MAX_EXPORT_SIZE_MB;
