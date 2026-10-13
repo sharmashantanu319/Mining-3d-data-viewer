@@ -69,9 +69,32 @@ test-data/                Sample exports used for manual and automated testing
 Pure logic lives in plain `.js` modules so it can be unit-tested without a browser; React
 components only wire that logic to the UI.
 
+## Import ZIP file-size limit
+
+To prevent inadvertently decompressing an extremely large archive, the viewer rejects
+**compressed ZIP files larger than 100 MB (100,000,000 bytes)** *before* JSZip reads the
+archive. An oversized file shows a clear validation error and is not imported.
+The limit can be changed at **build time** with the optional environment variable
+`NEXT_PUBLIC_MAX_EXPORT_SIZE_MB` (a positive number, measured in decimal MB):
+
+```bash
+NEXT_PUBLIC_MAX_EXPORT_SIZE_MB=250 npm run build
+```
+
+On Windows PowerShell, set `$env:NEXT_PUBLIC_MAX_EXPORT_SIZE_MB="250"` before the build;
+for local development the same setting must be present when starting `npm run dev`.
+No setting is required to use the default 100 MB limit. If a deployment changes the
+limit, it should also update its user guidance accordingly. A larger compressed ZIP
+limit increases browser memory risk; always test on intended client hardware.
+
+**Important:** This is a guard on the *compressed input size*, not a memory quota.
+A small ZIP can expand to many times its compressed size; the app still loads the
+export in browser memory and does not stream ZIP contents. Supporting exceptionally
+large mine exports remains future work.
+
 ## Known limitations
 
-- The whole export is held in browser memory, so very large exports may exhaust it.
+- The whole *allowed* export is still held in browser memory, and high-compression archives may exhaust memory even below the configured compressed-size limit.
 - React components and WebGL output have no automated tests; they are checked manually.
 - See the [issue list](https://github.com/sharmashantanu319/Mining-3d-data-viewer/issues) for
   open bugs and planned features.
