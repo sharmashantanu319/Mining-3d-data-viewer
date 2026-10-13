@@ -1,0 +1,5 @@
+{
+  "imports": {
+    "maxCompressedZipMB": 100
+  }
+}

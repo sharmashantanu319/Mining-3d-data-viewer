@@ -69,9 +69,33 @@ test-data/                Sample exports used for manual and automated testing
 Pure logic lives in plain `.js` modules so it can be unit-tested without a browser; React
 components only wire that logic to the UI.
 
+## Import ZIP file-size limit
+
+The viewer checks the **compressed ZIP input size** before JSZip decompresses it. The
+default is **100 MB (100,000,000 bytes)**. To change the limit, edit the tracked
+[`viewer.config.json`](viewer.config.json) file in this folder:
+
+```json
+{
+  "imports": {
+    "maxCompressedZipMB": 100
+  }
+}
+```
+
+Set `maxCompressedZipMB` to a positive number in **decimal MB**, then restart
+`npm run dev` or rebuild and redeploy the production application. No
+PowerShell environment variable is required. Missing/invalid values fall back
+to 100 MB; keep the value finite and realistic for available browser memory.
+
+A file larger than the limit is rejected with a readable validation error
+before decompression. This **does not limit the expanded ZIP size or bound
+memory use**: a small compressed ZIP can expand greatly. Very large exports
+still require size-aware/streamed loading beyond the current MVP.
+
 ## Known limitations
 
-- The whole export is held in browser memory, so very large exports may exhaust it.
+- The whole *allowed* export is still held in browser memory, and high-compression archives may exhaust memory even below the configured compressed-size limit.
 - React components and WebGL output have no automated tests; they are checked manually.
 - See the [issue list](https://github.com/sharmashantanu319/Mining-3d-data-viewer/issues) for
   open bugs and planned features.
