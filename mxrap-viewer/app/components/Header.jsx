@@ -19,39 +19,35 @@ export default function Header({ fileName, currentScene, isLoadingExport, onFile
         boxSizing: "border-box",
       }}
     >
-      {/* Brand */}
+      {/* Brand: the mark and the name on one line. The tiny all-caps
+          "3D DATA VIEWER" line under the name repeated "Viewer" and was too
+          small to read. */}
       <div
+        title="mXrap Viewer: view mXrap exports in 3D"
         style={{
           display: "flex",
           alignItems: "center",
-          gap: 7,
+          gap: 8,
+          height: 22,
           paddingRight: 16,
           borderRight: "1px solid var(--color-border)",
           marginRight: 14,
+          flexShrink: 0,
         }}
       >
-        <div
+        <IconMxrap size={20} aria-hidden="true" style={{ color: "var(--color-lime)", flexShrink: 0 }} />
+        <span
           style={{
-            width: 24,
-            height: 24,
-            borderRadius: 5,
-            background: "var(--color-brand)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            flexShrink: 0,
+            fontSize: 14,
+            fontWeight: 600,
+            lineHeight: 1,
+            letterSpacing: "-0.015em",
+            color: "var(--color-fg)",
+            whiteSpace: "nowrap",
           }}
         >
-          <IconMxrap size={14} style={{ color: "var(--color-lime)" }} />
-        </div>
-        <div>
-          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--color-fg)", lineHeight: 1.1, letterSpacing: "-0.01em" }}>
-            mXrap Viewer
-          </div>
-          <div style={{ fontSize: 9, color: "var(--color-fg-muted)", letterSpacing: "0.06em", textTransform: "uppercase", lineHeight: 1 }}>
-            3D Data Viewer
-          </div>
-        </div>
+          mXrap Viewer
+        </span>
       </div>
 
       {/* Current file */}
