@@ -1,6 +1,20 @@
+import { findMarkerDefinition } from "./markerLookup";
+
 // Resolve exported line membership by ID, never by CSV row index.
 // Keep each line separate, including when its membership rows are interleaved.
-export function buildLineSeries(vertexRows, lineRows, config, markerDefinitions = []) {
+// mXrap exports spell the membership columns either "LineID"/"VertexID" or
+// "Line ID"/"Vertex ID" (seen in the October response-volume export).
+// Map both spellings onto LineID/VertexID so the rest of the code sees one shape.
+export function normalizeLineRows(lineRows) {
+  return lineRows.map((row) => ({
+    ...row,
+    LineID: row.LineID ?? row["Line ID"],
+    VertexID: row.VertexID ?? row["Vertex ID"],
+  }));
+}
+
+export function buildLineSeries(vertexRows, rawLineRows, config, markerDefinitions = []) {
+  const lineRows = normalizeLineRows(rawLineRows);
   const vertices = vertexRows.map((row) => ({
     ...row,
     id: row.ID,
@@ -27,7 +41,7 @@ export function buildLineSeries(vertexRows, lineRows, config, markerDefinitions 
     }
     lines.push({ id, points });
   }
-  const usesDefaultRqdPalette = config.colourMarker === "RQD" && !markerDefinitions.some((def) => def.name === "RQD");
+  const usesDefaultRqdPalette = config.colourMarker === "RQD" && !findMarkerDefinition(markerDefinitions, "RQD", "colour");
   return {
     ...config,
     vertices,

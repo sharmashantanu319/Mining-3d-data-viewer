@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import JSZip from "jszip";
 import { buildLineSeries, lineColourSeries } from "../lineSeriesData";
-import { buildLineSegments } from "../linesBuilder";
+import { buildLineSegments, HAIRLINE_OPACITY } from "../linesBuilder";
 import { buildColourLegend } from "../colourLegend";
 import { parseExportFile } from "../parseExportFile";
 
@@ -80,4 +81,71 @@ describe("RMQ line pipeline", () => {
     expect(result.scenes[0].lineSeries).toHaveLength(1);
     expect(result.scenes[0].lineSeries[0].lines[0].points.map((p) => p.id)).toEqual([50, 90]);
   });
+});
+
+describe("hairline wireframes (lineWidth 0, e.g. response-volume spheres)", () => {
+  // Two unit quads side by side, written as closed 5-vertex loops like the
+  // customer's response-volume line tables; they share the edge 2-5.
+  const quadVertices = [
+    { ID: 1, X: 0, Y: 0, Z: 0, Trigger: 1 }, { ID: 2, X: 1, Y: 0, Z: 0, Trigger: 1 },
+    { ID: 3, X: 2, Y: 0, Z: 0, Trigger: 1 }, { ID: 4, X: 0, Y: 1, Z: 0, Trigger: 1 },
+    { ID: 5, X: 1, Y: 1, Z: 0, Trigger: 1 }, { ID: 6, X: 2, Y: 1, Z: 0, Trigger: 1 },
+  ];
+  const loops = [[1, 2, 5, 4, 1], [2, 3, 6, 5, 2]].flatMap((ids, n) => ids.map((id) => ({ LineID: n + 1, VertexID: id })));
+  const hairline = { name: "Response Volumes", lineWidth: 0 };
+
+  it("draws native translucent lines that do not write depth", () => {
+    const object = buildLineSegments(buildLineSeries(quadVertices, loops, hairline));
+    expect(object.type).toBe("LineSegments");
+    expect(object.material.transparent).toBe(true);
+    expect(object.material.opacity).toBe(HAIRLINE_OPACITY);
+    expect(object.material.depthWrite).toBe(false);
+    expect(object.visible).toBe(true);
+    object.geometry.dispose(); object.material.dispose();
+  });
+
+  it("draws an edge shared by two loops once", () => {
+    const object = buildLineSegments(buildLineSeries(quadVertices, loops, hairline));
+    expect(object.userData.segmentCount).toBe(7);
+    const position = object.geometry.getAttribute("position");
+    expect(position.count).toBe(14);
+    const edges = [];
+    for (let i = 0; i < position.count; i += 2) {
+      edges.push([position.getX(i), position.getY(i), position.getX(i + 1), position.getY(i + 1)].join(","));
+    }
+    expect(edges).toEqual(["0,0,1,0", "1,0,1,1", "1,1,0,1", "0,1,0,0", "1,0,2,0", "2,0,2,1", "2,1,1,1"]);
+    object.geometry.dispose(); object.material.dispose();
+  });
+
+  it("keeps wide lines (lineWidth > 1) on the wide-line path", () => {
+    const object = buildLineSegments(buildLineSeries(quadVertices, loops, { ...hairline, lineWidth: 5 }));
+    expect(object.isLineSegments2).toBe(true);
+    expect(object.material.linewidth).toBe(5);
+    expect(object.userData.segmentCount).toBe(7);
+    object.geometry.dispose(); object.material.dispose();
+  });
+
+  it("hides an empty hairline series", () => {
+    const object = buildLineSegments(buildLineSeries(quadVertices, [], hairline));
+    expect(object.userData.segmentCount).toBe(0);
+    expect(object.visible).toBe(false);
+    object.geometry.dispose(); object.material.dispose();
+  });
+});
+
+describe("RMQ intervals in the real export", () => {
+  it("still draw every interval as an opaque 5 px line", async () => {
+    const result = await parseExportFile(readFileSync(new URL("../../../test-data/visualiser-export-2.zip", import.meta.url)));
+    const rmq = result.scenes.flatMap((scene) => scene.lineSeries ?? []).find((series) => series.name === "RMQ Intervals");
+    expect(rmq.lines).toHaveLength(8877);
+    const object = buildLineSegments(rmq);
+    // The hairline change only covers widths 0 and 1, and no RMQ interval
+    // shares an edge with another, so none is dropped as a repeat.
+    expect(object.isLineSegments2).toBe(true);
+    expect(object.material.linewidth).toBe(5);
+    expect(object.material.transparent).toBe(false);
+    expect(object.geometry.instanceCount).toBe(8877);
+    expect(object.userData.segmentCount).toBe(8877);
+    object.geometry.dispose(); object.material.dispose();
+  }, 60000);
 });

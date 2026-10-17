@@ -42,3 +42,47 @@ describe("real Magnitude-Time export to canvas", () => {
     expect(visibleLineCount - ctx.lineTo.mock.calls.length).toBe(5238 * 2 + 664);
   });
 });
+
+describe("chart point sizes", () => {
+  function mockCanvas() {
+    const ctx = Object.fromEntries([
+      "setTransform", "clearRect", "beginPath", "moveTo", "lineTo", "stroke",
+      "fillText", "save", "restore", "translate", "rotate", "rect", "clip", "arc", "fill",
+    ].map((name) => [name, vi.fn()]));
+    return { ctx, canvas: { clientWidth: 1000, clientHeight: 600, getContext: () => ctx } };
+  }
+  const axes = {
+    bottom: { enabled: true, title: "", scale: "linear" },
+    left: { enabled: true, title: "", scale: "linear" },
+    top: { enabled: false },
+    right: { enabled: false },
+  };
+  const ranges = { bottom: { min: 0, max: 2 }, left: { min: 0, max: 2 }, top: null, right: null };
+  const seriesWith = (colourMarker) => ({
+    axisX: { side: "bottom" }, axisY: { side: "left" }, enablePoints: true, enableLines: false,
+    colourMarker, points: { x: [0, 1, 2], y: [0, 1, 2], rows: [] }, lines: [],
+  });
+
+  it("draws each point as wide as its size-marker size", () => {
+    vi.stubGlobal("window", { devicePixelRatio: 1 });
+    const { ctx, canvas } = mockCanvas();
+    const chart = { axes, series: [seriesWith(null)], annotations: [] };
+    drawChart(canvas, chart, ranges, { "0:points": true }, [{ pointColours: null, pointSizes: [2, 8.5, 15], lineColour: "", lineColours: [] }]);
+    expect(ctx.arc.mock.calls.map((call) => call[2])).toEqual([1, 4.25, 7.5]);
+  });
+
+  it("keeps the default size without a size marker, and sizes crosses too", () => {
+    vi.stubGlobal("window", { devicePixelRatio: 1 });
+    const { ctx, canvas } = mockCanvas();
+    drawChart(canvas, { axes, series: [seriesWith(null)], annotations: [] }, ranges, { "0:points": true },
+      [{ pointColours: null, pointSizes: null, lineColour: "", lineColours: [] }]);
+    expect(ctx.arc.mock.calls.map((call) => call[2])).toEqual([2.5, 2.5, 2.5]);
+
+    const crosses = mockCanvas();
+    drawChart(crosses.canvas, { axes, series: [seriesWith("Cross/Grey")], annotations: [] }, ranges, { "0:points": true },
+      [{ pointColours: null, pointSizes: [2, 8.5, 15], lineColour: "", lineColours: [] }]);
+    // Plot area starts at x = 64 and ends at y = 556; the first cross is 2 px wide.
+    expect(crosses.ctx.lineTo).toHaveBeenCalledWith(65, 556);
+    expect(crosses.ctx.lineTo).toHaveBeenCalledWith(64, 557);
+  });
+});

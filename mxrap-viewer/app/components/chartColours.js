@@ -1,14 +1,32 @@
-// Resolves the colours a chart series is drawn with, reusing the 3D points'
-// colour-marker pipeline (pointMarkerResolver.js / colourMapping.js) so a
-// chart point and the same event in the 3D view share one colour legend.
+// Resolves the colours and point sizes a chart series is drawn with, reusing
+// the 3D points' marker pipeline (pointMarkerResolver.js / colourMapping.js /
+// sizeMapping.js) so a chart point and the same event in the 3D view share
+// one legend.
 //
-// Pure: takes the parsed chart series, returns CSS colour strings. No canvas.
+// Pure: takes the parsed chart series, returns CSS colours and pixel sizes.
+// No canvas.
 
-import { resolveColourMarker } from "./pointMarkerResolver";
+import { resolveColourMarker, resolveSizeMarker } from "./pointMarkerResolver";
 import { mapColour, toCssRgba } from "./colourMapping";
+import { mapSize } from "./sizeMapping";
+import { parseRgbColour } from "./markerSymbols";
 
 export const DEFAULT_CHART_POINT_COLOUR = "rgb(120, 144, 156)";
 export const DEFAULT_CHART_LINE_COLOUR = "rgb(0, 0, 127)";
+
+// Points are drawn this many pixels across when the series has no size
+// marker. The 3D view's midpoint-of-the-size-range rule is not applied here:
+// the sample export's Magnitude-Time chart gives 10..20 without a size
+// marker, and there is no mXrap picture of that chart to say it should have
+// 15 px points.
+export const DEFAULT_CHART_POINT_DIAMETER = 5;
+const MAX_CHART_POINT_DIAMETER = 40;
+
+// mXrap draws charts on white, the viewer on near-black. A black or
+// near-black grey line ("rgb(0,0,0)" in the client's response charts) would
+// disappear, so it is drawn light grey instead: the same contrast it has in
+// mXrap. Coloured lines such as the sample's navy keep their colour.
+export const DARK_PLOT_NEUTRAL_LINE_COLOUR = "rgba(201, 209, 207, 0.7)";
 
 /**
  * One CSS colour per plotted point of the series (same order as
@@ -49,7 +67,31 @@ export function resolveChartPointColours(series) {
  */
 export function resolveChartLineColour(series) {
   const override = series?.lineOverrideColour;
-  return typeof override === "string" && override.trim() !== ""
-    ? override
-    : DEFAULT_CHART_LINE_COLOUR;
+  if (typeof override !== "string" || override.trim() === "") return DEFAULT_CHART_LINE_COLOUR;
+  const rgb = parseRgbColour(override);
+  if (rgb) {
+    const brightest = Math.max(rgb.r, rgb.g, rgb.b);
+    const spread = brightest - Math.min(rgb.r, rgb.g, rgb.b);
+    if (brightest < 0.2 && spread < 0.06) return DARK_PLOT_NEUTRAL_LINE_COLOUR;
+  }
+  return override;
+}
+
+/**
+ * One diameter in CSS pixels per plotted point (same order as
+ * `series.points.x`) from the series' size marker, or null when it has no
+ * usable size marker (the caller then draws every point
+ * DEFAULT_CHART_POINT_DIAMETER across). The size range is read as pixels
+ * across, which matches the client's slide-3 reference picture: its
+ * "Event ML" dots (sizes 2 to 15) are about 3 to 15 pixels across.
+ *
+ * @param {object} series  a parsed chart series
+ * @returns {number[]|null}
+ */
+export function resolveChartPointSizes(series) {
+  const rows = series?.points?.rows;
+  if (!Array.isArray(rows) || rows.length === 0 || !series.sizeMarker) return null;
+  const marker = resolveSizeMarker({ ...series, points: rows });
+  if (!marker?.valid || marker.kind !== "mapped") return null;
+  return rows.map((row) => Math.min(Math.max(mapSize(row?.[marker.input], marker), 1), MAX_CHART_POINT_DIAMETER));
 }

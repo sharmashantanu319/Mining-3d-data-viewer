@@ -551,8 +551,11 @@ function normaliseNumberFormat(legendDef) {
   return format;
 }
 
+// "Seismic Moment [Nm]" -> title "Seismic Moment", units "Nm". Only a
+// bracket that follows a space is a unit: in "P[ML within R]" the bracket is
+// part of the quantity's name, so that title is kept whole.
 function splitTitleAndUnits(title) {
-  const match = /^(.*?)\s*\[([^\]]+)\]\s*$/.exec(title);
+  const match = /^(.*\S)\s+\[([^\]]+)\]\s*$/.exec(title);
   if (match) return { title: match[1].trim(), units: match[2].trim() };
   return { title, units: null };
 }
@@ -790,6 +793,12 @@ function buildSegments(
   const apply = transform === "log10" ? safeLog10 : (x) => x;
 
   // Pass 1: resolve every row's upper threshold to an absolute value.
+  // A blank "Up to" is the open-ended top bucket: everything above the
+  // highest explicit threshold. It is always the last segment, whatever the
+  // data range is. (Resolving it to domainMax alone placed it below the
+  // explicit thresholds whenever the data stayed under them - e.g. a
+  // Material column that is 1 everywhere coloured every vertex with the top
+  // bucket's colour instead of the "Up to 1.5" colour.)
   const resolved = rawRows.map((row) => {
     let resolvedUpTo;
     if (row.upTo === null) {
@@ -814,17 +823,18 @@ function buildSegments(
     } else {
       resolvedUpTo = row.upTo;
     }
-    return { row, resolvedUpTo };
+    return { row, resolvedUpTo, openTop: row.upTo === null };
   });
+  const explicitRows = resolved.filter((entry) => !entry.openTop);
 
   // The customer writes ramp rows with a blank "Up to" first, then strictly
   // descending. Warn only when the file is not in that order, not merely
   // because this module keeps its segments ascending internally.
   const firstRowIsBlank =
     resolved.length === 0 || resolved[0].row.upTo === null;
-  const restIsDescending = resolved.every((entry, i) => {
+  const restIsDescending = explicitRows.every((entry, i) => {
     if (i === 0) return true;
-    const prev = resolved[i - 1].resolvedUpTo;
+    const prev = explicitRows[i - 1].resolvedUpTo;
     const cur = entry.resolvedUpTo;
     if (!Number.isFinite(prev) || !Number.isFinite(cur)) return true;
     return cur < prev;
@@ -843,14 +853,16 @@ function buildSegments(
   const sorted = resolved
     .map((entry, originalPos) => ({ ...entry, originalPos }))
     .sort((a, b) => {
-      const av = Number.isFinite(a.resolvedUpTo) ? a.resolvedUpTo : Infinity;
-      const bv = Number.isFinite(b.resolvedUpTo) ? b.resolvedUpTo : Infinity;
+      const av = !a.openTop && Number.isFinite(a.resolvedUpTo) ? a.resolvedUpTo : Infinity;
+      const bv = !b.openTop && Number.isFinite(b.resolvedUpTo) ? b.resolvedUpTo : Infinity;
       if (av !== bv) return av - bv;
       return a.row.fileRowIndex - b.row.fileRowIndex;
     });
 
   for (let i = 1; i < sorted.length; i++) {
     if (
+      !sorted[i].openTop &&
+      !sorted[i - 1].openTop &&
       Number.isFinite(sorted[i].resolvedUpTo) &&
       sorted[i].resolvedUpTo === sorted[i - 1].resolvedUpTo
     ) {
@@ -862,10 +874,23 @@ function buildSegments(
     }
   }
 
+  if (resolved.filter((entry) => entry.openTop).length > 1) {
+    warnings.push({
+      code: "duplicate-threshold",
+      message: 'More than one ramp row has a blank "Up to"; only the first is reachable.',
+    });
+  }
+
+  const upperBounds = [];
   return sorted.map((entry, i) => {
     const { row } = entry;
-    const upperBoundRaw = entry.resolvedUpTo;
-    const lowerBoundRaw = i === 0 ? domainMin : sorted[i - 1].resolvedUpTo;
+    const lowerBoundRaw = i === 0 ? domainMin : upperBounds[i - 1];
+    // The open top bucket reaches the domain maximum, but never below its
+    // own lower bound, so it stays above every explicit threshold.
+    const upperBoundRaw = entry.openTop
+      ? Math.max(entry.resolvedUpTo, lowerBoundRaw)
+      : entry.resolvedUpTo;
+    upperBounds.push(upperBoundRaw);
 
     const startColour = validateColourComponents(
       row.startColour,

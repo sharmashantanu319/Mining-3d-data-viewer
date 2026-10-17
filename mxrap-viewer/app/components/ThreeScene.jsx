@@ -22,7 +22,7 @@ import * as THREE from "three";
 import { buildAnnotation, disposeAnnotations, resolveLabelFont } from "./annotationsBuilder";
 import { applyCameraState, snapshotCameraState } from "./cameraState";
 import { buildSurfaceMesh } from "./geometryBuilder";
-import { buildLineSegments } from "./linesBuilder";
+import { buildLineSegments, lineObjectHasSegments } from "./linesBuilder";
 import { createOrientationGizmo, renderOrientationGizmo } from "./orientationGizmo";
 import { buildPointCloud, getHardwarePointSizeRange } from "./pointsBuilder";
 import {
@@ -214,7 +214,7 @@ const ThreeScene = forwardRef(function ThreeScene(
   useEffect(() => {
     lineVisibilityRef.current = lineVisibility;
     linesRef.current.forEach((object, index) => {
-      object.visible = (lineVisibility[index] ?? sceneData.lineSeries?.[index]?.visible !== false) && object.geometry.instanceCount > 0;
+      object.visible = (lineVisibility[index] ?? sceneData.lineSeries?.[index]?.visible !== false) && lineObjectHasSegments(object);
     });
   }, [lineVisibility, sceneData]);
   const cameraRef = useRef(null);
@@ -560,7 +560,7 @@ const ThreeScene = forwardRef(function ThreeScene(
     meshesRef.current = meshes;
     const lineObjects = (sceneData.lineSeries ?? []).map((series, index) => {
       const object = buildLineSegments(series);
-      object.visible = (lineVisibilityRef.current[index] ?? series.visible !== false) && object.geometry.instanceCount > 0;
+      object.visible = (lineVisibilityRef.current[index] ?? series.visible !== false) && lineObjectHasSegments(object);
       scene.add(object);
       return object;
     });
@@ -640,7 +640,7 @@ function createPointCloud(pointSeriesData) {
       {
         ...renderOptions,
         pointTexture,
-        tintTextureWithVertexColor: false,
+        tintTextureWithVertexColor: contentOptions.tintSymbols === true,
       }
     );
 

@@ -4,8 +4,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { axisFraction, computeTicks, formatTick, padDegenerateRange } from "./chartScale";
 import {
   DEFAULT_CHART_POINT_COLOUR,
+  DEFAULT_CHART_POINT_DIAMETER,
   resolveChartLineColour,
   resolveChartPointColours,
+  resolveChartPointSizes,
 } from "./chartColours";
 import { chartTextToPlain, parseChartText } from "./chartText";
 import { parseCustomerDate } from "./customerDate";
@@ -14,7 +16,7 @@ const MARGIN = { top: 14, right: 64, bottom: 44, left: 64 };
 const TEXT_COLOUR = "#c9d1cf";
 const GRID_COLOUR = "rgba(255, 255, 255, 0.08)";
 const AXIS_COLOUR = "rgba(255, 255, 255, 0.35)";
-const POINT_RADIUS = 2.5;
+const POINT_RADIUS = DEFAULT_CHART_POINT_DIAMETER / 2;
 
 function initialToggles(chart) {
   const toggles = {};
@@ -163,6 +165,7 @@ export function drawChart(canvas, chart, ranges, toggles, seriesColours) {
 
     if (toggles[`${index}:points`] && series.enablePoints) {
       const colours = seriesColours[index].pointColours;
+      const sizes = seriesColours[index].pointSizes;
       const cross = /cross/i.test(series.colourMarker ?? "");
       ctx.lineWidth = 1;
       for (let i = 0; i < series.points.x.length; i += 1) {
@@ -171,15 +174,16 @@ export function drawChart(canvas, chart, ranges, toggles, seriesColours) {
         const x = toX(axisX.side, series.points.x[i]);
         const y = toY(axisY.side, series.points.y[i]);
         if (x === null || y === null) continue;
+        const radius = sizes ? sizes[i] / 2 : POINT_RADIUS;
         if (cross) {
           ctx.strokeStyle = colour;
           ctx.beginPath();
-          ctx.moveTo(x - POINT_RADIUS, y); ctx.lineTo(x + POINT_RADIUS, y);
-          ctx.moveTo(x, y - POINT_RADIUS); ctx.lineTo(x, y + POINT_RADIUS);
+          ctx.moveTo(x - radius, y); ctx.lineTo(x + radius, y);
+          ctx.moveTo(x, y - radius); ctx.lineTo(x, y + radius);
           ctx.stroke();
         } else {
           ctx.fillStyle = colour;
-          ctx.beginPath(); ctx.arc(x, y, POINT_RADIUS, 0, Math.PI * 2); ctx.fill();
+          ctx.beginPath(); ctx.arc(x, y, radius, 0, Math.PI * 2); ctx.fill();
         }
       }
     }
@@ -257,6 +261,7 @@ export default function ChartView({ chart }) {
         const useLegendLines = !series.lineOverrideColour && series.lines.length > 0;
         return {
           pointColours: resolveChartPointColours(series),
+          pointSizes: resolveChartPointSizes(series),
           lineColour,
           lineColours: series.lines.map((line) =>
             useLegendLines
