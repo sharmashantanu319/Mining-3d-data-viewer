@@ -1,34 +1,57 @@
 # Mining 3D Data Viewer (mXrap Web Viewer)
 
-A CITS5206 group project that provides a browser-based workspace for exploring selected **mXrap underground-mining visualiser exports**: 3D mine surfaces, seismic events/sensor markers, RMQ intervals and a Magnitude–Time chart.
+A browser-based viewer for mXrap exports, built by CITS5206 Group 12 (UWA, Semester 2 2026)
+for the Australian Centre for Geomechanics. Open an mXrap export `.zip` and explore its mine
+surfaces, seismic events, sensors, annotations, RMQ intervals and Magnitude-Time charts in an
+interactive 3D workspace, without an mXrap installation or licence.
 
-**Start here:** [Application README — installation, demonstration and user guide](mxrap-viewer/README.md).
+All imported data is unpacked, parsed and rendered **in the browser**. The application has no
+backend and no database, and it never uploads export data to a server. It is a working academic
+MVP, not a replacement for every desktop mXrap feature.
 
-## Quick setup (current Development MVP)
+## Quick start
 
-Requires Git, Node.js 24, npm and a WebGL-capable browser:
+Requires Git, [Node.js](https://nodejs.org/) 24 (the version CI uses; 22.12 or later also
+works), npm and a browser with WebGL enabled.
 
 ```bash
 git clone https://github.com/sharmashantanu319/Mining-3d-data-viewer.git
-cd Mining-3d-data-viewer
-git switch Development
-cd mxrap-viewer
+cd Mining-3d-data-viewer/mxrap-viewer
 npm ci
 npm run dev
 ```
 
-Open http://localhost:3000, then choose **Open Export** and select `mxrap-viewer/test-data/visualiser-export-2.zip` from the cloned repository (the file is relative to the **repository root**, not the current terminal directory). The startup scene uses mock data until an export is selected.
+Open <http://localhost:3000>, click **Open Export** (top right) and choose
+`mxrap-viewer/test-data/visualiser-export-2.zip` from the cloned repository (the path is
+relative to the repository root, not the terminal's current folder). Until an export is opened,
+the viewer shows built-in demo data.
 
-> `Development` has newer integrated chart, RMQ and import-validation features than `main`. Merge a tested final release to `main` before handing the repository to the client or marker.
+`main` holds the released version. `Development` is the integration branch: pull requests are
+merged there first and released to `main` after review and testing.
 
-## Project evidence
+Full setup, build, hosting and troubleshooting instructions are in the
+[application guide](mxrap-viewer/README.md).
 
-- [Business requirements](docs/Business_Requirements_Analysis_Group12_.pdf)
-- [Recorded client meeting and action items](meetings/minutres-2026-09-24.md)
-- [Chart design/scoping](docs/chart-module-scoping.md)
-- [Technology selection analysis](tech-docs/VTK.js%20vs%20Three.js%20-%20Technology%20Selection%20Analysis.docx)
-- [GitHub Actions checks](https://github.com/sharmashantanu319/Mining-3d-data-viewer/actions)
-- [Issues, limitations and future work](https://github.com/sharmashantanu319/Mining-3d-data-viewer/issues)
-- [Pull requests and reviews](https://github.com/sharmashantanu319/Mining-3d-data-viewer/pulls?q=is%3Apr)
+## Documentation
 
-For features, accepted input structure, automated tests, deployment, user instructions, troubleshooting, responsible GenAI disclosure and known limitations, see the [full application guide](mxrap-viewer/README.md).
+| Document | Purpose |
+| --- | --- |
+| [User guide](docs/USER_GUIDE.md) | How to load an export and use every panel and control |
+| [Application guide](mxrap-viewer/README.md) | Install, run, test, build and host the viewer; supported input and known limitations |
+| [Business requirements analysis](docs/Business_Requirements_Analysis_Group12_.pdf) | Client requirements and agreed MVP |
+| [Chart module scoping](docs/chart-module-scoping.md) | Design of the Magnitude-Time chart |
+| [Technology selection](tech-docs/) | VTK.js vs Three.js analysis |
+| [Meeting minutes](meetings/) | Client and facilitator meetings |
+| [CI results](https://github.com/sharmashantanu319/Mining-3d-data-viewer/actions) | Lint, test and build runs |
+| [Pull requests](https://github.com/sharmashantanu319/Mining-3d-data-viewer/pulls?q=is%3Apr) | Implementation history and reviews |
+| [Issues](https://github.com/sharmashantanu319/Mining-3d-data-viewer/issues) | Known bugs, limitations and planned features |
+
+## Repository layout
+
+```text
+mxrap-viewer/   Next.js application (source in app/, tests in app/components/__tests__/)
+docs/           Requirements, user guide and design documents
+tech-docs/      Technology selection analysis
+meetings/       Meeting minutes
+.github/        CI workflow (lint, test and build on every pull request)
+```
