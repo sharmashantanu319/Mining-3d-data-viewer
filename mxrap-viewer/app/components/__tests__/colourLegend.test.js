@@ -46,6 +46,22 @@ describe("buildColourLegend", () => {
     expect(legend.ticks.map((tick) => tick.value)).toEqual([-2, 0, 2]);
   });
 
+  it("does not repeat a tick label when there are no decimals to tell them apart", () => {
+    // The customer's "Trigger" legend: no fixed range, no decimals.
+    const trigger = (values) => series({
+      points: values.map((value) => ({ ML: value })),
+      markerDefinitions: [{
+        ...series().markerDefinitions[0],
+        minimum: null,
+        maximum: null,
+        legend: { title: "Trigger", numberDisplay: "fixedDecimal", numberOfDecimals: 0 },
+      }],
+    });
+    expect(buildColourLegend(trigger([1, 2])).ticks.map(({ position, label }) => [position, label])).toEqual([[0, "1"], [1, "2"]]);
+    expect(buildColourLegend(trigger([1, 1])).ticks.map(({ position, label }) => [position, label])).toEqual([[0.5, "1"]]);
+    expect(buildColourLegend(trigger([0, 4])).ticks.map(({ label }) => label)).toEqual(["0", "2", "4"]);
+  });
+
   it("includes the configured null colour and visibility state", () => {
     const visible = buildColourLegend(series());
     const hidden = buildColourLegend(series({ showNullColours: false }));
@@ -260,5 +276,55 @@ describe("buildColourLegend", () => {
     expect(legend.ticks.map((tick) => tick.value)).toEqual([1e8, 1e9, 1e10]);
     expect(legend.fullRange.min).toBe(1e5);
     expect(legend.fullRange.max).toBe(1e13);
+  });
+});
+
+describe("single-colour marker legend", () => {
+  const series = {
+    name: "Selected Triggers",
+    colourMarker: "Cross/Grey",
+    points: [{ x: 0, y: 0, z: 0 }],
+    markerDefinitions: [{ name: "Cross/Grey", type: "single-colour", colour: "rgb(159,159,159)", symbol: "cross2.png" }],
+  };
+
+  it("shows one swatch instead of a colour-configuration error", () => {
+    const legend = buildColourLegend(series);
+    expect(legend.kind).toBe("categorical");
+    expect(legend.valid).toBe(true);
+    expect(legend.title).toBe("Cross/Grey");
+    expect(legend.input).toBeNull();
+    expect(legend.nullEntry).toBeNull();
+    expect(legend.categories).toEqual([{ value: null, label: "All points", colour: "rgba(159, 159, 159, 1)" }]);
+    expect(legend.symbolLabel).toBe("cross2.png");
+  });
+
+  it("reports an unreadable single colour as an error legend", () => {
+    const broken = { ...series, markerDefinitions: [{ ...series.markerDefinitions[0], colour: "grey" }] };
+    expect(buildColourLegend(broken).kind).toBe("error");
+  });
+});
+
+describe("legend number display", () => {
+  const exp = (sigDigits) => ({ inputType: "number", legend: { numberFormat: { mode: "automaticExponential", sigDigits } } });
+
+  it("uses e-notation for very small and very large values under automaticExponential", () => {
+    expect(formatLegendValue(3.1086244689504383e-15, exp(2))).toBe("3.1e-15");
+    expect(formatLegendValue(3.4e-8, exp(2))).toBe("3.4e-8");
+    expect(formatLegendValue(1e13, exp(2))).toBe("1.0e13");
+    expect(formatLegendValue(-0.00012345, exp(3))).toBe("-1.23e-4");
+  });
+
+  it("keeps ordinary magnitudes as plain numbers under automaticExponential", () => {
+    expect(formatLegendValue(0.37630996500485625, exp(2))).toBe("0.38");
+    expect(formatLegendValue(0, exp(2))).toBe("0");
+    expect(formatLegendValue(12345, exp(6))).toBe(new Intl.NumberFormat(undefined, { maximumSignificantDigits: 6 }).format(12345));
+  });
+
+  it("keeps the whole name when the bracket is part of it", () => {
+    const legend = buildColourLegend(series({
+      markerDefinitions: [{ ...series().markerDefinitions[0], legend: { title: "P[ML within R]" } }],
+    }));
+    expect(legend.title).toBe("P[ML within R]");
+    expect(legend.units).toBeNull();
   });
 });

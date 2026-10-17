@@ -133,6 +133,24 @@ describe("resolveMarkerRenderOptions", () => {
     expect(options.sizeFn({ ML: 0 })).toBeCloseTo(13);
   });
 
+  it("sizes by the size definition when the colour marker has the same name", () => {
+    // stra-events/markers.json: colour "Event ML" over -4..4, size "Event ML" over -2..2.
+    const series = {
+      ...SERIES,
+      colourMarker: "Event ML",
+      sizeMarker: "Event ML",
+      sizeMinimum: 10,
+      sizeMaximum: 25,
+      markerDefinitions: [{ ...ML_COLOUR_DEF, name: "Event ML" }, { ...ML_SIZE_DEF, name: "Event ML" }],
+    };
+    const options = resolveMarkerRenderOptions(series);
+    expect(options.sizeFn({ ML: -2 })).toBeCloseTo(10, 12);
+    expect(options.sizeFn({ ML: 0 })).toBeCloseTo(17.5, 12);
+    expect(options.sizeFn({ ML: 2 })).toBeCloseTo(25, 12);
+    // Colour still comes from the colour definition's -4..4 ramp (red to blue).
+    expect(options.colorFn({ ML: -4 })).toEqual({ r: 1, g: 0, b: 0 });
+  });
+
   it("derives the colour domain from the data when the definition has no minimum/maximum", () => {
     const series = {
       ...SERIES,

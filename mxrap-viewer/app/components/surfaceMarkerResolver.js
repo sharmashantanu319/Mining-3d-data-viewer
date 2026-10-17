@@ -17,10 +17,10 @@
 
 import { normalizeColourMarker, mapColour, parseColourRampCsv } from "./colourMapping";
 import { parseCustomerDate } from "./customerDate";
+import { findMarkerDefinition } from "./markerLookup";
 
 function findMarkerDef(markerDefinitions, name) {
-  if (!Array.isArray(markerDefinitions) || name == null || name === "") return null;
-  return markerDefinitions.find((def) => def && def.name === name) ?? null;
+  return findMarkerDefinition(markerDefinitions, name, "colour");
 }
 
 function readInputValue(vertex, input, inputType) {

@@ -141,3 +141,49 @@ describe("chart join validation", () => {
     expect(missing.errors).toContainEqual(expect.stringContaining("missing required column ID"));
   });
 });
+
+describe("line membership column spellings", () => {
+  it("accepts \"Line ID\"/\"Vertex ID\" headers and builds the same lines as LineID/VertexID", async () => {
+    const file = await archive({ type: "3dview", series: [lines] }, {
+      "data/v.csv": vertexCsv, "data/l.csv": "Line ID,Vertex ID\n10,1\n10,3\n11,3\n11,2",
+    });
+    const report = await validateExportFile(file);
+    expect(report.valid).toBe(true);
+    expect(report.errors).toEqual([]);
+    const built = (await parseExportFile(file)).scenes[0].lineSeries[0].lines;
+    expect(built.map((line) => line.id)).toEqual([10, 11]);
+    expect(built.map((line) => line.points.map((p) => [p.x, p.y, p.z]))).toEqual([
+      [[1, 2, 3], [7, 8, 9]],
+      [[7, 8, 9], [4, 5, 6]],
+    ]);
+  });
+});
+
+describe("normal marker conditions are notes, not warnings", () => {
+  const ramp = "Up to,Symbol,Start Colour (H),Start Colour (S),Start Colour (V),End Colour (H),End Colour (S),End Colour (V),Colour Ramp,Number of Colours,Transparency [0..100],Colour Space,Start Colour Colour Space,End Colour Colour Space,End Transparency [0..100]\n,,0,1,1,0.6,1,1,linear,,0,HSV,HSV,HSV,0";
+  const series = { type: "points", name: "Minodes", data: "p", markerMenu: "m/markers", colourMarker: "P" };
+  const files = (points) => ({
+    "data/p.csv": points,
+    "marker-defs/m/markers.json": JSON.stringify([{ name: "P", type: "colour", input: "P", minimum: null, maximum: null, ramp: "r.csv", nullColour: [1, 1, 1] }]),
+    "marker-defs/m/r.csv": ramp,
+  });
+
+  it("reports a colour range taken from the data as a note", async () => {
+    const report = await validateExportFile(await archive({ type: "3dview", series: [series] }, files("ID,X,Y,Z,P\n1,0,0,0,0.1\n2,1,1,1,0.4")));
+    expect(report.valid).toBe(true);
+    expect(report.warnings).toEqual([]);
+    expect(report.notes).toEqual(["view > Minodes: One or both domain bounds were taken from the data range."]);
+  });
+
+  it("reports a column with a single value as a note", async () => {
+    const report = await validateExportFile(await archive({ type: "3dview", series: [series] }, files("ID,X,Y,Z,P\n1,0,0,0,1\n2,1,1,1,1")));
+    expect(report.warnings).toEqual([]);
+    expect(report.notes).toEqual(["view > Minodes: Value range is a single point (1); the marker renders one colour."]);
+  });
+
+  it("still warns about real marker problems", async () => {
+    const report = await validateExportFile(await archive({ type: "3dview", series: [{ ...series, colourMarker: "Missing" }] }, files("ID,X,Y,Z,P\n1,0,0,0,0.1")));
+    expect(report.warnings).toEqual(['view > Minodes: marker "Missing" is unavailable; fallback styling will be used.']);
+    expect(report.notes).toEqual([]);
+  });
+});

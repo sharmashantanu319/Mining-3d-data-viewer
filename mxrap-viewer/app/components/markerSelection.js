@@ -2,6 +2,7 @@ function isColourDefinition(definition) {
   if (!definition || typeof definition !== "object") return false;
   return (
     definition.type === "colour" ||
+    definition.type === "single-colour" ||
     (definition.type == null && (definition.ramp != null || definition.rampCsv != null))
   );
 }
@@ -10,22 +11,39 @@ function isSizeDefinition(definition) {
   return definition?.type === "size";
 }
 
-export function getMarkerChoices(series) {
+// Only markers whose input column the series' data has are offered. The
+// TestHazards "Minodes" series uses the seismic-events menu, so it offered
+// "Mag/Spheres", "Event Date", "Moment" and size "ML" for nodes that have none
+// of those columns; picking one turned every node the missing-value colour.
+// The markers in use stay listed so the dropdowns can show them, markers that
+// read no column (single-colour) are always offered, and a series with no
+// points to look at keeps every choice.
+//
+// @param {object} series a point series (markerDefinitions, points)
+// @param {{colour?: string, size?: string}} [current] the markers selected now
+//   (default: the series' own colourMarker / sizeMarker)
+export function getMarkerChoices(series, current = {}) {
   const definitions = Array.isArray(series?.markerDefinitions)
     ? series.markerDefinitions
     : [];
   const unique = (items) =>
     Array.from(new Map(items.filter((item) => item?.name).map((item) => [item.name, item])).values());
+  const firstPoint = Array.isArray(series?.points) ? series.points[0] : null;
+  const columns = firstPoint && typeof firstPoint === "object" ? new Set(Object.keys(firstPoint)) : null;
+  const usable = (currentName) => (definition) =>
+    columns === null ||
+    definition.name === currentName ||
+    definition.input == null ||
+    columns.has(definition.input);
+  const choice = (definition) => ({ name: definition.name, input: definition.input ?? null });
 
   return {
-    colour: unique(definitions.filter(isColourDefinition)).map((definition) => ({
-      name: definition.name,
-      input: definition.input ?? null,
-    })),
-    size: unique(definitions.filter(isSizeDefinition)).map((definition) => ({
-      name: definition.name,
-      input: definition.input ?? null,
-    })),
+    colour: unique(definitions.filter(isColourDefinition))
+      .filter(usable(current.colour ?? series?.colourMarker))
+      .map(choice),
+    size: unique(definitions.filter(isSizeDefinition))
+      .filter(usable(current.size ?? series?.sizeMarker))
+      .map(choice),
   };
 }
 
@@ -63,4 +81,16 @@ export function applyMarkerSelections(pointClouds, selectionsBySeries) {
       ...(resolveSizeRange(series, selection) ?? {}),
     };
   });
+}
+
+// Which series get a colour legend. Series the export marks legend: true
+// always do. When the export marks none (every series in the TestHazards and
+// TestResponseViewer exports says legend: false, yet the client's mXrap
+// reference screenshot still shows the ML legend), the series currently
+// chosen in Marker Style gets one, so the colours on screen are explained.
+export function pickLegendSeriesIndices(seriesList, activeIndex) {
+  const list = Array.isArray(seriesList) ? seriesList : [];
+  const configured = list.flatMap((series, index) => (series?.legend === true ? [index] : []));
+  if (configured.length > 0) return configured;
+  return Number.isInteger(activeIndex) && activeIndex >= 0 && activeIndex < list.length ? [activeIndex] : [];
 }
