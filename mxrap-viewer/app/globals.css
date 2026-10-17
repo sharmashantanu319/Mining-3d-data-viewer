@@ -1,5 +1,24 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');
+/* Inter (interface text) and JetBrains Mono (numbers) ship with the app in
+   app/fonts, so the viewer looks the same on every computer and works with no
+   internet. They used to come from fonts.googleapis.com at run time, which
+   fell back to system fonts offline or behind a firewall. Both fonts are under
+   the SIL Open Font License 1.1 (app/fonts/OFL-*.txt). Latin characters only;
+   anything else falls back to the system font. */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('./fonts/inter-latin-variable.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+  src: url('./fonts/jetbrains-mono-latin-variable.woff2') format('woff2');
+}
 
 :root {
   --color-base:           #0C1110;
@@ -192,6 +211,13 @@ body {
 }
 .vp-btn:hover { background: var(--color-surface-raised); color: var(--color-fg); border-color: var(--color-border-strong); }
 .vp-btn.active { color: var(--color-lime); border-color: var(--color-lime-dim); background: var(--color-lime-bg); }
+/* Labelled viewport button: icon and/or a short word, so each camera action
+   says what it does instead of relying on a hover tooltip. */
+.vp-btn.vp-btn-label { width: auto; padding: 0 9px; gap: 5px; font-size: 11px; font-weight: 500; white-space: nowrap; }
+/* Joined group of viewport buttons (one choice out of several). */
+.vp-group { display: flex; border: 1px solid var(--color-border); border-radius: var(--radius-sm); overflow: hidden; }
+.vp-group > .vp-btn { border: none; border-radius: 0; }
+.vp-group > .vp-btn + .vp-btn { border-left: 1px solid var(--color-border); }
 
 /* Toggle switch */
 .toggle {
@@ -210,6 +236,8 @@ body {
   transition: background 0.15s;
 }
 .toggle input:checked ~ .toggle-track { background: var(--color-lime-dim); }
+.toggle input:disabled ~ .toggle-track { opacity: 0.4; cursor: not-allowed; }
+.toggle input:focus-visible ~ .toggle-track { outline: 2px solid var(--color-lime-dim); outline-offset: 2px; }
 .toggle-thumb {
   position: absolute;
   top: 2px; left: 2px;
@@ -222,6 +250,169 @@ body {
 .toggle input:checked ~ .toggle-track .toggle-thumb {
   transform: translateX(12px);
   background: var(--color-lime);
+}
+
+/* "Other data" fold in the point details panel: reads like the other
+   section titles, with the field count and a Show/Hide action. */
+.details-toggle {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  margin: 8px 0 2px;
+  padding: 2px 0;
+  cursor: pointer;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--color-fg-muted);
+}
+.details-toggle:focus-visible { outline: 2px solid var(--color-lime-dim); outline-offset: 2px; border-radius: 2px; }
+.details-toggle-count {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--color-fg-disabled);
+}
+.details-toggle-action {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--color-fg-dim);
+}
+.details-toggle:hover .details-toggle-action { color: var(--color-lime); }
+
+/* XYZ indicator in the 3D view's bottom-left corner (AxisIndicator.jsx). */
+.axis-indicator {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 2;
+  overflow: visible;
+  user-select: none;
+}
+.axis-indicator-backdrop {
+  fill: rgba(18, 25, 24, 0.8);
+  stroke: var(--color-border);
+  stroke-width: 1;
+}
+.axis-indicator text {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
+}
+.axis-indicator-origin { fill: var(--color-fg-muted); }
+
+/* Filters: one card per active filter (FilterControls.jsx). */
+.filter-card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  padding: 6px 8px 7px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.filter-card-head { display: flex; align-items: center; gap: 6px; }
+.filter-card-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.filter-card-remove {
+  display: flex;
+  padding: 3px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-fg-muted);
+  cursor: pointer;
+}
+.filter-card-remove:hover { color: var(--color-fg); background: var(--color-hover); }
+.filter-card-remove:focus-visible { outline: 2px solid var(--color-lime-dim); }
+.filter-range-inputs { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 5px; }
+.filter-range-inputs .ctrl-input { width: 100%; min-width: 0; font-family: var(--font-mono); font-size: 10.5px; }
+.filter-range-to { font-size: 10px; color: var(--color-fg-muted); }
+/* The +/- arrows stepped by 1 whatever the column (too much for ML, nothing
+   for Energy); the slider below the boxes does that job. */
+.filter-number::-webkit-outer-spin-button,
+.filter-number::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.filter-number { -moz-appearance: textfield; appearance: textfield; }
+.filter-card-effect { font-size: 10px; color: var(--color-fg-muted); }
+.filter-card-effect.is-hiding { color: var(--color-lime); }
+.filter-card-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  font-size: 10px;
+  line-height: 1.35;
+  color: var(--color-fg-dim);
+  cursor: pointer;
+}
+.filter-categories { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.filter-categories label { display: flex; align-items: center; gap: 4px; font-size: 10px; color: var(--color-fg-dim); }
+
+/* Two-thumb range slider: two range inputs stacked on one track. Only the
+   thumbs take the pointer, so each can be dragged where they overlap. */
+.range-slider { position: relative; height: 18px; margin: 0 1px; }
+.range-slider-track,
+.range-slider-fill { position: absolute; top: 7.5px; height: 3px; border-radius: 2px; }
+.range-slider-track { left: 0; right: 0; background: var(--color-border-strong); }
+.range-slider-fill { background: var(--color-lime-dim); }
+.range-slider input[type="range"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 18px;
+  margin: 0;
+  background: none;
+  -webkit-appearance: none;
+  appearance: none;
+  pointer-events: none;
+}
+.range-slider input[type="range"]::-webkit-slider-runnable-track { height: 18px; background: none; }
+.range-slider input[type="range"]::-moz-range-track { height: 18px; background: none; }
+.range-slider input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  pointer-events: auto;
+  width: 12px;
+  height: 12px;
+  margin-top: 3px;
+  border-radius: 50%;
+  background: var(--color-lime-dim);
+  border: 1px solid var(--color-lime);
+  cursor: grab;
+}
+.range-slider input[type="range"]::-moz-range-thumb {
+  pointer-events: auto;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--color-lime-dim);
+  border: 1px solid var(--color-lime);
+  cursor: grab;
+}
+.range-slider input[type="range"]:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--color-lime); outline-offset: 1px; }
+.range-slider input[type="range"]:focus-visible::-moz-range-thumb { outline: 2px solid var(--color-lime); outline-offset: 1px; }
+
+/* Small explanatory line under or instead of a control. */
+.ctrl-hint {
+  font-size: 10px;
+  line-height: 1.35;
+  color: var(--color-fg-muted);
 }
 
 /* Slider */

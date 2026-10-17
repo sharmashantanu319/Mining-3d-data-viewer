@@ -108,3 +108,29 @@ describe("sanitizeAnnotationStyle", () => {
     expect(sanitizeAnnotationStyle("x")).toEqual({});
   });
 });
+
+describe("serializeFilters / restoreFilters", () => {
+  it("brings a category filter back with its allowed values through JSON", async () => {
+    const { createCategoryFilter, createRangeFilter, pointMatchesFilter } = await import("../dataFilters");
+    const { restoreFilters, serializeFilters } = await import("../viewerSession");
+    const filters = {
+      0: [
+        createCategoryFilter({ input: "Material", allowedValues: ["ore", "waste"], includeMissing: true }),
+        createRangeFilter({ input: "ML", min: -1, max: 2 }),
+      ],
+    };
+    const restored = restoreFilters(JSON.parse(JSON.stringify(serializeFilters(filters))));
+    const [category, range] = restored[0];
+    expect([...category.allowedValues]).toEqual(["ore", "waste"]);
+    expect(category.includeMissing).toBe(true);
+    expect(pointMatchesFilter({ Material: "ore" }, category)).toBe(true);
+    expect(pointMatchesFilter({ Material: "fill" }, category)).toBe(false);
+    expect(range).toMatchObject({ kind: "range", input: "ML", min: -1, max: 2, includeMissing: false, valid: true });
+  });
+
+  it("drops anything it can't rebuild", async () => {
+    const { restoreFilters } = await import("../viewerSession");
+    expect(restoreFilters({ 0: [{ kind: "category", input: "Material", allowedValues: {} }, { kind: "other", input: "x" }, null], 1: "bad" })).toEqual({ 0: [] });
+    expect(restoreFilters(null)).toEqual({});
+  });
+});

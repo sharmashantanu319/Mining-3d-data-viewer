@@ -35,13 +35,13 @@ npm start       # serve it on http://localhost:3000 (use -p <port> for another p
 
 Because all processing happens in the browser, any host that can run a Next.js app works, for example [Vercel](https://vercel.com/docs/frameworks/nextjs) (import the repository and set the root directory to `mxrap-viewer`) or a server/VM running `npm start` behind a reverse proxy. No environment variables, database or storage are needed. No public hosted deployment is claimed here.
 
-The build downloads the Geist font from Google Fonts, so the build machine needs internet access.
+The interface fonts (Inter and JetBrains Mono) are bundled in `app/fonts`, so building and running the viewer need no internet access once `npm ci` has installed the dependencies.
 
 ## Demonstration in under five minutes
 
 1. Start the app. Its initial 3D scene is **mock demonstration data**, not evidence that an mXrap export has loaded.
 2. Use **Open Export** (top bar) and select `mxrap-viewer/test-data/visualiser-export-2.zip` from this repository. The app validates the archive, then loads its supported displays. The file is selected through the browser; it is not loaded automatically.
-3. In the **Scene** panel, switch between the available 3D views. Orbit/pan/zoom in the central viewport; use the viewport toolbar for **Fit Scene**, **Reset View**, **Perspective** and **Orthographic** camera options.
+3. In the **Scene** panel, switch between the available 3D views. Orbit/pan/zoom in the central viewport; use the viewport toolbar for **Fit**, **Reset**, the **Top**, **Front** and **Side** plan/section views, and the **Perspective** / **Orthographic** switch.
 4. In **Layers**, toggle point, surface and RMQ line series as available. Use **Marker Style**, **Filters** and **Annotations** to adjust presentation. Hover/click event points for the corresponding information in the details panel. Controls depend on what the selected export contains.
 5. When the uploaded export includes chart data, select the **Chart** tab to inspect the **Magnitude–Time** plot. Toggle the displayed point/line series, then return to **3D View**.
 6. Expand the **Import report** if shown to inspect warnings and data-series load/skip counts. A rejected export shows validation errors instead of attempting to render invalid data.
@@ -53,7 +53,7 @@ A smaller additional archive, `mxrap-viewer/test-data/test-export-big.zip`, is p
 | Area | Current MVP capability |
 | --- | --- |
 | Import | Browser-based selection of supported mXrap ZIP exports, a configurable compressed-size limit, structural/data-reference validation, error messages and import diagnostics |
-| 3D geometry | Mine surfaces from vertices/faces, with view/camera navigation and per-layer visibility |
+| 3D geometry | Mine surfaces from vertices/faces, with camera navigation (fit, reset, plan and section views, perspective/orthographic), an XYZ axis indicator and per-layer visibility |
 | Seismic/sensors | Point series, symbol and colour/size marker mapping, configurable legends, visibility and point inspection |
 | Exploration | Numeric/date/category filtering, annotation controls, scene picker, per-scene camera handling and session-restoration support |
 | RMQ | Interval line-series loading/rendering with RQD colouring, legend and line visibility controls |
@@ -117,7 +117,7 @@ For interactive test development, use `npm run test:watch`. The CI workflow at [
 
 - Import `visualiser-export-2.zip`; confirm surfaces, seismic markers and sensor symbols have the expected appearance.
 - Switch to **RMQ 3D View**; confirm coloured interval lines appear, layer toggles work and camera controls remain usable.
-- Hide/show surfaces and lines; check the visible scene and Fit Scene response.
+- Hide/show surfaces and lines; check the visible scene and the Fit, Top, Front and Side responses.
 - Open the **Chart** tab; confirm axes, event points, cumulative line and annotation; toggle Points/Lines and return to the 3D view.
 - Check legends, marker changes, filter/reset behaviour and scene-dependent settings.
 - Import a deliberately malformed ZIP; confirm readable errors rather than a blank view.
@@ -146,7 +146,9 @@ Inside `app/`:
 ```text
 app/
   page.js                 Application shell: state, file import, layout
-  layout.js               Root layout and fonts
+  layout.js               Root layout
+  globals.css             Styles and the bundled @font-face fonts
+  fonts/                  Inter and JetBrains Mono (SIL Open Font License 1.1)
   components/
     *.jsx                 React components (Header, LeftSidebar, RightPanel, ThreeScene, ChartView, ...)
     parseExportFile.js    Reads info.json, scene configs and CSVs from the export
