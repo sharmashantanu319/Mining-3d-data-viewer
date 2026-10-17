@@ -17,6 +17,8 @@ import { pickReadableTextColour, toHexColour } from "./components/annotationStyl
 import {
   applyFiltersWithStats,
   applyNullVisibility,
+  countHiddenByFilter,
+  countMissingValues,
   inferFilterFields,
 } from "./components/dataFilters";
 import { buildColourLegend } from "./components/colourLegend";
@@ -24,7 +26,7 @@ import { getMarkerChoices, applyMarkerSelections, pickLegendSeriesIndices } from
 import { resolveMarkerRenderOptions } from "./components/pointMarkerResolver";
 import { findMarkerDefinition } from "./components/markerLookup";
 import { IconFitView, IconPerspective, IconOrtho, IconRefresh } from "./components/icons";
-import { loadSession, saveSession, sanitizeAnnotationStyle, sessionKeyFor } from "./components/viewerSession";
+import { loadSession, restoreFilters, saveSession, sanitizeAnnotationStyle, serializeFilters, sessionKeyFor } from "./components/viewerSession";
 import { cameraStateForProjection, sanitizeSceneCameras } from "./components/cameraState";
 import { SCENE_SCOPED_STATE_DEFAULTS, isSceneSwitch } from "./components/sceneViewState";
 
@@ -79,14 +81,22 @@ export default function Home() {
     [pointSeries]
   );
 
+  // Every row of each series with the Marker Style choices applied. Points
+  // with no value are hidden by the colour marker in use, not the one the
+  // export started with, and the legend compares against this full range.
+  const fullRenderedPointClouds = useMemo(
+    () => applyMarkerSelections(pointSeries, markerSelections),
+    [pointSeries, markerSelections]
+  );
+
   const filterResults = useMemo(
     () =>
       pointSeries.map((series, index) => {
         const filtered = applyFiltersWithStats(series.points ?? [], filtersBySeries[index] ?? []);
         const showNullValues = nullVisibility[index] ?? series.showNullColours !== false;
-        return applyNullVisibility(filtered, colourMarkerInput(series), showNullValues);
+        return applyNullVisibility(filtered, colourMarkerInput(fullRenderedPointClouds[index]), showNullValues);
       }),
-    [pointSeries, filtersBySeries, nullVisibility]
+    [pointSeries, filtersBySeries, nullVisibility, fullRenderedPointClouds]
   );
 
   const visiblePointClouds = useMemo(
@@ -105,6 +115,15 @@ export default function Home() {
     () => inferFilterFields(pointSeries[safeSelectedSeries]?.points ?? []),
     [pointSeries, safeSelectedSeries]
   );
+
+  // How many points each active filter hides on its own, so the Filters
+  // section can say what every filter is doing.
+  const filterHiddenCounts = useMemo(() => {
+    const points = pointSeries[safeSelectedSeries]?.points ?? [];
+    return Object.fromEntries(
+      (filtersBySeries[safeSelectedSeries] ?? []).map((filter) => [filter.input, countHiddenByFilter(points, filter)])
+    );
+  }, [pointSeries, safeSelectedSeries, filtersBySeries]);
 
   const selectedStats = filterResults[safeSelectedSeries] ?? {
     totalCount: 0,
@@ -161,14 +180,6 @@ export default function Home() {
     [visiblePointClouds, markerSelections]
   );
 
-  // Same marker selections, but against every row of the series rather than
-  // the filtered/visible subset — lets the legend show the full dataset's
-  // range alongside the (possibly narrower) currently-visible one.
-  const fullRenderedPointClouds = useMemo(
-    () => applyMarkerSelections(pointSeries, markerSelections),
-    [pointSeries, markerSelections]
-  );
-
   // Debounced (not on every keystroke/drag frame) session save, keyed to
   // whichever file is currently loaded. No-ops for the initial mock demo
   // (sessionKeyRef is only set once a real file is opened).
@@ -183,7 +194,7 @@ export default function Home() {
       const liveCamera = threeSceneRef.current?.getCameraState() ?? null;
       saveSession(sessionKeyRef.current, {
         sceneIndex: currentIndex,
-        filtersBySeries,
+        filtersBySeries: serializeFilters(filtersBySeries),
         seriesVisibility,
         surfaceVisibility,
         nullVisibility,
@@ -247,7 +258,7 @@ export default function Home() {
         ? session.sceneIndex
         : currentIndex;
     setCurrentIndex(restoredIndex);
-    if (session.filtersBySeries) setFiltersBySeries(session.filtersBySeries);
+    if (session.filtersBySeries) setFiltersBySeries(restoreFilters(session.filtersBySeries));
     if (session.seriesVisibility) setSeriesVisibility(session.seriesVisibility);
     setSurfaceVisibility(session.surfaceVisibility ?? {});
     if (session.nullVisibility) setNullVisibility(session.nullVisibility);
@@ -311,7 +322,10 @@ export default function Home() {
         .map(({ series, index }) => {
           const legend = buildColourLegend(series, undefined, showChart ? null : fullRenderedPointClouds[index]);
           if (!legend) return null;
-          const missingCount = !legend.input ? undefined : (series.points ?? []).filter((point) => {
+          // Counted over the whole series: hidden points are no longer in
+          // the rendered ones, which made a hidden count read "(0)".
+          const countedPoints = (showChart ? series.points : fullRenderedPointClouds[index]?.points) ?? series.points ?? [];
+          const missingCount = !legend.input ? undefined : countedPoints.filter((point) => {
             const value = point?.[legend.input];
             return (
               value === null ||
@@ -440,6 +454,13 @@ export default function Home() {
     ? markerActiveSelection.sizeMarker ?? ""
     : markerActiveSeries?.sizeMarker ?? "";
   const markerChoices = getMarkerChoices(markerActiveSeries, { colour: colourValue, size: sizeValue });
+  // Points of the Marker Style series that have no value for the colour in
+  // use: "Show points with no value" shows or hides exactly these.
+  const markerNullColumn = colourMarkerInput(fullRenderedPointClouds[safeMarkerSeriesIndex]);
+  const markerNullCount = useMemo(
+    () => countMissingValues(pointSeries[safeMarkerSeriesIndex]?.points, markerNullColumn),
+    [pointSeries, safeMarkerSeriesIndex, markerNullColumn]
+  );
   const sizeMinValue = Object.hasOwn(markerActiveSelection, "minSize")
     ? markerActiveSelection.minSize
     : (markerActiveSeries?.sizeMinimum ?? "");
@@ -650,15 +671,20 @@ export default function Home() {
           annotationBackgroundColor={annotationBackgroundColor}
           onAnnotationBackgroundColorChange={handleAnnotationBackgroundColorChange}
           annotationBackgroundColorFallback={toHexColour(defaultLabelStyle.backgroundColor) ?? "#1f2a27"}
-          hasNullVisibility={Boolean(colourMarkerInput(pointSeries[safeSelectedSeries]))}
+          nullValueColumn={markerNullColumn}
+          nullValueCount={markerNullCount}
           showNulls={
-            nullVisibility[safeSelectedSeries] ?? pointSeries[safeSelectedSeries]?.showNullColours !== false
+            nullVisibility[safeMarkerSeriesIndex] ?? pointSeries[safeMarkerSeriesIndex]?.showNullColours !== false
           }
           onShowNullsChange={(e) =>
-            setNullVisibility((current) => ({ ...current, [safeSelectedSeries]: e.target.checked }))
+            setNullVisibility((current) => ({ ...current, [safeMarkerSeriesIndex]: e.target.checked }))
           }
+          filterSeriesOptions={pointSeries.map((series, index) => series.name || `Point series ${index + 1}`)}
+          filterSeriesIndex={safeSelectedSeries}
+          onFilterSeriesChange={setSelectedSeries}
           fields={selectedFields}
           filters={filtersBySeries[safeSelectedSeries] ?? []}
+          filterHiddenCounts={filterHiddenCounts}
           onFiltersChange={(filters) => setFiltersBySeries((current) => ({ ...current, [safeSelectedSeries]: filters }))}
           onResetFilters={() => setFiltersBySeries((current) => ({ ...current, [safeSelectedSeries]: [] }))}
           visibleCount={selectedStats.visibleCount}
@@ -733,44 +759,46 @@ export default function Home() {
           )}
 
           {/* Viewport toolbar — the single place camera controls live (not
-              duplicated in the sidebar). A real segmented pair for
-              Perspective/Orthographic, not one button that swaps its own
-              label. */}
-          <div style={{ position: "absolute", top: 10, left: 10, zIndex: 5, display: "flex", gap: 4 }}>
-            <button className="vp-btn" onClick={() => threeSceneRef.current?.fitScene()} title="Fit Scene — frame the currently visible data">
-              <IconFitView size={14} />
+              duplicated in the sidebar). Every button carries a word, not
+              just an icon: Fit / Reset move the camera, Top / Front / Side
+              are mXrap's XY / XZ / YZ plan and section views, and the
+              projection switch sits top-right where its status badge was. */}
+          <div style={{ position: "absolute", top: 10, left: 10, zIndex: 5, display: "flex", gap: 6 }}>
+            <button className="vp-btn vp-btn-label" onClick={() => threeSceneRef.current?.fitScene()} title="Fit — zoom to show everything that is visible now">
+              <IconFitView size={12} /> Fit
             </button>
-            <button className="vp-btn" onClick={() => threeSceneRef.current?.resetView()} title="Reset View — return to the export's original camera">
-              <IconRefresh size={14} />
+            <button className="vp-btn vp-btn-label" onClick={() => threeSceneRef.current?.resetView()} title="Reset — go back to the camera saved in the export">
+              <IconRefresh size={12} /> Reset
             </button>
-            <div style={{ display: "flex", border: "1px solid var(--color-border)", borderRadius: "var(--radius-sm)", overflow: "hidden" }}>
-              <button
-                className={`vp-btn ${projectionMode === "perspective" ? "active" : ""}`}
-                onClick={() => setProjectionMode("perspective")}
-                title="Perspective projection"
-                style={{ border: "none", borderRadius: 0 }}
-              >
-                <IconPerspective size={14} />
+            <div className="vp-group" role="group" aria-label="Preset views">
+              <button className="vp-btn vp-btn-label" onClick={() => threeSceneRef.current?.setPresetView("top")} title="Top — plan view looking straight down (XY), north up">
+                Top
               </button>
-              <button
-                className={`vp-btn ${projectionMode === "orthographic" ? "active" : ""}`}
-                onClick={() => setProjectionMode("orthographic")}
-                title="Orthographic projection"
-                style={{ border: "none", borderRadius: 0, borderLeft: "1px solid var(--color-border)" }}
-              >
-                <IconOrtho size={14} />
+              <button className="vp-btn vp-btn-label" onClick={() => threeSceneRef.current?.setPresetView("front")} title="Front — section looking north (XZ), east to the right">
+                Front
+              </button>
+              <button className="vp-btn vp-btn-label" onClick={() => threeSceneRef.current?.setPresetView("side")} title="Side — section looking west (YZ), north to the right">
+                Side
               </button>
             </div>
           </div>
-          <div
-            style={{
-              position: "absolute", top: 10, right: 10, zIndex: 5,
-              padding: "3px 8px", background: "rgba(18,25,24,0.85)", border: "1px solid var(--color-border)",
-              borderRadius: 4, fontSize: 10, fontWeight: 500, letterSpacing: "0.06em",
-              color: "var(--color-fg-dim)", backdropFilter: "blur(4px)",
-            }}
-          >
-            {projectionMode === "perspective" ? "PERSPECTIVE" : "ORTHOGRAPHIC"}
+          <div className="vp-group" role="group" aria-label="Projection" style={{ position: "absolute", top: 10, right: 10, zIndex: 5 }}>
+            <button
+              className={`vp-btn vp-btn-label ${projectionMode === "perspective" ? "active" : ""}`}
+              onClick={() => setProjectionMode("perspective")}
+              aria-pressed={projectionMode === "perspective"}
+              title="Perspective — things further away look smaller, like a photo"
+            >
+              <IconPerspective size={12} /> Perspective
+            </button>
+            <button
+              className={`vp-btn vp-btn-label ${projectionMode === "orthographic" ? "active" : ""}`}
+              onClick={() => setProjectionMode("orthographic")}
+              aria-pressed={projectionMode === "orthographic"}
+              title="Orthographic — no shrinking with distance, so sizes and distances compare directly; clearest with Top, Front or Side"
+            >
+              <IconOrtho size={12} /> Orthographic
+            </button>
           </div>
           {errors.length > 0 && (
             <div
@@ -790,6 +818,7 @@ export default function Home() {
           open={rightOpen}
           onToggle={() => setRightOpen((v) => !v)}
           inspection={activeSelectedPoint ?? hoveredPoint}
+          inspectionSeries={renderedPointClouds[(activeSelectedPoint ?? hoveredPoint)?.seriesIndex] ?? null}
           kind={activeSelectedPoint ? "selected" : "hovered"}
           onClear={() => setSelectedPoint(null)}
           legends={colourLegends}

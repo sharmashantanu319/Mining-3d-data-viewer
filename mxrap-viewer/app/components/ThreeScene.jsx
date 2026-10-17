@@ -23,7 +23,8 @@ import { buildAnnotation, disposeAnnotations, resolveLabelFont } from "./annotat
 import { applyCameraState, snapshotCameraState } from "./cameraState";
 import { buildSurfaceMesh } from "./geometryBuilder";
 import { buildLineSegments, lineObjectHasSegments } from "./linesBuilder";
-import { createOrientationGizmo, renderOrientationGizmo } from "./orientationGizmo";
+import { axisIndicatorTitle, updateAxisIndicator } from "./orientationGizmo";
+import AxisIndicator from "./AxisIndicator";
 import { buildPointCloud, getHardwarePointSizeRange } from "./pointsBuilder";
 import {
   resolveMarkerRenderOptions,
@@ -37,6 +38,9 @@ import {
   animateCameraTo,
   createCamera,
   createCameraControls,
+  fitBoxToView,
+  levelCameraUp,
+  presetCameraOffset,
   updateCameraAspect,
 } from "./cameraControls";
 
@@ -219,6 +223,7 @@ const ThreeScene = forwardRef(function ThreeScene(
   }, [lineVisibility, sceneData]);
   const cameraRef = useRef(null);
   const controlsRef = useRef(null);
+  const axisIndicatorRef = useRef(null); // the XYZ indicator's <svg>
   const homeViewRef = useRef(null); // { position, target } to return to on reset
   const cancelAnimationRef = useRef(null);
   const sceneRef = useRef(null);
@@ -325,6 +330,20 @@ const ThreeScene = forwardRef(function ThreeScene(
     return (Math.max(radius, 1e-6) / Math.sin(THREE.MathUtils.degToRad(fovDegrees / 2))) * 1.2;
   }
 
+  // Animates the camera to look at the box's centre from `direction` (from
+  // the centre towards the camera), close enough - or for an orthographic
+  // camera, zoomed in enough - that the box fills the view (fitBoxToView).
+  function frameBox(camera, controls, box, direction) {
+    const center = box.getCenter(new THREE.Vector3());
+    const framing = fitBoxToView(camera, box, direction, camera.up) ?? {
+      distance: fitDistance(camera, box.getBoundingSphere(new THREE.Sphere()).radius),
+      zoom: null,
+    };
+    const position = center.clone().add(direction.clone().normalize().multiplyScalar(framing.distance));
+    cancelAnimationRef.current?.();
+    cancelAnimationRef.current = animateCameraTo(camera, controls, position, center, undefined, framing.zoom);
+  }
+
   useImperativeHandle(ref, () => ({
     resetView() {
       const camera = cameraRef.current;
@@ -333,7 +352,8 @@ const ThreeScene = forwardRef(function ThreeScene(
       if (!camera || !controls || !home) return;
 
       cancelAnimationRef.current?.();
-      cancelAnimationRef.current = animateCameraTo(camera, controls, home.position, home.target);
+      // An orthographic camera starts at zoom 1, so that is "home" too.
+      cancelAnimationRef.current = animateCameraTo(camera, controls, home.position, home.target, undefined, 1);
     },
 
     // Current camera state (position, orbit target, up vector, orthographic
@@ -367,42 +387,33 @@ const ThreeScene = forwardRef(function ThreeScene(
       const box = computeSceneBounds();
       if (!box) return;
 
-      const center = box.getCenter(new THREE.Vector3());
-      const radius = box.getBoundingSphere(new THREE.Sphere()).radius;
       const direction = camera.position.clone().sub(controls.target);
       if (direction.lengthSq() < 1e-9) direction.set(0, 0, 1);
-      direction.normalize().multiplyScalar(fitDistance(camera, radius));
-
-      cancelAnimationRef.current?.();
-      cancelAnimationRef.current = animateCameraTo(camera, controls, center.clone().add(direction), center);
+      frameBox(camera, controls, box, direction);
     },
 
-    // Snaps to a world-axis-aligned view (assumes the scene's own "up" is
-    // world +Y, true for every mock and real sample seen so far — a tilted
-    // export "up" would need each axis re-derived from it, out of scope
-    // here). Frames on the currently visible data like fitScene().
-    setPresetView(axis) {
+    // Plan / section views like mXrap's XY, XZ and YZ buttons ("top",
+    // "front", "side"; see presetCameraOffset), framed on the currently
+    // visible data like fitScene(). The camera's up is not changed, so
+    // orbiting afterwards still turns around the scene's vertical.
+    setPresetView(view) {
       const camera = cameraRef.current;
       const controls = controlsRef.current;
       if (!camera || !controls) return;
+      const offset = presetCameraOffset(view, camera.up, 1);
+      if (!offset) return;
+      const direction = new THREE.Vector3(offset.x, offset.y, offset.z);
+
       const box = computeSceneBounds();
-      const center = box ? box.getCenter(new THREE.Vector3()) : controls.target.clone();
-      const radius = box
-        ? box.getBoundingSphere(new THREE.Sphere()).radius
-        : camera.position.distanceTo(controls.target);
-      const distance = fitDistance(camera, radius);
-
-      const presets = {
-        top: { offset: new THREE.Vector3(0, distance, 0), up: new THREE.Vector3(0, 0, -1) },
-        front: { offset: new THREE.Vector3(0, 0, distance), up: new THREE.Vector3(0, 1, 0) },
-        side: { offset: new THREE.Vector3(distance, 0, 0), up: new THREE.Vector3(0, 1, 0) },
-      };
-      const preset = presets[axis];
-      if (!preset) return;
-
-      camera.up.copy(preset.up);
+      if (box) {
+        frameBox(camera, controls, box, direction);
+        return;
+      }
+      // Nothing visible to frame: turn to the view, keeping distance and zoom.
+      const target = controls.target.clone();
+      direction.normalize().multiplyScalar(camera.position.distanceTo(target));
       cancelAnimationRef.current?.();
-      cancelAnimationRef.current = animateCameraTo(camera, controls, center.clone().add(preset.offset), center);
+      cancelAnimationRef.current = animateCameraTo(camera, controls, target.clone().add(direction), target);
     },
   }));
 
@@ -435,7 +446,9 @@ const ThreeScene = forwardRef(function ThreeScene(
     );
 
     camera.position.set(camPos.x, camPos.y, camPos.z);
-    camera.up.set(camUp.x, camUp.y, camUp.z); // 必须在 lookAt 之前设置，否则不生效
+    // A level export camera orbits around true vertical (see levelCameraUp).
+    const levelUp = levelCameraUp(camUp, camPos, camFocal);
+    camera.up.set(levelUp.x, levelUp.y, levelUp.z); // 必须在 lookAt 之前设置，否则不生效
     camera.lookAt(camFocal.x, camFocal.y, camFocal.z);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -803,19 +816,26 @@ function createPointCloud(pointSeriesData) {
       }
     }
 
-    // Bottom-left XYZ orientation gizmo. It lives outside the scene graph (it
-    // is drawn in its own corner viewport), so it never affects picking or
-    // the scene bounds.
-    const orientationGizmo = createOrientationGizmo(camera, renderer.domElement);
+    // Bottom-left XYZ indicator (an SVG over the canvas, see
+    // orientationGizmo.js). Forgetting the last orientation makes the first
+    // frame of a rebuilt scene draw it.
+    const axisIndicatorMemo = {};
 
     // ---------- 4. Resize 监听 ----------
     function handleResize() {
       const width = container.clientWidth;
       const height = container.clientHeight;
+      if (!width || !height) return;
       updateCameraAspect(camera, width, height);
       renderer.setSize(width, height);
     }
     window.addEventListener("resize", handleResize);
+    // The viewport also changes size while the window stays the same: the
+    // side panels collapse and expand, and the import report opens above it.
+    // Listening to the window alone left the canvas at its old size - an
+    // empty strip beside the legend, or part of the scene hidden under it.
+    const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(handleResize);
+    resizeObserver?.observe(container);
 
     // ---------- 5. 渲染循环 ----------
     let animationId;
@@ -824,7 +844,7 @@ function createPointCloud(pointSeriesData) {
       controls.update();
       refreshOrthographicPointSizing();
       renderer.render(scene, camera);
-      renderOrientationGizmo(renderer, orientationGizmo);
+      updateAxisIndicator(axisIndicatorRef.current, camera.quaternion, axisIndicatorMemo);
     }
     animate();
 
@@ -833,6 +853,7 @@ function createPointCloud(pointSeriesData) {
       cancelAnimationFrame(animationId);
       cancelAnimationRef.current?.();
       window.removeEventListener("resize", handleResize);
+      resizeObserver?.disconnect();
       renderer.domElement.removeEventListener("pointermove", handlePointerMove);
       renderer.domElement.removeEventListener("pointerleave", handlePointerLeave);
       renderer.domElement.removeEventListener("click", handleClick);
@@ -863,7 +884,6 @@ function createPointCloud(pointSeriesData) {
 
       controls.removeEventListener("change", handleControlsChange);
       controls.dispose();
-      orientationGizmo.dispose();
       renderer.dispose();
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
@@ -919,7 +939,12 @@ function createPointCloud(pointSeriesData) {
     }));
   }, [markerScale, visiblePointClouds, sceneData, projectionMode]);
 
-  return <div ref={containerRef} style={{ width: "100%", height: "100%" }} />;
+  return (
+    <div style={{ position: "relative", width: "100%", height: "100%" }}>
+      <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
+      <AxisIndicator ref={axisIndicatorRef} title={axisIndicatorTitle(sceneData?.camera?.up ?? DEFAULT_CAMERA.up)} />
+    </div>
+  );
 });
 
 export default ThreeScene;
