@@ -1,5 +1,7 @@
 import { mapColour, toCssRgba } from "./colourMapping";
 import { resolveColourMarker } from "./pointMarkerResolver";
+import { isSingleColourDefinition, parseRgbColour } from "./markerSymbols";
+import { findMarkerDefinition } from "./markerLookup";
 
 const DEFAULT_SAMPLE_COUNT = 72;
 
@@ -31,6 +33,17 @@ export function formatLegendValue(value, marker) {
   }
 
   const format = marker.legend?.numberFormat ?? {};
+  // "automaticExponential" (the customer's probability and moment legends):
+  // switch to e-notation for very small or very large magnitudes, so
+  // 0.0000000000000031 reads 3.1e-15 and 10000000000000 reads 1.0e13.
+  if (format.mode === "automaticExponential") {
+    const digits = Number.isInteger(format.sigDigits) && format.sigDigits > 0 ? Math.min(format.sigDigits, 15) : 3;
+    const magnitude = Math.abs(value);
+    if (magnitude !== 0 && (magnitude < 1e-3 || magnitude >= 1e5)) {
+      return value.toExponential(digits - 1).replace("e+", "e");
+    }
+    return new Intl.NumberFormat(undefined, { maximumSignificantDigits: digits }).format(value);
+  }
   if (Number.isInteger(format.sigDigits) && format.sigDigits > 0) {
     return new Intl.NumberFormat(undefined, {
       maximumSignificantDigits: Math.min(format.sigDigits, 15),
@@ -44,7 +57,45 @@ export function formatLegendValue(value, marker) {
   }).format(value);
 }
 
+// A "single-colour" marker (e.g. "Cross/Grey") paints every point the same
+// colour and reads no data column, so its legend is one swatch with no
+// value range and no missing-value entry.
+function singleColourLegend(pointSeriesData, definition) {
+  const colour = parseRgbColour(definition.colour);
+  return {
+    seriesName: pointSeriesData?.name || "Point series",
+    markerName: definition.name,
+    input: null,
+    title: definition.name,
+    units: null,
+    valid: Boolean(colour),
+    errors: [],
+    warnings: [],
+    noVisiblePoints: false,
+    nullEntry: null,
+    kind: colour ? "categorical" : "error",
+    categories: colour ? [{ value: null, label: "All points", colour: toCssRgba(colour) }] : [],
+    samples: [],
+    ticks: [],
+    symbolLabel: definition.symbol || "None",
+  };
+}
+
+// With few decimals a narrow range repeats labels: the customer's "Trigger"
+// legend (no decimals) read "1 2 2" for triggers 1 and 2, and "1 1 1" for a
+// single trigger. A middle tick that repeats an end is dropped, and a range
+// that reads as one value gets one tick in the middle.
+function withoutRepeatedLabels(ticks) {
+  const [low, middle, high] = ticks;
+  if (low.label === high.label) return [{ ...low, position: 0.5 }];
+  if (middle.label === low.label || middle.label === high.label) return [low, high];
+  return ticks;
+}
+
 export function buildColourLegend(pointSeriesData, sampleCount = DEFAULT_SAMPLE_COUNT, fullPointSeriesData = null) {
+  const colourDefinition = findMarkerDefinition(pointSeriesData?.markerDefinitions, pointSeriesData?.colourMarker, "colour");
+  if (isSingleColourDefinition(colourDefinition)) return singleColourLegend(pointSeriesData, colourDefinition);
+
   const visiblePointCount = Array.isArray(pointSeriesData?.points) ? pointSeriesData.points.length : 0;
   const fullPointCount = Array.isArray(fullPointSeriesData?.points) ? fullPointSeriesData.points.length : 0;
 
@@ -101,11 +152,11 @@ export function buildColourLegend(pointSeriesData, sampleCount = DEFAULT_SAMPLE_
   });
 
   const middleValue = interpolateValue(marker, 0.5);
-  const ticks = [marker.domainMin, middleValue, marker.domainMax].map((value, index) => ({
+  const ticks = withoutRepeatedLabels([marker.domainMin, middleValue, marker.domainMax].map((value, index) => ({
     position: index / 2,
     value,
     label: formatLegendValue(value, marker),
-  }));
+  })));
 
   // Each end of the range is only meaningful to compare when it is itself
   // data-derived (configuredMin/Max null for that end): that's the only case

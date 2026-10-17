@@ -1,5 +1,5 @@
-export default function ImportReport({ warnings, summaries }) {
-  if (!warnings.length && !summaries.length) return null;
+export default function ImportReport({ warnings, notes = [], summaries }) {
+  if (!warnings.length && !notes.length && !summaries.length) return null;
   return (
     <details style={{ margin: "6px 12px", padding: "8px 12px", border: "1px solid var(--color-border)", borderRadius: 6, background: "var(--color-panel)", fontSize: 12 }}>
       <summary style={{ cursor: "pointer", color: "var(--color-fg)" }} aria-live="polite">
@@ -18,6 +18,14 @@ export default function ImportReport({ warnings, summaries }) {
           </table>
         )}
         {warnings.length > 0 && <ul style={{ color: "var(--color-fg-dim)", paddingLeft: 20 }}>{warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>}
+        {notes.length > 0 && (
+          <details style={{ marginTop: 6 }}>
+            <summary style={{ cursor: "pointer", color: "var(--color-fg-muted)" }}>
+              {notes.length} note{notes.length === 1 ? "" : "s"} · expected for this export, no action needed
+            </summary>
+            <ul style={{ color: "var(--color-fg-muted)", paddingLeft: 20 }}>{notes.map((note) => <li key={note}>{note}</li>)}</ul>
+          </details>
+        )}
       </div>
     </details>
   );

@@ -22,6 +22,7 @@
 // Recoverable record problems are warnings; unusable or ambiguous data is an error.
 
 import JSZip from "jszip";
+import { findArchiveRoot } from "./archiveRoot";
 import Papa from "papaparse";
 import { surfaceVertexErrors } from "./surfaceValidation";
 import { parseChartConfig } from "./parseChartConfig";
@@ -53,7 +54,7 @@ function exportFileSizeBytes(file) {
 }
 
 /**
- * @typedef {{ valid: boolean, errors: string[], warnings?: string[], summaries?: Array<{label: string, kind: string, total: number, loaded: number, skipped: number}> }} ValidationResult
+ * @typedef {{ valid: boolean, errors: string[], warnings?: string[], notes?: string[], summaries?: Array<{label: string, kind: string, total: number, loaded: number, skipped: number}> }} ValidationResult
  */
 
 /**
@@ -75,6 +76,9 @@ export async function validateExportFile(file, { maxSizeBytes = MAX_EXPORT_FILE_
 
     const errors = [];
     const warnings = [];
+    // Expected, informational conditions (see MARKER_NOTE_CODES); shown
+    // apart from the warnings in the import report.
+    const notes = [];
     const summaries = [];
 
     let zip;
@@ -86,7 +90,7 @@ export async function validateExportFile(file, { maxSizeBytes = MAX_EXPORT_FILE_
     }
 
     // ---------- 第一层：结构完整性 ----------
-    const root = zip.file("info.json") ? "" : zip.file("export/info.json") ? "export/" : "";
+    const root = findArchiveRoot(zip);
     const infoEntry = zip.file(`${root}info.json`);
     if (!infoEntry) {
         errors.push("Missing top-level info.json.");
@@ -162,7 +166,7 @@ export async function validateExportFile(file, { maxSizeBytes = MAX_EXPORT_FILE_
             continue;
         }
         if (config.type === "chart") {
-            errors.push(...await checkChartSeriesReferences(zip, config, folder, displayRoot, warnings, summaries));
+            errors.push(...await checkChartSeriesReferences(zip, config, folder, displayRoot, warnings, summaries, notes));
             continue;
         }
 
@@ -206,7 +210,7 @@ export async function validateExportFile(file, { maxSizeBytes = MAX_EXPORT_FILE_
                 if (verticesResult.rows) {
                     const menus = surfaceMenus.get(series["data-vertices"]);
                     const markerMenu = series.markerMenu ?? (menus?.size === 1 ? [...menus][0] : undefined);
-                    warnings.push(...await checkMarkers(zip, { ...series, markerMenu }, verticesResult.rows, `${folder} > ${seriesLabel}`, displayRoot));
+                    warnings.push(...await checkMarkers(zip, { ...series, markerMenu }, verticesResult.rows, `${folder} > ${seriesLabel}`, displayRoot, notes));
                 }
             } else if (series.type === "points" || series.type === "lines") {
                 const label = `${folder} > ${seriesLabel}`;
@@ -222,7 +226,7 @@ export async function validateExportFile(file, { maxSizeBytes = MAX_EXPORT_FILE_
                         ? checkPointData(vertices.rows, series, label)
                         : checkLineData(vertices.rows, lines.rows, series, label);
                     errors.push(...result.errors);
-                    warnings.push(...result.warnings, ...await checkMarkers(zip, series, vertices.rows, label, displayRoot));
+                    warnings.push(...result.warnings, ...await checkMarkers(zip, series, vertices.rows, label, displayRoot, notes));
                     summaries.push(result.summary);
                 }
             } else if (series.type === "text" || series.type === "annotation") {
@@ -235,7 +239,7 @@ export async function validateExportFile(file, { maxSizeBytes = MAX_EXPORT_FILE_
         }
     }
 
-    return { valid: errors.length === 0, errors, warnings: [...new Set(warnings)], summaries };
+    return { valid: errors.length === 0, errors, warnings: [...new Set(warnings)], notes: [...new Set(notes)], summaries };
 }
 
 /**
@@ -245,7 +249,7 @@ export async function validateExportFile(file, { maxSizeBytes = MAX_EXPORT_FILE_
  * data-shaping functions as the parser.
  * @returns {Promise<string[]>}
  */
-async function checkChartSeriesReferences(zip, config, folder, root, warnings, summaries) {
+async function checkChartSeriesReferences(zip, config, folder, root, warnings, summaries, notes = null) {
     const chart = parseChartConfig(config, folder);
     if (!chart) return [`"${folder}/config.json" is not a valid chart display.`];
     const errors = [];
@@ -285,7 +289,7 @@ async function checkChartSeriesReferences(zip, config, folder, root, warnings, s
         if (skipped) warnings.push(`${label}: ${skipped} selected chart row(s) skipped because axis values are missing, invalid or incompatible with the scale.`);
         if (selected.length && !points.x.length) errors.push(`${label}: no selected chart rows have valid axis values.`);
         summaries.push({ label, kind: "chart rows", total: selected.length, loaded: points.x.length, skipped });
-        warnings.push(...await checkMarkers(zip, series, selected, label, root));
+        warnings.push(...await checkMarkers(zip, series, selected, label, root, notes));
     }
     return errors;
 }

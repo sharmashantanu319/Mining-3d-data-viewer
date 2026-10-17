@@ -179,7 +179,7 @@ function LegendCard({ legend }) {
                 </defs>
                 <rect x="0" y="0" width="100%" height="14" fill={`url(#${gradientId})`} />
               </svg>
-              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 3 }}>
+              <div style={{ display: "flex", justifyContent: legend.ticks.length === 1 ? "center" : "space-between", marginTop: 3 }}>
                 {legend.ticks.map((tick) => (
                   <span key={tick.position} style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: "var(--color-fg-muted)" }}>
                     {tick.label}
@@ -202,7 +202,7 @@ function LegendCard({ legend }) {
             </div>
           )}
 
-          {legend.kind !== "error" && (
+          {legend.kind !== "error" && legend.nullEntry && (
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
               <span className="swatch" style={{ backgroundColor: legend.nullEntry.colour }} />
               <span style={{ fontSize: 10, color: "var(--color-fg-dim)" }}>

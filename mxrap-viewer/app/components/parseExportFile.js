@@ -24,6 +24,11 @@
 
 import JSZip from "jszip";
 import Papa from "papaparse";
+import { findArchiveRoot } from "./archiveRoot";
+import { symbolFileCandidates } from "./markerSymbols";
+import { findBorrowedMarkerMenu } from "./markerFallback";
+import { findMarkerDefinition } from "./markerLookup";
+import { uniqueDisplayTitles } from "./displayTitles";
 import { buildPointSeries } from "./pointSeriesData";
 import { parseColourRampCsv } from "./colourMapping";
 import { buildLineSeries } from "./lineSeriesData";
@@ -60,7 +65,7 @@ export async function parseExportFile(file) {
             const config = JSON.parse(await configEntry.async("text"));
 
             if (config.type === "3dview") {
-                sceneDisplays.push({ displayRef, config });
+                sceneDisplays.push({ displayRef, config, slideTitle: slide.title ?? null });
                 for (const series of config.series ?? []) {
                     if (series.type !== "surface" || !series.markerMenu) continue;
                     const key = series["data-vertices"];
@@ -85,6 +90,15 @@ export async function parseExportFile(file) {
         const chart = await parseChartDisplay(zip, displayRef, config, root, slideIndex, slideTitle);
         if (chart) charts.push(chart);
     }
+
+    // Repeated display titles get their slide title so the pickers can
+    // tell them apart (see displayTitles.js).
+    const sceneTitles = uniqueDisplayTitles(
+        scenes.map((scene, index) => ({ title: scene.title, slideTitle: sceneDisplays[index].slideTitle }))
+    );
+    scenes.forEach((scene, index) => { scene.title = sceneTitles[index]; });
+    const chartTitles = uniqueDisplayTitles(charts.map((chart) => ({ title: chart.title, slideTitle: chart.slideTitle })));
+    charts.forEach((chart, index) => { chart.title = chartTitles[index]; });
 
     return {
         title: info.title ?? "Untitled",
@@ -281,12 +295,6 @@ function firstFinite(row, keys) {
     return keys.map((key) => row[key]).find(Number.isFinite);
 }
 
-function findArchiveRoot(zip) {
-    if (zip.file("info.json")) return "";
-    if (zip.file("export/info.json")) return "export/";
-    return "";
-}
-
 function parseCameraConfig(camera) {
     const toVec = (arr, fallback) => {
         if (!Array.isArray(arr) || arr.length < 3) return fallback;
@@ -328,7 +336,7 @@ async function parseSurfaceSeries(zip, series, root) {
         v3: row["V3"],
     }));
 
-    const markerDefinitions = await loadMarkerDefinitions(zip, series.markerMenu, root);
+    const markerDefinitions = await loadSeriesMarkerDefinitions(zip, series, root, verticesCsv);
 
     return {
         color: 0x4f8ef7,
@@ -349,8 +357,23 @@ async function parsePointSeries(zip, series, root) {
         return null;
     }
 
-    const markerDefinitions = await loadMarkerDefinitions(zip, series.markerMenu, root);
+    const markerDefinitions = await loadSeriesMarkerDefinitions(zip, series, root, rows);
     return buildPointSeries(rows, series, markerDefinitions);
+}
+
+// The series' own marker menu, plus its colour marker borrowed from another
+// menu when the own menu lacks it (see markerFallback.js).
+async function loadSeriesMarkerDefinitions(zip, series, root, rows) {
+    const definitions = await loadMarkerDefinitions(zip, series.markerMenu, root);
+    const name = series.colourMarker;
+    if (!name || findMarkerDefinition(definitions, name, "colour")) return definitions;
+    const columns = Object.keys(rows?.[0] ?? {});
+    const menu = await findBorrowedMarkerMenu(zip, root, name, columns, series.markerMenu);
+    if (!menu) return definitions;
+    const borrowed = findMarkerDefinition(await loadMarkerDefinitions(zip, menu, root), name, "colour");
+    if (!borrowed) return definitions;
+    console.warn(`Colour marker "${name}" not in marker-defs/${series.markerMenu}.json; using marker-defs/${menu}.json`);
+    return [...definitions, borrowed];
 }
 
 // Loads marker-defs/<markerMenu>.json (an array of colour/size marker
@@ -393,10 +416,10 @@ async function loadMarkerDefinitions(zip, markerMenu, root = "") {
         if (!fileName) return null;
         if (imageCache.has(fileName)) return imageCache.get(fileName);
 
-        const candidates = [
-            `${root}marker-images/${fileName}`,
-            `${root}marker-defs/${folder}/${fileName}`,
-        ];
+        const candidates = symbolFileCandidates(fileName).flatMap((name) => [
+            `${root}marker-images/${name}`,
+            `${root}marker-defs/${folder}/${name}`,
+        ]);
         const entry = candidates.map((path) => zip.file(path)).find(Boolean);
         if (!entry) {
             console.warn(`Marker symbol image not found: ${fileName}`);
@@ -426,6 +449,7 @@ async function loadMarkerDefinitions(zip, markerMenu, root = "") {
 
         const symbolNames = new Set();
         if (def.nullSymbol) symbolNames.add(def.nullSymbol);
+        if (def.symbol) symbolNames.add(def.symbol);
         if (rampCsv) {
             for (const segment of parseColourRampCsv(rampCsv).segments) {
                 if (segment.symbol) symbolNames.add(segment.symbol);

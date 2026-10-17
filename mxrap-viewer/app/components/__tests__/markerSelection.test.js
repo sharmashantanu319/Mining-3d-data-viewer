@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { applyMarkerSelections, getMarkerChoices } from "../markerSelection";
+import { pickLegendSeriesIndices } from "../markerSelection";
 
 const DEFINITIONS = [
   { name: "Magnitude", type: "colour", input: "ML", ramp: "magnitude.csv" },
@@ -19,6 +20,40 @@ describe("getMarkerChoices", () => {
       "Configuration",
     ]);
     expect(choices.size.map((choice) => choice.name)).toEqual(["ML size"]);
+  });
+
+  // The TestHazards "Minodes" series: its menu holds the seismic-event
+  // markers, plus "P[ML within R]" borrowed from the painted-hazard menu.
+  const MINODES = {
+    colourMarker: "P[ML within R]",
+    sizeMarker: null,
+    markerDefinitions: [
+      { name: "Mag/Spheres", type: "colour", input: "ML", ramp: "magnitude.csv" },
+      { name: "Event Date", type: "colour", input: "DateTime", ramp: "date.csv" },
+      { name: "Moment", type: "colour", input: "SeismicMoment", ramp: "moment.csv" },
+      { name: "ML", type: "size", input: "ML" },
+      { name: "Cross/Grey", type: "single-colour", colour: "rgb(159,159,159)" },
+      { name: "P[ML within R]", type: "colour", input: "P[ML within R]", ramp: "pml.csv" },
+    ],
+    points: [{ ID: 7, X: 1, Y: 2, Z: 3, "Span (meters)": 12.7, "P[ML within R]": 0.01, x: 1, y: 2, z: 3, sourceIndex: 0 }],
+  };
+
+  it("only offers markers whose input column the series has", () => {
+    const choices = getMarkerChoices(MINODES);
+    expect(choices.colour.map((choice) => choice.name)).toEqual(["Cross/Grey", "P[ML within R]"]);
+    expect(choices.size).toEqual([]);
+  });
+
+  it("keeps the markers in use listed even when their column is missing", () => {
+    const choices = getMarkerChoices(MINODES, { colour: "Mag/Spheres", size: "ML" });
+    expect(choices.colour.map((choice) => choice.name)).toEqual(["Mag/Spheres", "Cross/Grey", "P[ML within R]"]);
+    expect(choices.size.map((choice) => choice.name)).toEqual(["ML"]);
+  });
+
+  it("offers every marker when there are no points to check", () => {
+    const choices = getMarkerChoices({ ...MINODES, points: [] });
+    expect(choices.colour).toHaveLength(5);
+    expect(choices.size).toHaveLength(1);
   });
 
   it("deduplicates definitions by name and ignores malformed entries", () => {
@@ -98,5 +133,22 @@ describe("applyMarkerSelections", () => {
     );
     expect(result[0].sizeMinimum).toBe(5);
     expect(result[0].sizeMaximum).toBe(40);
+  });
+});
+
+describe("pickLegendSeriesIndices", () => {
+  it("uses the series the export marks legend: true", () => {
+    expect(pickLegendSeriesIndices([{ legend: false }, { legend: true }, { legend: true }], 0)).toEqual([1, 2]);
+  });
+
+  it("falls back to the Marker Style series when the export marks none", () => {
+    expect(pickLegendSeriesIndices([{ legend: false }, { legend: false }], 1)).toEqual([1]);
+    expect(pickLegendSeriesIndices([{}, {}], 0)).toEqual([0]);
+  });
+
+  it("returns nothing for an out-of-range index or no series", () => {
+    expect(pickLegendSeriesIndices([{ legend: false }], 3)).toEqual([]);
+    expect(pickLegendSeriesIndices([], 0)).toEqual([]);
+    expect(pickLegendSeriesIndices(undefined, 0)).toEqual([]);
   });
 });

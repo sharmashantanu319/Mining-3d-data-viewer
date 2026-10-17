@@ -1,5 +1,5 @@
 import { buildPointSeries } from "./pointSeriesData";
-import { buildLineSeries } from "./lineSeriesData";
+import { buildLineSeries, normalizeLineRows } from "./lineSeriesData";
 
 export function requireColumns(rows, groups, label) {
   const columns = Object.keys(rows[0] ?? {});
@@ -39,10 +39,11 @@ export function checkPointData(rows, series, label) {
   return { errors, warnings, summary: { label, kind: "points", total: stats.totalRows, loaded: stats.rendered, skipped: stats.droppedNoXYZ } };
 }
 
-export function checkLineData(vertices, membership, series, label) {
+export function checkLineData(vertices, rawMembership, series, label) {
+  const membership = normalizeLineRows(rawMembership);
   const errors = [
     ...requireColumns(vertices, [["ID"], ["X", "Location X"], ["Y", "Location Y"], ["Z", "Location Z"]], `${label} vertices`),
-    ...requireColumns(membership, [["LineID"], ["VertexID"]], `${label} lines`),
+    ...requireColumns(rawMembership, [["LineID", "Line ID"], ["VertexID", "Vertex ID"]], `${label} lines`),
     ...checkIds(vertices, "ID", `${label} vertices`),
   ];
   const known = new Set(vertices.map((v) => v.ID));

@@ -13,21 +13,13 @@ import {
 } from "./sizeMapping";
 
 import { parseCustomerDate } from "./customerDate";
+import { isShadingSprite, isSingleColourDefinition, parseRgbColour } from "./markerSymbols";
+import { findMarkerDefinition } from "./markerLookup";
 
-function findMarkerDef(markerDefinitions, name) {
-  if (
-    !Array.isArray(markerDefinitions) ||
-    name == null ||
-    name === ""
-  ) {
-    return null;
-  }
-
-  return (
-    markerDefinitions.find(
-      (def) => def && def.name === name
-    ) ?? null
-  );
+// role "colour" or "size": a colour and a size marker can share a name
+// (see markerLookup.js).
+function findMarkerDef(markerDefinitions, name, role) {
+  return findMarkerDefinition(markerDefinitions, name, role);
 }
 
 function readInputValue(point, input, inputType) {
@@ -103,7 +95,8 @@ export function resolveColourMarker(
 
   const def = findMarkerDef(
     markerDefinitions,
-    colourMarker
+    colourMarker,
+    "colour"
   );
 
   if (!def) {
@@ -141,7 +134,7 @@ export function resolveColourMarker(
   );
 }
 
-function resolveSizeMarker(
+export function resolveSizeMarker(
   pointSeriesData
 ) {
   const {
@@ -155,7 +148,8 @@ function resolveSizeMarker(
 
   const def = findMarkerDef(
     markerDefinitions,
-    sizeMarker
+    sizeMarker,
+    "size"
   );
 
   const inputType =
@@ -234,7 +228,18 @@ function shouldRenderAsShadedSphere(
     markerName === "mag/spheres" ||
     markerName === "magnitude colour";
 
-  return isEventSeries && isSphereMarker;
+  if (isEventSeries && isSphereMarker) {
+    return true;
+  }
+
+  // Any series whose colour marker only ever draws grey sphere sprites
+  // (e.g. "Response Events" with "Event ML") is a coloured sphere too.
+  const ramp = parseColourRampCsv(colourDefinition.rampCsv);
+  const symbols = [
+    colourDefinition.nullSymbol,
+    ...ramp.segments.map((segment) => segment.symbol),
+  ].filter(Boolean);
+  return symbols.length > 0 && symbols.every(isShadingSprite);
 }
 
 export function resolveMarkerRenderOptions(
@@ -255,8 +260,13 @@ export function resolveMarkerRenderOptions(
   const colourDefinition =
     findMarkerDef(
       s.markerDefinitions,
-      s.colourMarker
+      s.colourMarker,
+      "colour"
     );
+
+  if (isSingleColourDefinition(colourDefinition)) {
+    return resolveSingleColourRenderOptions(s, colourDefinition);
+  }
 
   const colourMarker =
     resolveColourMarker(s);
@@ -436,5 +446,27 @@ export function resolveMarkerRenderOptions(
     distanceAttenuation:
       s.distanceAttenuation ??
       null,
+  };
+}
+
+// "single-colour" markers (e.g. "Cross/Grey") paint every point one colour,
+// optionally with one symbol image. A grey/white symbol such as cross2.png
+// is tinted with that colour, so tintSymbols is set for the renderer.
+function resolveSingleColourRenderOptions(s, definition) {
+  const colour = parseRgbColour(definition.colour);
+  const symbol = definition.symbol ?? null;
+  const sizeMarker = resolveSizeMarker(s);
+  const sizeA = Number.isFinite(sizeMarker.sizeMinimum) ? sizeMarker.sizeMinimum : 2;
+  const sizeB = Number.isFinite(sizeMarker.sizeMaximum) ? sizeMarker.sizeMaximum : 40;
+  return {
+    ...(colour ? { colorFn: () => ({ ...colour }) } : {}),
+    ...(symbol ? { symbolFn: () => symbol } : {}),
+    symbolAssets: definition.symbolAssets ?? {},
+    tintSymbols: true,
+    renderAsShadedSphere: false,
+    sizeFn: (point) => mapSize(point?.[sizeMarker.input], sizeMarker),
+    minPointSize: Math.min(sizeA, sizeB),
+    maxPointSize: Math.max(sizeA, sizeB),
+    distanceAttenuation: s.distanceAttenuation ?? null,
   };
 }

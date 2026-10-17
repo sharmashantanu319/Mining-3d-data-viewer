@@ -20,16 +20,16 @@ import {
   inferFilterFields,
 } from "./components/dataFilters";
 import { buildColourLegend } from "./components/colourLegend";
-import { getMarkerChoices, applyMarkerSelections } from "./components/markerSelection";
+import { getMarkerChoices, applyMarkerSelections, pickLegendSeriesIndices } from "./components/markerSelection";
 import { resolveMarkerRenderOptions } from "./components/pointMarkerResolver";
+import { findMarkerDefinition } from "./components/markerLookup";
 import { IconFitView, IconPerspective, IconOrtho, IconRefresh } from "./components/icons";
 import { loadSession, saveSession, sanitizeAnnotationStyle, sessionKeyFor } from "./components/viewerSession";
 import { cameraStateForProjection, sanitizeSceneCameras } from "./components/cameraState";
 import { SCENE_SCOPED_STATE_DEFAULTS, isSceneSwitch } from "./components/sceneViewState";
 
 function colourMarkerInput(series) {
-  if (!series?.colourMarker || !Array.isArray(series.markerDefinitions)) return null;
-  return series.markerDefinitions.find((definition) => definition?.name === series.colourMarker)?.input ?? null;
+  return findMarkerDefinition(series?.markerDefinitions, series?.colourMarker, "colour")?.input ?? null;
 }
 
 export default function Home() {
@@ -39,7 +39,7 @@ export default function Home() {
   const [chartIndex, setChartIndex] = useState(0);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [errors, setErrors] = useState([]);
-  const [importReport, setImportReport] = useState({ warnings: [], summaries: [] });
+  const [importReport, setImportReport] = useState({ warnings: [], notes: [], summaries: [] });
   const [fileName, setFileName] = useState(null);
   const [isLoadingExport, setIsLoadingExport] = useState(false);
   const [projectionMode, setProjectionMode] = useState("perspective");
@@ -303,12 +303,15 @@ export default function Home() {
       (showChart
         ? activeChart.series.map((series) => ({ ...series, points: series.points.rows }))
         : [...renderedPointClouds, ...(currentScene.lineSeries ?? []).map(lineColourSeries)])
-        .map((series, index) => (series?.legend === true ? { series, index } : null))
+        .map((series, index, all) =>
+          (showChart ? series?.legend === true : pickLegendSeriesIndices(all, safeMarkerSeriesIndex).includes(index))
+            ? { series, index }
+            : null)
         .filter(Boolean)
         .map(({ series, index }) => {
           const legend = buildColourLegend(series, undefined, showChart ? null : fullRenderedPointClouds[index]);
           if (!legend) return null;
-          const missingCount = (series.points ?? []).filter((point) => {
+          const missingCount = !legend.input ? undefined : (series.points ?? []).filter((point) => {
             const value = point?.[legend.input];
             return (
               value === null ||
@@ -317,11 +320,14 @@ export default function Home() {
               (typeof value === "number" && !Number.isFinite(value))
             );
           }).length;
-          const symbolLabel = resolveMarkerRenderOptions(series)?.symbolFn ? "From colour ramp" : "None";
+          const renderOptions = resolveMarkerRenderOptions(series);
+          const symbolLabel =
+            legend.symbolLabel ??
+            (renderOptions?.renderAsShadedSphere ? "Shaded sphere" : renderOptions?.symbolFn ? "From colour ramp" : "None");
           return { ...legend, missingCount, sizeLabel: series.sizeMarker || "Constant", symbolLabel };
         })
         .filter(Boolean),
-    [renderedPointClouds, fullRenderedPointClouds, currentScene, activeChart, showChart]
+    [renderedPointClouds, fullRenderedPointClouds, currentScene, activeChart, showChart, safeMarkerSeriesIndex]
   );
 
   // Selection survives a filter/visibility change as long as the selected
@@ -426,7 +432,6 @@ export default function Home() {
 
   // Marker Style section operates on whichever series is selected there.
   const markerActiveSeries = visiblePointClouds[safeMarkerSeriesIndex];
-  const markerChoices = getMarkerChoices(markerActiveSeries);
   const markerActiveSelection = markerSelections?.[safeMarkerSeriesIndex] ?? {};
   const colourValue = Object.hasOwn(markerActiveSelection, "colourMarker")
     ? markerActiveSelection.colourMarker ?? ""
@@ -434,6 +439,7 @@ export default function Home() {
   const sizeValue = Object.hasOwn(markerActiveSelection, "sizeMarker")
     ? markerActiveSelection.sizeMarker ?? ""
     : markerActiveSeries?.sizeMarker ?? "";
+  const markerChoices = getMarkerChoices(markerActiveSeries, { colour: colourValue, size: sizeValue });
   const sizeMinValue = Object.hasOwn(markerActiveSelection, "minSize")
     ? markerActiveSelection.minSize
     : (markerActiveSeries?.sizeMinimum ?? "");
@@ -458,14 +464,14 @@ export default function Home() {
 
     setFileName(file.name);
     setErrors([]);
-    setImportReport({ warnings: [], summaries: [] });
+    setImportReport({ warnings: [], notes: [], summaries: [] });
     setIsLoadingExport(true);
 
     try {
       // 第一步：先做 Validate（只检查，不渲染）
       // Step 1: validate first (checks only, no rendering).
       const validation = await validateExportFile(file);
-      setImportReport({ warnings: validation.warnings ?? [], summaries: [] });
+      setImportReport({ warnings: validation.warnings ?? [], notes: validation.notes ?? [], summaries: [] });
       if (!validation.valid) {
         setErrors(validation.errors);
         return; // 检查不通过，不继续往下解析/渲染
@@ -482,7 +488,7 @@ export default function Home() {
         return;
       }
       setScenes(parsed.scenes);
-      setImportReport({ warnings: validation.warnings ?? [], summaries: validation.summaries ?? [] });
+      setImportReport({ warnings: validation.warnings ?? [], notes: validation.notes ?? [], summaries: validation.summaries ?? [] });
       setCharts(parsed.charts ?? []);
       setChartIndex(0);
       setActiveView("3d");
@@ -577,7 +583,7 @@ export default function Home() {
         </div>
       )}
 
-      <ImportReport warnings={importReport.warnings} summaries={importReport.summaries} />
+      <ImportReport warnings={importReport.warnings} notes={importReport.notes} summaries={importReport.summaries} />
       <div style={{ flex: 1, display: "flex", overflow: "hidden", minHeight: 0 }}>
         <LeftSidebar
           open={leftOpen}
