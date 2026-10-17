@@ -33,12 +33,18 @@ and shows the error.
 
 The toolbar in the top-left corner of the view has:
 
-- **Fit Scene**: frame all currently visible data.
-- **Reset View**: return to the camera position saved in the export.
-- **Perspective / Orthographic**: switch the projection. Orthographic is useful for plan and
-  section views with no perspective distortion.
+- **Fit**: zoom to show everything that is visible now.
+- **Reset**: go back to the camera position saved in the export.
+- **Top**, **Front** and **Side**: plan and section views, like mXrap's XY, XZ and YZ buttons.
+  **Top** looks straight down with north up, **Front** looks north and **Side** looks west.
+  Each view is framed on the visible data.
 
-The axis indicator in the bottom-left corner shows the X, Y and Z directions at all times.
+The **Perspective / Orthographic** switch in the top-right corner changes the projection.
+Orthographic has no perspective distortion, so it is clearest with **Top**, **Front** or
+**Side**.
+
+The axis indicator in the bottom-left corner shows the X, Y and Z directions at all times (in
+mine exports X points east, Y north and Z up). Axes pointing away from you are drawn fainter.
 
 ## 3. Switch scenes
 
@@ -58,9 +64,13 @@ are visible out of the total, and how many surfaces are loaded.
 
 - **Colour by**: colour points by an attribute (for example local magnitude); the matching
   legend appears in the right panel.
+- **Show points with no value**: show or hide the points that have no value for the colour
+  attribute. The line under it says how many points that is; when shown, they use the legend's
+  missing-value colour.
 - **Size by**: scale points by an attribute. **Min size** and **Max size** set the marker size at
   the low and high ends of the range; **Invert size** makes small values draw the largest
-  markers. With no attribute selected, every point uses the average of min and max.
+  markers. These three controls only appear when an attribute is selected; with **None**, every
+  point is the same size.
 - **Marker size** and **Symbol**: overall display size and marker shape.
 
 These start from the settings saved in the export, so the view initially matches mXrap.
@@ -68,21 +78,29 @@ These start from the settings saved in the export, so the view initially matches
 ## 6. Annotations
 
 The **Annotations** section turns text labels on or off and changes their size, font, text
-colour and background colour. **Show null marker values** controls whether points with no value
-for the colour attribute are drawn.
+colour and background colour.
 
 ## 7. Filter data
 
-1. Open **Filters** and pick a field from the list (type in **Search fields…** to find one).
-2. Set a range (for numbers or dates) or tick the values to keep (for categories).
-3. Points outside the filter are hidden immediately. Active filters are listed with a remove
-   button, and the status bar shows how many filters are active.
+1. Open **Filters**. If the scene has more than one point series, choose one under **Series**.
+2. Pick a column from **Add a filter…**. A new filter starts with nothing hidden.
+3. Each filter is a card. For numbers, type the lowest and highest values to show or drag the two
+   slider handles; the slider moves by share of points, so moving a handle a tenth of the way hides
+   about a tenth of the points. For dates, pick a date range; for categories, tick the values to
+   keep.
+4. The card says how many points the filter hides. If some points have no value in that column,
+   a check box keeps or hides them.
+5. Points outside the filters are hidden immediately. Remove a filter with its **×** button, or
+   clear them all with **Reset All Filters**. The status bar shows how many filters are active.
 
 ## 8. Inspect a point
 
 Hover over a point to preview its attributes; click to keep them in the **Selected point**
-panel on the right. The status bar also shows the point ID and X, Y, Z coordinates. Click
-**Clear** to deselect.
+panel on the right. The details are grouped into **Colour & size** (the values that set its
+colour and size, with the colour swatch), **Location**, **Time**, **IDs & groups** and **Other
+data**; click **Show** to open **Other data**. The status bar also shows the point's ID (or its
+row in the data file when there is no ID column) and its X, Y, Z coordinates. Click **Clear** to
+deselect.
 
 ## 9. Legends
 
@@ -102,7 +120,7 @@ colours and logarithmic scales follow the chart settings in the export.
 
 | Problem | What to do |
 | --- | --- |
-| Nothing appears after loading | Click **Fit Scene**; check that layers are not hidden and no filter excludes everything. |
+| Nothing appears after loading | Click **Fit**; check that layers are not hidden and no filter excludes everything. |
 | Warnings in the import report | The listed rows were skipped; the rest of the data is still shown. Check the export in mXrap if many rows are skipped. |
 | Status bar shows **Error** | The file is not a valid mXrap export `.zip`, or a required file inside it is missing. |
 | The browser becomes slow or crashes on a very large export | The whole export is held in memory; try a smaller export or a computer with more RAM. |

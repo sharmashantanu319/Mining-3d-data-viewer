@@ -1,4 +1,5 @@
 import { IconDot, IconCrosshair } from "./icons";
+import { pointStatusLabel } from "./pointDetails";
 
 export function StatusBar({
   dataState,
@@ -67,7 +68,7 @@ export function StatusBar({
             <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
               {hoveredPoint ? <IconCrosshair size={11} style={{ color: "var(--color-fg-muted)" }} /> : <IconDot size={11} style={{ color: "var(--color-lime)" }} />}
               <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: hoveredPoint ? "var(--color-fg-dim)" : "var(--color-lime)" }}>
-                {activePoint.id ?? active.sourceIndex}
+                {pointStatusLabel(activePoint, active.sourceIndex)}
               </span>
             </div>
             <span style={{ fontSize: 10, color: "var(--color-fg-muted)" }}>
