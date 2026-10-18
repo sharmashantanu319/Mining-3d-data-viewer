@@ -228,24 +228,33 @@ export function computeChartAxisRanges(axes, seriesList) {
 }
 
 /**
- * Axis ranges for what a chart is drawing now. Each axis fits the series
- * currently drawn against it, so turning a series off lets the axis close in
- * on the rest (a nice-to-have the client showed in the 24 September
- * meeting). A fixed minimum or maximum from the export always stays, and an
- * axis that no drawn series fills keeps its full range instead of
- * disappearing.
+ * Axis ranges for what a chart is drawing now, as the client showed mXrap
+ * doing in the 24 September meeting:
+ * - each axis fits the series currently drawn against it, so turning a
+ *   series off lets the axis close in on the rest (a nice-to-have);
+ * - an axis none of whose series is drawn is hidden (null): with the
+ *   cumulative events line off, its right-hand axis "disappears completely",
+ *   fixed bounds or not.
+ * A fixed minimum or maximum from the export always stays, and an axis whose
+ * drawn series have no usable values keeps its full range.
  *
  * @param {Record<string, {enabled: boolean, scale: string, minimum: number|null, maximum: number|null}>} axes
  * @param {object[]} seriesList every series of the chart
  * @param {boolean[]} drawn whether each series is drawn now
  * @param {Record<string, {min: number, max: number}|null>} fullRanges the
  *   ranges with every series (the chart's axisRanges)
- * @returns {Record<string, {min: number, max: number}|null>}
+ * @returns {Record<string, {min: number, max: number}|null>} null for a
+ *   disabled or hidden axis
  */
 export function computeVisibleAxisRanges(axes, seriesList, drawn, fullRanges) {
   const series = (Array.isArray(seriesList) ? seriesList : []).filter((_, index) => drawn?.[index] === true);
   const ranges = computeChartAxisRanges(axes, series);
   for (const side of Object.keys(ranges)) {
+    const inUse = series.some((s) => s.axisX?.side === side || s.axisY?.side === side);
+    if (!inUse) {
+      ranges[side] = null;
+      continue;
+    }
     const range = ranges[side];
     if (!Number.isFinite(range?.min) || !Number.isFinite(range?.max)) ranges[side] = fullRanges?.[side] ?? null;
   }

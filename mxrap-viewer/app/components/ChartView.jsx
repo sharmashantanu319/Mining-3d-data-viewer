@@ -30,7 +30,8 @@ function initialToggles(chart) {
 
 // Each enabled axis' range for the series drawn now (a series is drawn when
 // its Points or Lines switch is on), widening a flat range so there is
-// something to draw.
+// something to draw. An axis none of whose series is drawn gets no range, so
+// it is hidden along with anything placed on it (computeVisibleAxisRanges).
 function resolveRanges(chart, toggles) {
   const drawn = chart.series.map((series, index) =>
     Boolean((series.enablePoints && toggles[`${index}:points`]) || (series.enableLines && toggles[`${index}:lines`]))

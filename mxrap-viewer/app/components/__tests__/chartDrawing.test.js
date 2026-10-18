@@ -83,6 +83,42 @@ describe("axes fitted to the drawn series", () => {
     expect(Math.min(...pointYs)).toBeCloseTo(14, 9);
     expect(Math.max(...pointYs)).toBeCloseTo(556, 9);
   });
+
+  it("hides the cumulative axis, and the annotation placed on it, when the cumulative line is off", async () => {
+    const { charts: [chart] } = await parseExportFile(readFileSync(
+      new URL("../../../test-data/visualiser-export-2.zip", import.meta.url)
+    ));
+    const ranges = computeVisibleAxisRanges(chart.axes, chart.series, [true, true, false], chart.axisRanges);
+    expect(ranges).toEqual({
+      bottom: { min: 1682901098892, max: 1685576716650 },
+      left: { min: -2.41, max: 2.8 },
+      right: null,
+      top: null,
+    });
+
+    vi.stubGlobal("window", { devicePixelRatio: 1 });
+    const draw = (axisRanges, toggles) => {
+      const ctx = Object.fromEntries([
+        "setTransform", "clearRect", "beginPath", "moveTo", "lineTo", "stroke",
+        "fillText", "save", "restore", "translate", "rotate", "rect", "clip", "arc", "fill",
+      ].map((name) => [name, vi.fn()]));
+      const colours = chart.series.map((series) => ({
+        pointColours: resolveChartPointColours(series),
+        lineColour: resolveChartLineColour(series),
+        lineColours: series.lines.map(() => null),
+      }));
+      drawChart({ clientWidth: 1000, clientHeight: 600, getContext: () => ctx }, chart, axisRanges, toggles, colours);
+      return ctx.fillText.mock.calls.map((call) => call[0]);
+    };
+    const withLine = draw(chart.axisRanges, { "0:points": true, "1:points": true, "2:lines": true });
+    expect(withLine).toContain("Cumulative Events");
+    expect(withLine).toContain("A large spike");
+
+    const withoutLine = draw(ranges, { "0:points": true, "1:points": true });
+    expect(withoutLine).toContain("Local Magnitude");
+    expect(withoutLine).not.toContain("Cumulative Events");
+    expect(withoutLine).not.toContain("A large spike");
+  });
 });
 
 describe("chart point sizes", () => {

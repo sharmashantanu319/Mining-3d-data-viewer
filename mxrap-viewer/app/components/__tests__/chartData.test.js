@@ -253,9 +253,24 @@ describe("computeVisibleAxisRanges", () => {
     expect(ranges.left).toEqual({ min: -3, max: 2.8 });
   });
 
-  it("keeps the full range on an axis that no drawn series fills", () => {
-    // Right axis: only its fixed minimum would be left without the cumulative series.
-    expect(computeVisibleAxisRanges(axes, seriesList, [true, true, false], full).right).toEqual({ min: 0, max: 3 });
-    expect(computeVisibleAxisRanges(axes, seriesList, [false, false, false], full)).toEqual(full);
+  it("hides an axis none of whose series is drawn, even one with a fixed bound", () => {
+    // Without the cumulative series its right axis (fixed minimum 0) goes, as in mXrap.
+    expect(computeVisibleAxisRanges(axes, seriesList, [true, true, false], full)).toEqual({
+      bottom: { min: 10, max: 45 },
+      left: { min: -2.41, max: 2.8 },
+      right: null,
+      top: null,
+    });
+    expect(computeVisibleAxisRanges(axes, seriesList, [false, false, false], full)).toEqual({
+      bottom: null,
+      left: null,
+      right: null,
+      top: null,
+    });
+  });
+
+  it("keeps the full range on an axis whose drawn series have no values", () => {
+    const noCumulativeValues = [seriesList[0], seriesList[1], { ...seriesList[2], points: { x: [], y: [] } }];
+    expect(computeVisibleAxisRanges(axes, noCumulativeValues, [true, true, true], full).right).toEqual({ min: 0, max: 3 });
   });
 });
