@@ -9,6 +9,7 @@ import {
   resolveChartPointColours,
   resolveChartPointSizes,
 } from "./chartColours";
+import { computeVisibleAxisRanges } from "./chartData";
 import { chartTextToPlain, parseChartText } from "./chartText";
 import { parseCustomerDate } from "./customerDate";
 
@@ -27,12 +28,17 @@ function initialToggles(chart) {
   return toggles;
 }
 
-// Resolves each enabled axis' range once per chart, widening a flat range so
-// there is something to draw.
-function resolveRanges(chart) {
+// Each enabled axis' range for the series drawn now (a series is drawn when
+// its Points or Lines switch is on), widening a flat range so there is
+// something to draw.
+function resolveRanges(chart, toggles) {
+  const drawn = chart.series.map((series, index) =>
+    Boolean((series.enablePoints && toggles[`${index}:points`]) || (series.enableLines && toggles[`${index}:lines`]))
+  );
+  const fitted = computeVisibleAxisRanges(chart.axes, chart.series, drawn, chart.axisRanges);
   const ranges = {};
   for (const [side, axis] of Object.entries(chart.axes)) {
-    ranges[side] = axis.enabled ? padDegenerateRange(chart.axisRanges?.[side] ?? null) : null;
+    ranges[side] = axis.enabled ? padDegenerateRange(fitted[side] ?? null) : null;
   }
   return ranges;
 }
@@ -250,7 +256,7 @@ function ChartText({ html, style }) {
 export default function ChartView({ chart }) {
   const canvasRef = useRef(null);
   const [toggles, setToggles] = useState(() => initialToggles(chart));
-  const ranges = useMemo(() => resolveRanges(chart), [chart]);
+  const ranges = useMemo(() => resolveRanges(chart, toggles), [chart, toggles]);
 
   // Colours depend only on the data and markers, not on the toggles or the
   // canvas size, so they are resolved once per chart.

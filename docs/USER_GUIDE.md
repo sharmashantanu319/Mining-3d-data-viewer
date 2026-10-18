@@ -123,8 +123,12 @@ the narrow strip that remains to expand it again.
 
 If the export contains charts, **3D View** and **Chart** tabs appear at the top of the view.
 Open **Chart** to see the Magnitude-Time chart (choose another chart from the drop-down if there
-are several). Each series has **Points** and **Lines** check boxes to show or hide it. Axes,
-colours and logarithmic scales follow the chart settings in the export.
+are several). An export with only charts opens straight on them. Each series has **Points** and
+**Lines** check boxes to show or hide it. Axes, colours and logarithmic scales follow the chart
+settings in the export.
+
+The axes fit the series that are shown: hide the smaller events, for example, and the magnitude
+axis closes in on the larger ones. An axis with a fixed minimum or maximum in the export keeps it.
 
 ## Troubleshooting
 

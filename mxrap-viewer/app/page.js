@@ -41,6 +41,11 @@ function colourMarkerInput(series) {
   return findMarkerDefinition(series?.markerDefinitions, series?.colourMarker, "colour")?.input ?? null;
 }
 
+// Stands in for the current scene when an export has charts but no 3D views:
+// the 3D panels are hidden then, and anything that still reads the scene
+// finds no data in it.
+const NO_3D_VIEW = Object.freeze({ id: "no-3d-view", title: "", surfaces: [], pointClouds: [], lineSeries: [], annotations: [] });
+
 export default function Home() {
   const [scenes, setScenes] = useState(mockScenes); // 初始用 mock 数据占位，上传真实文件后会替换
   const [charts, setCharts] = useState([]); // chart displays from the export (none for the mock demo)
@@ -77,9 +82,11 @@ export default function Home() {
   const sceneCamerasRef = useRef({}); // { [sceneIndex]: camera state } recorded when a scene is left, so switching back restores its camera
   const pendingCameraRestoreRef = useRef(null); // camera state to apply once the rebuilt ThreeScene has mounted
   const saveTimeoutRef = useRef(null);
-  const currentScene = scenes[currentIndex];
+  const hasScenes = scenes.length > 0;
+  const currentScene = scenes[currentIndex] ?? NO_3D_VIEW;
   const activeChart = charts[Math.min(chartIndex, charts.length - 1)] ?? null;
-  const showChart = activeView === "chart" && activeChart !== null;
+  // An export with only charts always shows them.
+  const showChart = activeChart !== null && (activeView === "chart" || !hasScenes);
   const pointSeries = useMemo(() => currentScene.pointClouds ?? [], [currentScene]);
   const safeSelectedSeries = Math.min(selectedSeries, Math.max(0, pointSeries.length - 1));
   const safeMarkerSeriesIndex = Math.min(markerSeriesIndex, Math.max(0, pointSeries.length - 1));
@@ -504,11 +511,11 @@ export default function Home() {
       // 第二步：Validate 通过后，才真正解析并渲染
       // Step 2: only parse and render once validation passes.
       const parsed = await parseExportFile(file);
-      // An export whose displays are all non-3D views (charts) parses to zero
-      // scenes; there is nothing to render, and the viewer needs a current
-      // scene to exist.
-      if (parsed.scenes.length === 0) {
-        setErrors(["This export has no 3D views to display."]);
+      // Which displays to show is up to the export (client email, 22
+      // September): one with only charts opens on its charts. One with
+      // neither has nothing to show.
+      if (parsed.scenes.length === 0 && (parsed.charts ?? []).length === 0) {
+        setErrors(["This export has no 3D views or charts to display."]);
         return;
       }
       setScenes(parsed.scenes);
@@ -522,7 +529,9 @@ export default function Home() {
       sceneCamerasRef.current = {};
       pendingCameraRestoreRef.current = null;
 
-      sessionKeyRef.current = sessionKeyFor(file);
+      // Sessions keep 3D view settings, so an export with only charts has
+      // nothing to save.
+      sessionKeyRef.current = parsed.scenes.length > 0 ? sessionKeyFor(file) : null;
       setRestoreBanner(null);
       const saved = loadSession(sessionKeyRef.current);
       if (saved) setRestoreBanner({ key: sessionKeyRef.current, session: saved });
@@ -725,24 +734,26 @@ export default function Home() {
         />
 
         <section style={{ flex: 1, position: "relative", minWidth: 0, minHeight: 0, overflow: "hidden" }} aria-label="3D scene">
-          <ThreeScene
-            ref={threeSceneRef}
-            sceneData={currentScene}
-            visiblePointClouds={renderedPointClouds}
-            lineVisibility={lineVisibility}
-            surfaceVisibility={surfaceVisibility}
-            projectionMode={projectionMode}
-            annotationsVisible={annotationsVisible}
-            annotationScale={annotationScale}
-            annotationFont={annotationFont}
-            annotationTextColor={annotationTextColor}
-            annotationBackgroundColor={annotationBackgroundColor}
-            markerScale={markerScale}
-            onCameraChange={scheduleSessionSave}
-            selectedPoint={activeSelectedPoint}
-            onPointHover={setHoveredPoint}
-            onPointSelect={setSelectedPoint}
-          />
+          {hasScenes && (
+            <ThreeScene
+              ref={threeSceneRef}
+              sceneData={currentScene}
+              visiblePointClouds={renderedPointClouds}
+              lineVisibility={lineVisibility}
+              surfaceVisibility={surfaceVisibility}
+              projectionMode={projectionMode}
+              annotationsVisible={annotationsVisible}
+              annotationScale={annotationScale}
+              annotationFont={annotationFont}
+              annotationTextColor={annotationTextColor}
+              annotationBackgroundColor={annotationBackgroundColor}
+              markerScale={markerScale}
+              onCameraChange={scheduleSessionSave}
+              selectedPoint={activeSelectedPoint}
+              onPointHover={setHoveredPoint}
+              onPointSelect={setSelectedPoint}
+            />
+          )}
 
           {charts.length > 0 && (
             <div
@@ -757,6 +768,8 @@ export default function Home() {
                   className={`vp-btn ${!showChart ? "active" : ""}`}
                   style={{ border: "none", borderRadius: 0, padding: "0 12px", fontSize: 12, whiteSpace: "nowrap", width: "auto", height: 28 }}
                   onClick={() => setActiveView("3d")}
+                  disabled={!hasScenes}
+                  title={hasScenes ? undefined : "This export has no 3D views"}
                 >
                   3D View
                 </button>
@@ -773,9 +786,10 @@ export default function Home() {
               {showChart && charts.length > 1 && (
                 <select
                   aria-label="Chart"
+                  className="ctrl-select"
                   value={chartIndex}
                   onChange={(e) => setChartIndex(Number(e.target.value))}
-                  style={{ fontSize: 12 }}
+                  style={{ fontSize: 12, height: 28, background: "rgba(18,25,24,0.85)" }}
                 >
                   {charts.map((chart, index) => (
                     <option key={chart.id} value={index}>{chart.title}</option>
@@ -868,6 +882,7 @@ export default function Home() {
         activeFilterCount={activeFilterCount}
         viewMode={projectionMode}
         currentScene={currentScene}
+        showSceneInfo={hasScenes}
         errorMessage={errors[0]}
       />
     </div>

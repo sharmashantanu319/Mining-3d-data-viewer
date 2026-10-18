@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { parseExportFile } from "../parseExportFile";
 import { drawChart } from "../ChartView";
 import { resolveChartLineColour, resolveChartPointColours } from "../chartColours";
+import { computeVisibleAxisRanges } from "../chartData";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -40,6 +41,47 @@ describe("real Magnitude-Time export to canvas", () => {
     expect(ctx.fill).not.toHaveBeenCalled();
     // Removing all series removes both crosses and cumulative line segments.
     expect(visibleLineCount - ctx.lineTo.mock.calls.length).toBe(5238 * 2 + 664);
+  });
+});
+
+describe("axes fitted to the drawn series", () => {
+  it("closes the left axis in on the larger events when the smaller ones are turned off", async () => {
+    const { charts: [chart] } = await parseExportFile(readFileSync(
+      new URL("../../../test-data/visualiser-export-2.zip", import.meta.url)
+    ));
+    expect(chart.series.map((series) => series.name)).toEqual([
+      "Events > threshold",
+      "Events < threshold",
+      "Cumulative number of events",
+    ]);
+    expect(chart.axisRanges.left).toEqual({ min: -2.41, max: 2.8 });
+
+    const ranges = computeVisibleAxisRanges(chart.axes, chart.series, [true, false, true], chart.axisRanges);
+    expect(ranges).toEqual({
+      bottom: { min: 1682936892704, max: 1685576716650 },
+      left: { min: -1, max: 2.8 },
+      right: { min: 0, max: 665 },
+      top: null,
+    });
+
+    // Drawn with those ranges, the larger events fill the plot from its
+    // bottom (y = 556 px on a 600 px canvas) to its top (y = 14 px).
+    vi.stubGlobal("window", { devicePixelRatio: 1 });
+    const ctx = Object.fromEntries([
+      "setTransform", "clearRect", "beginPath", "moveTo", "lineTo", "stroke",
+      "fillText", "save", "restore", "translate", "rotate", "rect", "clip", "arc", "fill",
+    ].map((name) => [name, vi.fn()]));
+    const canvas = { clientWidth: 1000, clientHeight: 600, getContext: () => ctx };
+    const colours = chart.series.map((series) => ({
+      pointColours: resolveChartPointColours(series),
+      lineColour: resolveChartLineColour(series),
+      lineColours: series.lines.map(() => null),
+    }));
+    drawChart(canvas, chart, ranges, { "0:points": true }, colours);
+    const pointYs = ctx.arc.mock.calls.filter((call) => call[2] === 2.5).map((call) => call[1]);
+    expect(pointYs).toHaveLength(665);
+    expect(Math.min(...pointYs)).toBeCloseTo(14, 9);
+    expect(Math.max(...pointYs)).toBeCloseTo(556, 9);
   });
 });
 
