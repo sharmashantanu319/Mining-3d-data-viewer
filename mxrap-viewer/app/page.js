@@ -23,7 +23,7 @@ import {
 } from "./components/dataFilters";
 import { buildColourLegend } from "./components/colourLegend";
 import { getMarkerChoices, applyMarkerSelections, pickLegendSeriesIndices } from "./components/markerSelection";
-import { resolveMarkerRenderOptions } from "./components/pointMarkerResolver";
+import { markerSymbolLabel } from "./components/pointMarkerResolver";
 import { findMarkerDefinition } from "./components/markerLookup";
 import { IconFitView, IconPerspective, IconOrtho, IconRefresh } from "./components/icons";
 import { loadSession, saveSession, sanitizeAnnotationStyle, sessionKeyFor } from "./components/viewerSession";
@@ -344,14 +344,25 @@ export default function Home() {
               (typeof value === "number" && !Number.isFinite(value))
             );
           }).length;
-          const renderOptions = resolveMarkerRenderOptions(series);
-          const symbolLabel =
-            legend.symbolLabel ??
-            (renderOptions?.renderAsShadedSphere ? "Shaded sphere" : renderOptions?.symbolFn ? "From colour ramp" : "None");
-          return { ...legend, missingCount, sizeLabel: series.sizeMarker || "Constant", symbolLabel };
+          // Size and symbol are said for 3D points (the Marker Style panel
+          // uses the same words) and size for chart points; a chart draws
+          // plain dots or crosses, and lines have neither.
+          const isPointSeries = !showChart && index < renderedPointClouds.length;
+          // Whether points with no value are drawn is the user's choice now
+          // ("Show points with no value"), not only the export's setting.
+          const nullEntry = isPointSeries && legend.nullEntry
+            ? { ...legend.nullEntry, visible: nullVisibility[index] ?? series.showNullColours !== false }
+            : legend.nullEntry;
+          return {
+            ...legend,
+            nullEntry,
+            missingCount,
+            sizeLabel: showChart || isPointSeries ? series.sizeMarker || "Constant" : null,
+            symbolLabel: isPointSeries ? markerSymbolLabel(series) : null,
+          };
         })
         .filter(Boolean),
-    [renderedPointClouds, fullRenderedPointClouds, currentScene, activeChart, showChart, safeMarkerSeriesIndex]
+    [renderedPointClouds, fullRenderedPointClouds, currentScene, activeChart, showChart, safeMarkerSeriesIndex, nullVisibility]
   );
 
   // Selection survives a filter/visibility change as long as the selected
@@ -463,7 +474,12 @@ export default function Home() {
   const sizeValue = Object.hasOwn(markerActiveSelection, "sizeMarker")
     ? markerActiveSelection.sizeMarker ?? ""
     : markerActiveSeries?.sizeMarker ?? "";
-  const markerChoices = getMarkerChoices(markerActiveSeries, { colour: colourValue, size: sizeValue });
+  // Checked against every point of the series, not only the ones shown now:
+  // a hidden or filtered-out series used to be offered every marker.
+  const markerChoices = useMemo(
+    () => getMarkerChoices(pointSeries[safeMarkerSeriesIndex], { colour: colourValue, size: sizeValue }),
+    [pointSeries, safeMarkerSeriesIndex, colourValue, sizeValue]
+  );
   // Points of the Marker Style series that have no value for the colour in
   // use: "Show points with no value" shows or hides exactly these.
   const markerNullColumn = colourMarkerInput(fullRenderedPointClouds[safeMarkerSeriesIndex]);
@@ -485,8 +501,7 @@ export default function Home() {
     if (!markerActiveSeries) return null;
     const selection = markerSelections?.[safeMarkerSeriesIndex] ?? {};
     const [previewSeries] = applyMarkerSelections([markerActiveSeries], { 0: selection });
-    const renderOptions = resolveMarkerRenderOptions(previewSeries);
-    return renderOptions?.symbolFn ? "From colour ramp" : "None";
+    return markerSymbolLabel(previewSeries);
   }, [markerActiveSeries, markerSelections, safeMarkerSeriesIndex]);
 
   async function handleFileChange(event) {

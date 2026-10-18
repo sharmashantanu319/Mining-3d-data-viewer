@@ -47,7 +47,7 @@ describe("export with a misplaced marker menu", () => {
     const report = await validateExportFile(file);
     expect(report.valid).toBe(true);
     expect(report.warnings).toContain(
-      'view > Minodes: marker "P[ML within R]" is not in marker-defs/hazard-minodes/markers.json; using the definition from marker-defs/hazard-painted/markers.json.');
+      'view > Minodes: the colours for "P[ML within R]" are missing from this series\' own marker file, so the same-named colours from another series are used (marker-defs/hazard-painted/markers.json instead of marker-defs/hazard-minodes/markers.json).');
     expect(report.warnings.filter((w) => w.includes("is unavailable"))).toEqual([]);
 
     const cloud = (await parseExportFile(file)).scenes[0].pointClouds[0];

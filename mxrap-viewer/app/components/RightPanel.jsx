@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { IconChevronLeft, IconChevronRight, IconLegend, IconInfo, IconChevronDown, IconChevronUp } from "./icons";
 import { describePointSeries, formatDetailNumber, groupPointDetails } from "./pointDetails";
+import { missingValueText } from "./colourLegend";
 
 const NA = <span style={{ color: "var(--color-fg-disabled)", fontStyle: "italic" }}>Not available</span>;
 
@@ -258,13 +259,10 @@ function LegendCard({ legend }) {
             </div>
           )}
 
-          {legend.kind !== "error" && legend.nullEntry && (
+          {legend.kind !== "error" && legend.nullEntry && legend.missingCount !== 0 && (
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
-              <span className="swatch" style={{ backgroundColor: legend.nullEntry.colour }} />
-              <span style={{ fontSize: 10, color: "var(--color-fg-dim)" }}>
-                {legend.nullEntry.label}
-                {Number.isFinite(legend.missingCount) ? ` (${legend.missingCount.toLocaleString()})` : ""}
-              </span>
+              <span className="swatch" style={{ backgroundColor: legend.nullEntry.colour, flexShrink: 0 }} />
+              <span style={{ fontSize: 10, color: "var(--color-fg-dim)" }}>{missingValueText(legend)}</span>
               {!legend.nullEntry.visible && <span style={{ fontSize: 9, color: "var(--color-fg-muted)", fontStyle: "italic" }}>hidden</span>}
             </div>
           )}

@@ -5,20 +5,9 @@ import {
   IconRefresh,
   IconSurface, IconDot, IconTag, IconSettings,
 } from "./icons";
-import { createCategoryFilter, createRangeFilter, niceRangeBounds } from "./dataFilters";
+import { createCategoryFilter, createRangeFilter, niceRangeBounds, roundDateBound } from "./dataFilters";
 import { ActiveFilter } from "./FilterControls";
 import { ANNOTATION_FONT_CHOICES } from "./annotationStyleOptions";
-
-function toDateInput(epoch) {
-  if (!Number.isFinite(epoch)) return "";
-  return new Date(epoch).toISOString().slice(0, 10);
-}
-
-function fromDateInput(value, endBoundary = false) {
-  if (!value) return null;
-  const [year, month, day] = value.split("-").map(Number);
-  return Date.UTC(year, month - 1, day + (endBoundary ? 1 : 0));
-}
 
 // A new filter starts by letting every point through: the whole range (or
 // every category) and the points with no value in that column. Adding a
@@ -29,8 +18,13 @@ function defaultFilter(field) {
     return createCategoryFilter({ input: field.input, allowedValues: field.values, includeMissing: true });
   }
   if (field.inputType === "date") {
-    const maximum = fromDateInput(toDateInput(field.max), true) - 1;
-    return createRangeFilter({ input: field.input, inputType: "date", min: field.min, max: maximum, includeMissing: true });
+    return createRangeFilter({
+      input: field.input,
+      inputType: "date",
+      min: roundDateBound(field.min, "down"),
+      max: roundDateBound(field.max, "up"),
+      includeMissing: true,
+    });
   }
   // Starts at the data's range rounded outwards, so the number boxes read
   // "0" and "0.3764" rather than 3.1086244689504383e-15 (niceRangeBounds).
@@ -333,12 +327,18 @@ export function LeftSidebar({
               )}
               <div className="ctrl-row">
                 <span className="ctrl-label">Size by</span>
-                <select className="ctrl-select" aria-label="Size points by" value={sizeValue} onChange={(e) => onSizeChange(e.target.value)} style={{ maxWidth: 130 }}>
-                  <option value="">None</option>
-                  {sizeChoices.map((choice) => (
-                    <option key={choice.name} value={choice.name}>{choice.name}{choice.input && choice.input !== choice.name ? ` · ${choice.input}` : ""}</option>
-                  ))}
-                </select>
+                {/* A drop-down with only "None" in it looked like a choice that
+                    could not be made; with nothing to pick it is plain text. */}
+                {sizeChoices.length > 0 ? (
+                  <select className="ctrl-select" aria-label="Size points by" value={sizeValue} onChange={(e) => onSizeChange(e.target.value)} style={{ maxWidth: 130 }}>
+                    <option value="">None</option>
+                    {sizeChoices.map((choice) => (
+                      <option key={choice.name} value={choice.name}>{choice.name}{choice.input && choice.input !== choice.name ? ` · ${choice.input}` : ""}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <span className="ctrl-static" title="The export has no size settings for this series">Nothing to size by</span>
+                )}
               </div>
               {/* Min / Max size only matter when a column sets the size. With
                   no size column every point is drawn at their midpoint, so
@@ -409,15 +409,12 @@ export function LeftSidebar({
                   {Math.round(markerScale * 100)}%
                 </span>
               </label>
-              <div className="ctrl-row">
+              <div className="ctrl-row" title="Set by the colour marker in the export">
                 <span className="ctrl-label">Symbol</span>
-                {/* Not a real independent axis in this data model: symbols
-                    come from the colour marker's ramp entries
-                    (markers.json's Symbol field per value), so this shows
-                    what's resolved rather than offering a fake selector. */}
-                <select className="ctrl-select" value="" disabled style={{ maxWidth: 130 }}>
-                  <option value="">{resolvedSymbolLabel || "Auto (from data)"}</option>
-                </select>
+                {/* Not a separate choice in this data model: the symbol comes
+                    with the colour marker (markers.json, or a Symbol per ramp
+                    entry), so this says what is drawn, in the legend's words. */}
+                <span className="ctrl-static">{resolvedSymbolLabel || "Dot"}</span>
               </div>
             </div>
           )}

@@ -107,6 +107,8 @@ body {
   min-height: 26px;
 }
 .ctrl-row:hover { background: var(--color-surface); }
+/* A value that can't be changed here, where a drop-down would otherwise be. */
+.ctrl-static { font-size: 11px; color: var(--color-fg-muted); max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Label */
 .ctrl-label {
@@ -381,6 +383,8 @@ body {
 .filter-range-inputs { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 5px; }
 .filter-range-inputs .ctrl-input { width: 100%; min-width: 0; font-family: var(--font-mono); font-size: 10.5px; }
 .filter-range-to { font-size: 10px; color: var(--color-fg-muted); }
+.filter-date-inputs { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 4px 6px; }
+.filter-date-inputs .ctrl-input { width: 100%; min-width: 0; font-family: var(--font-mono); font-size: 10.5px; color-scheme: dark; }
 /* The +/- arrows stepped by 1 whatever the column (too much for ML, nothing
    for Energy); the slider below the boxes does that job. */
 .filter-number::-webkit-outer-spin-button,

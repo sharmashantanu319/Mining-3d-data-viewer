@@ -16,8 +16,11 @@ import {
   niceRangeBounds,
   FILTER_SLIDER_STEPS,
   countHiddenByFilter,
+  fromDateTimeInputValue,
+  roundDateBound,
   roundSliderBound,
   sliderPositionForValue,
+  toDateTimeInputValue,
   valueForSliderPosition,
 } from "../dataFilters";
 
@@ -261,6 +264,11 @@ describe("inferFilterFields", () => {
       inputType: "date",
       invalidCount: 1,
     });
+    // Sorted epoch milliseconds, for the date range slider.
+    expect(Array.from(fields.find((field) => field.input === "DateTime").sortedValues)).toEqual([
+      Date.UTC(2023, 0, 1),
+      Date.UTC(2023, 0, 2),
+    ]);
     expect(fields.find((field) => field.input === "material")).toMatchObject({
       kind: "category",
       values: ["ore", "waste"],
@@ -327,6 +335,27 @@ describe("dataFilters (real event/sensor data from visualiser-export-2)", () => 
     ];
     const result = applyFilters(sensors, filters);
     expect(result.includedCount).toBe(6);
+  });
+
+  it("slides a time window through the month of events", () => {
+    const field = inferFilterFields(events).find((candidate) => candidate.input === "DateTime");
+    expect(field.sortedValues).toHaveLength(5903);
+    expect(field.min).toBe(Date.UTC(2023, 4, 1, 0, 31, 38, 892));
+    expect(field.max).toBe(Date.UTC(2023, 4, 31, 23, 45, 16, 650));
+
+    // Thumbs at a quarter and three quarters of the events.
+    const from = roundDateBound(valueForSliderPosition(field.sortedValues, 250), "down");
+    const to = roundDateBound(valueForSliderPosition(field.sortedValues, 750), "up");
+    expect(toDateTimeInputValue(from)).toBe("2023-05-06T07:03");
+    expect(toDateTimeInputValue(to)).toBe("2023-05-20T11:07");
+    expect(to).toBe(Date.UTC(2023, 4, 20, 11, 7, 59, 999));
+    // The thumbs stay where they were put.
+    expect(sliderPositionForValue(field.sortedValues, from, "min")).toBe(250);
+    expect(sliderPositionForValue(field.sortedValues, to, "max")).toBe(750);
+
+    const result = applyFilters(events, [createRangeFilter({ input: "DateTime", inputType: "date", min: from, max: to })]);
+    expect(result.includedCount).toBe(2953);
+    expect(result.excludedCount).toBe(2950);
   });
 
   it("handles a real CSV column whose header spans multiple quoted lines", () => {
@@ -430,5 +459,37 @@ describe("roundSliderBound", () => {
     expect(roundSliderBound(-2.4137, "up")).toBe(-2.41);
     expect(roundSliderBound(123456789, "up")).toBe(124000000);
     expect(roundSliderBound(0, "down")).toBe(0);
+  });
+});
+
+describe("date filter bounds", () => {
+  const at = (minute, second = 0, ms = 0) => Date.UTC(2021, 9, 17, 5, minute, second, ms);
+
+  it("rounds a bound outwards to its whole minute", () => {
+    expect(roundDateBound(at(36, 16, 981), "down")).toBe(at(36));
+    expect(roundDateBound(at(36, 16, 981), "up")).toBe(at(36, 59, 999));
+    expect(roundDateBound(at(36), "down")).toBe(at(36));
+    expect(roundDateBound(at(36), "up")).toBe(at(36, 59, 999));
+    expect(roundDateBound(NaN, "down")).toBeNaN();
+  });
+
+  it("shows a bound to the minute, in the export's own clock time", () => {
+    expect(toDateTimeInputValue(at(36, 59, 999))).toBe("2021-10-17T05:36");
+    expect(toDateTimeInputValue(at(0))).toBe("2021-10-17T05:00");
+    expect(toDateTimeInputValue(null)).toBe("");
+  });
+
+  it("reads a typed time as the start of its minute, or the end of it for the upper bound", () => {
+    expect(fromDateTimeInputValue("2021-10-17T05:36", "min")).toBe(at(36));
+    expect(fromDateTimeInputValue("2021-10-17T05:36", "max")).toBe(at(36, 59, 999));
+    expect(fromDateTimeInputValue("2021-10-17T05:36:30", "min")).toBe(at(36));
+  });
+
+  it("refuses an empty or impossible time", () => {
+    expect(fromDateTimeInputValue("", "min")).toBeNull();
+    expect(fromDateTimeInputValue("2021-02-30T10:00", "min")).toBeNull();
+    expect(fromDateTimeInputValue("2021-10-17T24:00", "max")).toBeNull();
+    expect(fromDateTimeInputValue("0099-01-01T00:00", "min")).toBeNull();
+    expect(fromDateTimeInputValue("17/10/2021 05:36", "min")).toBeNull();
   });
 });
