@@ -26,9 +26,16 @@ import { getMarkerChoices, applyMarkerSelections, pickLegendSeriesIndices } from
 import { resolveMarkerRenderOptions } from "./components/pointMarkerResolver";
 import { findMarkerDefinition } from "./components/markerLookup";
 import { IconFitView, IconPerspective, IconOrtho, IconRefresh } from "./components/icons";
-import { loadSession, restoreFilters, saveSession, sanitizeAnnotationStyle, serializeFilters, sessionKeyFor } from "./components/viewerSession";
-import { cameraStateForProjection, sanitizeSceneCameras } from "./components/cameraState";
-import { SCENE_SCOPED_STATE_DEFAULTS, isSceneSwitch } from "./components/sceneViewState";
+import { loadSession, saveSession, sanitizeAnnotationStyle, sessionKeyFor } from "./components/viewerSession";
+import { isValidCameraState, sanitizeSceneCameras } from "./components/cameraState";
+import {
+  initialSceneViewState,
+  isSceneSwitch,
+  restoreSceneViewState,
+  restoreSceneViewStates,
+  sceneViewStateOnEntry,
+  serializeSceneViewStates,
+} from "./components/sceneViewState";
 
 function colourMarkerInput(series) {
   return findMarkerDefinition(series?.markerDefinitions, series?.colourMarker, "colour")?.input ?? null;
@@ -66,6 +73,7 @@ export default function Home() {
   const [selectedPoint, setSelectedPoint] = useState(null);
   const threeSceneRef = useRef(null);
   const sessionKeyRef = useRef(null); // which file's session to save to, or null for the initial mock demo (not persisted)
+  const sceneViewStatesRef = useRef({}); // { [sceneIndex]: scene view state } recorded when a scene is left, so switching back restores its settings (sceneViewState.js)
   const sceneCamerasRef = useRef({}); // { [sceneIndex]: camera state } recorded when a scene is left, so switching back restores its camera
   const pendingCameraRestoreRef = useRef(null); // camera state to apply once the rebuilt ThreeScene has mounted
   const saveTimeoutRef = useRef(null);
@@ -194,20 +202,16 @@ export default function Home() {
       const liveCamera = threeSceneRef.current?.getCameraState() ?? null;
       saveSession(sessionKeyRef.current, {
         sceneIndex: currentIndex,
-        filtersBySeries: serializeFilters(filtersBySeries),
-        seriesVisibility,
-        surfaceVisibility,
-        nullVisibility,
-        markerSelections,
-        markerSeriesIndex,
+        sceneStates: serializeSceneViewStates({
+          ...sceneViewStatesRef.current,
+          [currentIndex]: currentSceneViewState(),
+        }),
         markerScale,
         rightOpen,
-        annotationsVisible,
         annotationScale,
         annotationFont,
         annotationTextColor,
         annotationBackgroundColor,
-        projectionMode,
         camera: liveCamera,
         sceneCameras: liveCamera
           ? { ...sceneCamerasRef.current, [currentIndex]: liveCamera }
@@ -225,8 +229,10 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     currentIndex,
+    selectedSeries,
     filtersBySeries,
     seriesVisibility,
+    lineVisibility,
     surfaceVisibility,
     nullVisibility,
     markerSelections,
@@ -257,16 +263,15 @@ export default function Home() {
       Number.isInteger(session.sceneIndex) && session.sceneIndex >= 0 && session.sceneIndex < scenes.length
         ? session.sceneIndex
         : currentIndex;
+    // Every scene's settings. A session saved before scenes kept their own
+    // settings only has those of the scene it was on, at its top level.
+    const restoredStates = restoreSceneViewStates(session.sceneStates, scenes);
+    const restoredState = restoredStates[restoredIndex] ?? restoreSceneViewState(session, scenes[restoredIndex]);
+    sceneViewStatesRef.current = restoredStates;
     setCurrentIndex(restoredIndex);
-    if (session.filtersBySeries) setFiltersBySeries(restoreFilters(session.filtersBySeries));
-    if (session.seriesVisibility) setSeriesVisibility(session.seriesVisibility);
-    setSurfaceVisibility(session.surfaceVisibility ?? {});
-    if (session.nullVisibility) setNullVisibility(session.nullVisibility);
-    if (session.markerSelections) setMarkerSelections(session.markerSelections);
-    if (Number.isInteger(session.markerSeriesIndex)) setMarkerSeriesIndex(session.markerSeriesIndex);
+    showSceneViewState(restoredState);
     if (Number.isFinite(session.markerScale)) setMarkerScale(Math.min(1.5, Math.max(0.1, session.markerScale)));
     if (typeof session.rightOpen === "boolean") setRightOpen(session.rightOpen);
-    if (typeof session.annotationsVisible === "boolean") setAnnotationsVisible(session.annotationsVisible);
     if (Number.isFinite(session.annotationScale)) setAnnotationScale(session.annotationScale);
     const annotationStyle = sanitizeAnnotationStyle(session);
     textColourAutoSeededRef.current = false;
@@ -275,23 +280,21 @@ export default function Home() {
     if ("annotationBackgroundColor" in annotationStyle) {
       setAnnotationBackgroundColor(annotationStyle.annotationBackgroundColor);
     }
-    const restoredProjection = session.projectionMode || projectionMode;
-    if (session.projectionMode) setProjectionMode(session.projectionMode);
 
     // Restore every scene's remembered camera, and the current scene's live
     // camera on top. `camera` alone is what sessions saved before per-scene
-    // cameras hold.
+    // cameras hold. ThreeScene converts a camera seen through the other kind
+    // of projection.
     const restoredCameras = sanitizeSceneCameras(session.sceneCameras, scenes.length);
-    const liveCamera = cameraStateForProjection(session.camera, restoredProjection);
-    if (liveCamera) restoredCameras[restoredIndex] = liveCamera;
+    if (isValidCameraState(session.camera)) restoredCameras[restoredIndex] = session.camera;
     sceneCamerasRef.current = restoredCameras;
 
-    const restoredCamera = cameraStateForProjection(restoredCameras[restoredIndex], restoredProjection);
+    const restoredCamera = restoredCameras[restoredIndex];
     if (restoredCamera) {
       // ThreeScene only rebuilds (and so needs the camera applied afterwards)
       // when the scene or projection actually changes; otherwise it is
       // already mounted and can be moved straight away.
-      if (restoredIndex !== currentIndex || restoredProjection !== projectionMode) {
+      if (restoredIndex !== currentIndex || restoredState.projectionMode !== projectionMode) {
         pendingCameraRestoreRef.current = restoredCamera;
       } else {
         threeSceneRef.current?.setCameraState(restoredCamera);
@@ -514,7 +517,8 @@ export default function Home() {
       setChartIndex(0);
       setActiveView("3d");
       setCurrentIndex(0);
-      resetSceneScopedState();
+      sceneViewStatesRef.current = {};
+      showSceneViewState(initialSceneViewState(parsed.scenes[0]));
       sceneCamerasRef.current = {};
       pendingCameraRestoreRef.current = null;
 
@@ -530,34 +534,63 @@ export default function Home() {
     }
   }
 
-  // Resets the state that belongs to one scene's data (see sceneViewState.js
-  // for what is reset and what is deliberately kept across a scene switch).
-  function resetSceneScopedState() {
-    setSelectedSeries(SCENE_SCOPED_STATE_DEFAULTS.selectedSeries);
-    setFiltersBySeries({ ...SCENE_SCOPED_STATE_DEFAULTS.filtersBySeries });
-    setSeriesVisibility({ ...SCENE_SCOPED_STATE_DEFAULTS.seriesVisibility });
-    setLineVisibility({});
-    setSurfaceVisibility({});
-    setNullVisibility({ ...SCENE_SCOPED_STATE_DEFAULTS.nullVisibility });
-    setMarkerSelections({ ...SCENE_SCOPED_STATE_DEFAULTS.markerSelections });
-    setMarkerSeriesIndex(SCENE_SCOPED_STATE_DEFAULTS.markerSeriesIndex);
+  // The current scene's own settings, and showing a scene's settings (see
+  // sceneViewState.js for which settings each scene keeps and which are
+  // shared). Hover and selection always start empty in a scene.
+  function currentSceneViewState() {
+    return {
+      selectedSeries,
+      filtersBySeries,
+      seriesVisibility,
+      lineVisibility,
+      surfaceVisibility,
+      nullVisibility,
+      annotationsVisible,
+      markerSelections,
+      markerSeriesIndex,
+      projectionMode,
+    };
+  }
+
+  function showSceneViewState(state) {
+    setSelectedSeries(state.selectedSeries);
+    setFiltersBySeries(state.filtersBySeries);
+    setSeriesVisibility(state.seriesVisibility);
+    setLineVisibility(state.lineVisibility);
+    setSurfaceVisibility(state.surfaceVisibility);
+    setNullVisibility(state.nullVisibility);
+    setAnnotationsVisible(state.annotationsVisible);
+    setMarkerSelections(state.markerSelections);
+    setMarkerSeriesIndex(state.markerSeriesIndex);
+    setProjectionMode(state.projectionMode);
     setHoveredPoint(null);
     setSelectedPoint(null);
+  }
+
+  // Switching projection rebuilds the 3D view with the other kind of camera.
+  // The current view is handed over (ThreeScene converts it), so a Top view
+  // stays a Top view instead of jumping back to the export's camera.
+  function changeProjection(mode) {
+    if (mode === projectionMode) return;
+    const liveCamera = threeSceneRef.current?.getCameraState();
+    if (liveCamera) pendingCameraRestoreRef.current = liveCamera;
+    setProjectionMode(mode);
   }
 
   function switchToScene(index) {
     if (!isSceneSwitch(index, currentIndex, scenes.length)) return;
 
-    // Remember where the camera was in the scene being left, and queue the
-    // target scene's remembered camera (if it has been visited and was seen
-    // through the same kind of camera) to be applied once it has mounted.
-    // Otherwise the scene opens on the export's own default camera.
+    // Remember the scene being left (its settings and camera), then show the
+    // target scene as it was left, or as its export sets it up the first
+    // time it is shown. Its remembered camera, if any, is applied once the
+    // scene has mounted; otherwise it opens on the export's camera.
+    sceneViewStatesRef.current[currentIndex] = currentSceneViewState();
     const leavingCamera = threeSceneRef.current?.getCameraState();
     if (leavingCamera) sceneCamerasRef.current[currentIndex] = leavingCamera;
-    pendingCameraRestoreRef.current = cameraStateForProjection(sceneCamerasRef.current[index], projectionMode);
+    pendingCameraRestoreRef.current = sceneCamerasRef.current[index] ?? null;
 
     setCurrentIndex(index);
-    resetSceneScopedState();
+    showSceneViewState(sceneViewStateOnEntry(sceneViewStatesRef.current, index, scenes[index]));
     setRestoreBanner(null);
   }
 
@@ -785,7 +818,7 @@ export default function Home() {
           <div className="vp-group" role="group" aria-label="Projection" style={{ position: "absolute", top: 10, right: 10, zIndex: 5 }}>
             <button
               className={`vp-btn vp-btn-label ${projectionMode === "perspective" ? "active" : ""}`}
-              onClick={() => setProjectionMode("perspective")}
+              onClick={() => changeProjection("perspective")}
               aria-pressed={projectionMode === "perspective"}
               title="Perspective — things further away look smaller, like a photo"
             >
@@ -793,9 +826,9 @@ export default function Home() {
             </button>
             <button
               className={`vp-btn vp-btn-label ${projectionMode === "orthographic" ? "active" : ""}`}
-              onClick={() => setProjectionMode("orthographic")}
+              onClick={() => changeProjection("orthographic")}
               aria-pressed={projectionMode === "orthographic"}
-              title="Orthographic — no shrinking with distance, so sizes and distances compare directly; clearest with Top, Front or Side"
+              title="Orthographic — no shrinking with distance, so sizes and distances compare directly. With Top, Front or Side it shows a coordinate grid, and dragging moves the view"
             >
               <IconOrtho size={12} /> Orthographic
             </button>

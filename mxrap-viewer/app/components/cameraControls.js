@@ -112,6 +112,29 @@ export function createCameraControls(camera, domElement, target) {
   return controls;
 }
 
+// Mouse and touch mappings. In a plan or section view (orthographic, looking
+// straight along an axis) a drag moves the view like a map and rotating
+// needs the right button, Shift or two fingers; everywhere else a drag
+// orbits as usual. OrbitControls already swaps the left button's action
+// while Shift, Ctrl or Cmd is held, so Shift-drag does the other one in both.
+const ORBIT_MOUSE_BUTTONS = Object.freeze({ LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN });
+const PLAN_MOUSE_BUTTONS = Object.freeze({ LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE });
+const ORBIT_TOUCHES = Object.freeze({ ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN });
+const PLAN_TOUCHES = Object.freeze({ ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE });
+
+/**
+ * Switch `controls` between orbiting (a drag rotates) and plan navigation
+ * (a drag pans). Takes effect from the next drag; one in progress keeps its
+ * action.
+ *
+ * @param {import("three/examples/jsm/controls/OrbitControls.js").OrbitControls} controls
+ * @param {boolean} plan
+ */
+export function setPlanNavigation(controls, plan) {
+  controls.mouseButtons = { ...(plan ? PLAN_MOUSE_BUTTONS : ORBIT_MOUSE_BUTTONS) };
+  controls.touches = { ...(plan ? PLAN_TOUCHES : ORBIT_TOUCHES) };
+}
+
 /**
  * Camera distance, and zoom for an orthographic camera, that make a box fill
  * the view when looking at its centre from `direction`, with `margin` to
@@ -191,10 +214,26 @@ export function fitBoxToView(camera, box, direction, up, margin = 1.15) {
 }
 
 /**
+ * Stops any rotation, pan or zoom still gliding on from the last drag
+ * (OrbitControls damping). Without this, a view the camera is moved to
+ * straight after a drag - Fit, Reset, Top, Front, Side or a restored camera -
+ * keeps turning for a few more frames and ends up slightly off, enough for a
+ * plan view to lose its grid. One update with damping off applies what is
+ * left at once and clears it.
+ */
+export function stopCameraGlide(controls) {
+  if (!controls?.enableDamping) return;
+  controls.enableDamping = false;
+  controls.update();
+  controls.enableDamping = true;
+}
+
+/**
  * @param {number|null} [zoom] orthographic cameras only: zoom to reach by the
  *   end of the animation (e.g. from fitBoxToView); ignored otherwise
  */
 export function animateCameraTo(camera, controls, position, target, duration = 600, zoom = null) {
+  stopCameraGlide(controls);
   const startPosition = camera.position.clone();
   const startTarget = controls.target.clone();
   const endPosition = new THREE.Vector3(position.x, position.y, position.z);

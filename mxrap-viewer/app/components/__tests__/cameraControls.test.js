@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as THREE from "three";
-import { animateCameraTo, createCamera, fitBoxToView, levelCameraUp, presetCameraOffset, updateCameraAspect } from "../cameraControls";
+import { animateCameraTo, createCamera, fitBoxToView, levelCameraUp, presetCameraOffset, setPlanNavigation, stopCameraGlide, updateCameraAspect } from "../cameraControls";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -295,5 +295,38 @@ describe("animateCameraTo zoom", () => {
     animateCameraTo(camera, controls, { x: 0, y: 0, z: 5 }, { x: 0, y: 0, z: 0 }, 600, 4);
     frames.shift()(600);
     expect(camera.zoom).toBe(1);
+  });
+});
+
+describe("setPlanNavigation", () => {
+  it("makes a drag pan and the right button rotate in a plan view", () => {
+    const controls = {};
+    setPlanNavigation(controls, true);
+    expect(controls.mouseButtons).toEqual({ LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE });
+    expect(controls.touches).toEqual({ ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE });
+  });
+
+  it("restores OrbitControls' own mapping everywhere else", () => {
+    const controls = {};
+    setPlanNavigation(controls, true);
+    setPlanNavigation(controls, false);
+    expect(controls.mouseButtons).toEqual({ LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN });
+    expect(controls.touches).toEqual({ ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN });
+  });
+});
+
+describe("stopCameraGlide", () => {
+  it("applies what is left of a drag in one update with damping off, then turns damping back on", () => {
+    const dampingDuringUpdate = [];
+    const controls = { enableDamping: true, update: vi.fn(() => dampingDuringUpdate.push(controls.enableDamping)) };
+    stopCameraGlide(controls);
+    expect(dampingDuringUpdate).toEqual([false]);
+    expect(controls.enableDamping).toBe(true);
+  });
+
+  it("does nothing when damping is off", () => {
+    const controls = { enableDamping: false, update: vi.fn() };
+    stopCameraGlide(controls);
+    expect(controls.update).not.toHaveBeenCalled();
   });
 });
