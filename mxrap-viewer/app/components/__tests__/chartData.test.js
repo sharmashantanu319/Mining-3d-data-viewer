@@ -8,6 +8,7 @@ import {
   groupChartColumns,
   computeAxisExtent,
   computeChartAxisRanges,
+  computeVisibleAxisRanges,
 } from "../chartData";
 
 describe("joinChartRows", () => {
@@ -209,5 +210,52 @@ describe("computeChartAxisRanges", () => {
   it("resolves an enabled axis with no data and no fixed bounds to null", () => {
     const emptyAxes = { bottom: { enabled: true, scale: "linear", minimum: null, maximum: null } };
     expect(computeChartAxisRanges(emptyAxes, []).bottom).toBeNull();
+  });
+});
+
+describe("computeVisibleAxisRanges", () => {
+  const axes = {
+    bottom: { enabled: true, scale: "datetime", minimum: null, maximum: null },
+    left: { enabled: true, scale: "linear", minimum: null, maximum: null },
+    right: { enabled: true, scale: "linear", minimum: 0, maximum: null },
+    top: { enabled: false, scale: "linear", minimum: null, maximum: null },
+  };
+  // Shaped like the sample magnitude-time chart: larger and smaller events on
+  // the left axis, the cumulative count on the right.
+  const seriesList = [
+    { name: "Events > threshold", axisX: { side: "bottom" }, axisY: { side: "left" }, points: { x: [20, 30, 40], y: [-1, 0.5, 2.8] } },
+    { name: "Events < threshold", axisX: { side: "bottom" }, axisY: { side: "left" }, points: { x: [10, 25, 45], y: [-2.41, -1.5, -1] } },
+    { name: "Cumulative", axisX: { side: "bottom" }, axisY: { side: "right" }, points: { x: [20, 30, 40], y: [1, 2, 3] } },
+  ];
+  const full = computeChartAxisRanges(axes, seriesList);
+
+  it("gives the full ranges while every series is drawn", () => {
+    expect(computeVisibleAxisRanges(axes, seriesList, [true, true, true], full)).toEqual({
+      bottom: { min: 10, max: 45 },
+      left: { min: -2.41, max: 2.8 },
+      right: { min: 0, max: 3 },
+      top: null,
+    });
+  });
+
+  it("closes the axes in on the series still drawn", () => {
+    expect(computeVisibleAxisRanges(axes, seriesList, [true, false, true], full)).toEqual({
+      bottom: { min: 20, max: 40 },
+      left: { min: -1, max: 2.8 },
+      right: { min: 0, max: 3 },
+      top: null,
+    });
+  });
+
+  it("keeps a fixed bound from the export", () => {
+    const fixedLeft = { ...axes, left: { ...axes.left, minimum: -3 } };
+    const ranges = computeVisibleAxisRanges(fixedLeft, seriesList, [true, false, true], computeChartAxisRanges(fixedLeft, seriesList));
+    expect(ranges.left).toEqual({ min: -3, max: 2.8 });
+  });
+
+  it("keeps the full range on an axis that no drawn series fills", () => {
+    // Right axis: only its fixed minimum would be left without the cumulative series.
+    expect(computeVisibleAxisRanges(axes, seriesList, [true, true, false], full).right).toEqual({ min: 0, max: 3 });
+    expect(computeVisibleAxisRanges(axes, seriesList, [false, false, false], full)).toEqual(full);
   });
 });

@@ -152,6 +152,10 @@ export function LeftSidebar({
     onFiltersChange((filters ?? []).map((filter) => (filter.input === input ? nextFilter : filter)));
   }
 
+  // Everything here belongs to a 3D view; an export with only charts has
+  // none to control.
+  if (scenes.length === 0) return null;
+
   if (!open) {
     return (
       <div className="collapsed-strip">
