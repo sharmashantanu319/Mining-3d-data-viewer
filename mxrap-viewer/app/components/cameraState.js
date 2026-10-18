@@ -57,18 +57,6 @@ export function isValidCameraState(state) {
 }
 
 /**
- * The state if it can be applied under `projectionMode`, otherwise null.
- * A state captured from the other kind of camera is not applied (the caller
- * then falls back to the scene's default camera); a legacy state without a
- * `projection` is accepted for either.
- */
-export function cameraStateForProjection(state, projectionMode) {
-  if (!isValidCameraState(state)) return null;
-  if (state.projection !== undefined && state.projection !== projectionMode) return null;
-  return state;
-}
-
-/**
  * The same view for the other kind of camera, so switching between
  * perspective and orthographic keeps what is on screen (a Top view stays a
  * Top view) instead of jumping back to the export's camera.

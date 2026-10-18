@@ -42,8 +42,8 @@ The toolbar in the top-left corner of the view has:
   **Top** looks straight down with north up, **Front** looks north and **Side** looks west.
   Each view is framed on the visible data.
 
-The **Perspective / Orthographic** switch in the top-right corner changes the projection and
-keeps the current view. Orthographic has no perspective distortion, so it is clearest with
+The **Perspective / Orthographic** switch in the top-right corner changes the projection of the
+current scene and keeps the current view. Orthographic has no perspective distortion, so it is clearest with
 **Top**, **Front** or **Side**. In those views it also shows a coordinate grid, labelled along
 the bottom and left edges, which keeps about 6 to 8 lines on screen as you zoom. The grid
 disappears as soon as the view is tilted.
@@ -54,8 +54,13 @@ mine exports X points east, Y north and Z up). Axes pointing away from you are d
 ## 3. Switch scenes
 
 An export can contain several scenes. In the left sidebar, **Scene** shows the current scene;
-choose another from the drop-down or use **Prev** / **Next**. Each scene has its own
-layers, legends and camera, and the viewer remembers where you left the camera in each scene.
+choose another from the drop-down or use **Prev** / **Next**.
+
+Each scene keeps its own settings. The first time you open a scene it looks the way the export
+set it up: its camera, perspective or orthographic, and every layer as exported. If you change
+the camera, the projection, layers, filters or marker style and then come back to the scene
+later, it is as you left it. The marker size slider and the annotation text size, font and
+colours apply to every scene.
 
 ## 4. Layers
 

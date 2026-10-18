@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import * as THREE from "three";
 import {
   applyCameraState,
-  cameraStateForProjection,
   convertCameraState,
   isValidCameraState,
   sanitizeSceneCameras,
@@ -81,27 +80,6 @@ describe("isValidCameraState", () => {
     ["an unknown projection", { ...validState, projection: "fisheye" }],
   ])("rejects %s", (_label, state) => {
     expect(isValidCameraState(state)).toBe(false);
-  });
-});
-
-describe("cameraStateForProjection", () => {
-  it("returns the state when its projection matches", () => {
-    expect(cameraStateForProjection(validState, "perspective")).toBe(validState);
-  });
-
-  it("returns null for a state captured from the other kind of camera", () => {
-    expect(cameraStateForProjection(validState, "orthographic")).toBeNull();
-  });
-
-  it("accepts a legacy state without a projection for either camera", () => {
-    const legacy = { position: validState.position, target: validState.target };
-    expect(cameraStateForProjection(legacy, "perspective")).toBe(legacy);
-    expect(cameraStateForProjection(legacy, "orthographic")).toBe(legacy);
-  });
-
-  it("returns null for an invalid or missing state", () => {
-    expect(cameraStateForProjection(null, "perspective")).toBeNull();
-    expect(cameraStateForProjection({ position: {} }, "perspective")).toBeNull();
   });
 });
 

@@ -46,6 +46,7 @@ describe("parseExportFile (real demo data)", () => {
       position: { x: 8640, y: 11080, z: 2840 },
       focal: { x: 8040, y: 10480, z: 2420 },
       up: { x: 0, y: 0, z: 1 },
+      projection: "perspective",
     });
   });
 
@@ -245,6 +246,7 @@ describe("parseExportFile (full-scale real export: visualiser-export-2)", () => 
       position: { x: 9095.7, y: 8504.98, z: 3046.16 },
       focal: { x: 10184.1, y: 10143.1, z: 2856.6 },
       up: { x: 0.0530927, y: 0.0799084, z: 0.995387 },
+      projection: "perspective",
     });
   });
 
@@ -380,6 +382,32 @@ describe("parseExportFile (error and skip branches)", () => {
     expect(result.charts).toEqual([]);
   });
 
+  it("reads each 3D view's projection from its camera's Perspective flag", async () => {
+    const info = {
+      title: "Projections",
+      slides: [
+        { displays: [{ folder: "s1-3dview", title: "Plan" }] },
+        { displays: [{ folder: "s2-3dview", title: "Long section" }] },
+        { displays: [{ folder: "s3-3dview", title: "No flag" }] },
+      ],
+    };
+    const camera = { Position: [10, 20, 500], Focal: [10, 20, 0], Up: [0, 1, 0] };
+    const zip = await makeZip({
+      "info.json": JSON.stringify(info),
+      "s1-3dview/config.json": JSON.stringify({ type: "3dview", camera: { ...camera, Perspective: false }, series: [] }),
+      "s2-3dview/config.json": JSON.stringify({ type: "3dview", camera: { ...camera, Perspective: true }, series: [] }),
+      "s3-3dview/config.json": JSON.stringify({ type: "3dview", camera, series: [] }),
+    });
+    const { scenes } = await parseExportFile(zip);
+    expect(scenes.map((scene) => scene.camera.projection)).toEqual(["orthographic", "perspective", "perspective"]);
+    expect(scenes[0].camera).toEqual({
+      position: { x: 10, y: 20, z: 500 },
+      focal: { x: 10, y: 20, z: 0 },
+      up: { x: 0, y: 1, z: 0 },
+      projection: "orthographic",
+    });
+  });
+
   it("skips a series type that's still out of scope (text), leaving empty surfaces/pointClouds", async () => {
     const info = {
       title: "Text export",
@@ -501,7 +529,7 @@ describe("parseExportFile (error and skip branches)", () => {
     expect(result.scenes[0].surfaces).toEqual([]);
   });
 
-  it("falls back to default title and camera vectors when they are absent", async () => {
+  it("falls back to default title, camera vectors and perspective when they are absent", async () => {
     const info = {
       slides: [{ displays: [{ folder: "s1-3dview" }] }],
     };
@@ -517,6 +545,7 @@ describe("parseExportFile (error and skip branches)", () => {
       position: { x: 3, y: 3, z: 5 },
       focal: { x: 0, y: 0, z: 0 },
       up: { x: 0, y: 1, z: 0 },
+      projection: "perspective",
     });
   });
 });
