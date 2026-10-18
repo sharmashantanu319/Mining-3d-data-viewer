@@ -311,6 +311,40 @@ body {
 }
 .axis-indicator-origin { fill: var(--color-fg-muted); }
 
+/* Plan-view grid labels and hint (PlanGridLabels.jsx), over the 3D view. */
+.plan-grid-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  pointer-events: none;
+}
+.plan-grid-label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: rgba(18, 26, 32, 0.75);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 14px;
+  color: var(--color-fg-muted);
+  white-space: nowrap;
+}
+.plan-grid-label[hidden] { display: none; }
+.plan-grid-hint {
+  position: absolute;
+  right: 12px;
+  bottom: 30px;
+  padding: 3px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: rgba(18, 25, 24, 0.85);
+  font-size: 10px;
+  color: var(--color-fg-dim);
+}
+
 /* Filters: one card per active filter (FilterControls.jsx). */
 .filter-card {
   border: 1px solid var(--color-border);

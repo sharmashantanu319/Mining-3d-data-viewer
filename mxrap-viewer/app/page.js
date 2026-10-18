@@ -545,6 +545,16 @@ export default function Home() {
     setSelectedPoint(null);
   }
 
+  // Switching projection rebuilds the 3D view with the other kind of camera.
+  // The current view is handed over (ThreeScene converts it), so a Top view
+  // stays a Top view instead of jumping back to the export's camera.
+  function changeProjection(mode) {
+    if (mode === projectionMode) return;
+    const liveCamera = threeSceneRef.current?.getCameraState();
+    if (liveCamera) pendingCameraRestoreRef.current = liveCamera;
+    setProjectionMode(mode);
+  }
+
   function switchToScene(index) {
     if (!isSceneSwitch(index, currentIndex, scenes.length)) return;
 
@@ -785,7 +795,7 @@ export default function Home() {
           <div className="vp-group" role="group" aria-label="Projection" style={{ position: "absolute", top: 10, right: 10, zIndex: 5 }}>
             <button
               className={`vp-btn vp-btn-label ${projectionMode === "perspective" ? "active" : ""}`}
-              onClick={() => setProjectionMode("perspective")}
+              onClick={() => changeProjection("perspective")}
               aria-pressed={projectionMode === "perspective"}
               title="Perspective — things further away look smaller, like a photo"
             >
@@ -793,9 +803,9 @@ export default function Home() {
             </button>
             <button
               className={`vp-btn vp-btn-label ${projectionMode === "orthographic" ? "active" : ""}`}
-              onClick={() => setProjectionMode("orthographic")}
+              onClick={() => changeProjection("orthographic")}
               aria-pressed={projectionMode === "orthographic"}
-              title="Orthographic — no shrinking with distance, so sizes and distances compare directly; clearest with Top, Front or Side"
+              title="Orthographic — no shrinking with distance, so sizes and distances compare directly. With Top, Front or Side it shows a coordinate grid, and dragging moves the view"
             >
               <IconOrtho size={12} /> Orthographic
             </button>

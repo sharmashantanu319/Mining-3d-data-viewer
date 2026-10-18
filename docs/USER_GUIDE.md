@@ -25,11 +25,14 @@ and shows the error.
 
 ## 2. Move around the 3D view
 
-| Action | Mouse |
-| --- | --- |
-| Rotate | Left-drag |
-| Pan | Right-drag |
-| Zoom | Scroll wheel |
+| Action | Mouse | Trackpad |
+| --- | --- | --- |
+| Rotate | Left-drag | Drag |
+| Pan | Right-drag, or Shift-drag | Shift-drag, or two-finger click and drag |
+| Zoom | Scroll wheel | Pinch or two-finger scroll |
+
+In a plan or section view (see below) the first two swap: dragging moves the view like a map,
+and Shift-drag or right-drag rotates it.
 
 The toolbar in the top-left corner of the view has:
 
@@ -39,9 +42,11 @@ The toolbar in the top-left corner of the view has:
   **Top** looks straight down with north up, **Front** looks north and **Side** looks west.
   Each view is framed on the visible data.
 
-The **Perspective / Orthographic** switch in the top-right corner changes the projection.
-Orthographic has no perspective distortion, so it is clearest with **Top**, **Front** or
-**Side**.
+The **Perspective / Orthographic** switch in the top-right corner changes the projection and
+keeps the current view. Orthographic has no perspective distortion, so it is clearest with
+**Top**, **Front** or **Side**. In those views it also shows a coordinate grid, labelled along
+the bottom and left edges, which keeps about 6 to 8 lines on screen as you zoom. The grid
+disappears as soon as the view is tilted.
 
 The axis indicator in the bottom-left corner shows the X, Y and Z directions at all times (in
 mine exports X points east, Y north and Z up). Axes pointing away from you are drawn fainter.

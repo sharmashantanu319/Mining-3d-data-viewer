@@ -53,7 +53,7 @@ A smaller additional archive, `mxrap-viewer/test-data/test-export-big.zip`, is p
 | Area | Current MVP capability |
 | --- | --- |
 | Import | Browser-based selection of supported mXrap ZIP exports, a configurable compressed-size limit, structural/data-reference validation, error messages and import diagnostics |
-| 3D geometry | Mine surfaces from vertices/faces, with camera navigation (fit, reset, plan and section views, perspective/orthographic), an XYZ axis indicator and per-layer visibility |
+| 3D geometry | Mine surfaces from vertices/faces, with camera navigation (fit, reset, plan and section views, perspective/orthographic), a coordinate grid in orthographic plan and section views, an XYZ axis indicator and per-layer visibility |
 | Seismic/sensors | Point series, symbol and colour/size marker mapping, configurable legends, visibility and point inspection |
 | Exploration | Numeric/date/category filtering, annotation controls, scene picker, per-scene camera handling and session-restoration support |
 | RMQ | Interval line-series loading/rendering with RQD colouring, legend and line visibility controls |

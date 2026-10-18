@@ -3,6 +3,7 @@ import * as THREE from "three";
 import {
   applyCameraState,
   cameraStateForProjection,
+  convertCameraState,
   isValidCameraState,
   sanitizeSceneCameras,
   snapshotCameraState,
@@ -187,5 +188,63 @@ describe("sanitizeSceneCameras", () => {
     expect(sanitizeSceneCameras(null, 3)).toEqual({});
     expect(sanitizeSceneCameras([validState], 3)).toEqual({});
     expect(sanitizeSceneCameras("nope", 3)).toEqual({});
+  });
+});
+
+describe("convertCameraState", () => {
+  const perspectiveState = {
+    projection: "perspective",
+    position: { x: 0, y: 0, z: 100 },
+    target: { x: 0, y: 0, z: 0 },
+    up: { x: 0, y: 1, z: 0 },
+    zoom: 1,
+  };
+
+  it("returns a state that already suits the camera, or has no projection, unchanged", () => {
+    expect(convertCameraState(perspectiveState, "perspective", 400)).toBe(perspectiveState);
+    const legacy = { position: { x: 1, y: 2, z: 3 }, target: { x: 0, y: 0, z: 0 } };
+    expect(convertCameraState(legacy, "orthographic", 400)).toBe(legacy);
+  });
+
+  it("perspective to orthographic keeps the camera and zooms to the same view size", () => {
+    // 100 m from the target, with the frustum built for 400 m: zoom 400 / 100.
+    expect(convertCameraState(perspectiveState, "orthographic", 400)).toEqual({
+      ...perspectiveState,
+      projection: "orthographic",
+      zoom: 4,
+    });
+  });
+
+  it("orthographic to perspective moves along the view to the matching distance", () => {
+    const orthographic = {
+      projection: "orthographic",
+      position: { x: 30, y: 40, z: 0 }, // 50 m from the target
+      target: { x: 0, y: 0, z: 0 },
+      up: { x: 0, y: 0, z: 1 },
+      zoom: 2,
+    };
+    // Frustum built for 300 m at zoom 2 shows what a camera 150 m away shows.
+    expect(convertCameraState(orthographic, "perspective", 300)).toEqual({
+      ...orthographic,
+      projection: "perspective",
+      position: { x: 90, y: 120, z: 0 },
+      zoom: 1,
+    });
+  });
+
+  it("round-trips back to the same view", () => {
+    const there = convertCameraState(perspectiveState, "orthographic", 250);
+    const back = convertCameraState(there, "perspective", 250);
+    expect(back.position.x).toBeCloseTo(0, 9);
+    expect(back.position.y).toBeCloseTo(0, 9);
+    expect(back.position.z).toBeCloseTo(100, 9);
+    expect(back.zoom).toBe(1);
+  });
+
+  it("gives null for an invalid state, a missing home distance or a zero-length view", () => {
+    expect(convertCameraState({ position: { x: 0 } }, "orthographic", 400)).toBeNull();
+    expect(convertCameraState(perspectiveState, "orthographic", 0)).toBeNull();
+    expect(convertCameraState(perspectiveState, "orthographic", NaN)).toBeNull();
+    expect(convertCameraState({ ...perspectiveState, position: { x: 0, y: 0, z: 0 } }, "orthographic", 400)).toBeNull();
   });
 });
