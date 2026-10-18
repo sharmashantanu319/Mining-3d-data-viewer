@@ -442,6 +442,64 @@ export function roundSliderBound(value, direction) {
   return Number((whole * step).toFixed(Math.min(Math.max(0, -power), 100)));
 }
 
+const MINUTE_MS = 60_000;
+
+/**
+ * A date filter bound on a whole minute, rounded outwards so the points at
+ * the bound stay in: a lower bound ("down") to the start of its minute, an
+ * upper bound ("up") to the last millisecond of its minute. The From / To
+ * boxes show minutes, and the response exports span less than a day, so a
+ * whole day was far too coarse.
+ *
+ * @param {number} epoch epoch milliseconds
+ * @param {"down"|"up"} direction
+ * @returns {number}
+ */
+export function roundDateBound(epoch, direction) {
+  if (!Number.isFinite(epoch)) return epoch;
+  const start = Math.floor(epoch / MINUTE_MS) * MINUTE_MS;
+  return direction === "down" ? start : start + MINUTE_MS - 1;
+}
+
+/**
+ * A date bound as a date-and-time box shows it ("2021-10-17T05:36"). The
+ * export's times carry no time zone and are read as UTC (customerDate.js),
+ * so they are shown in UTC too: the same clock time as in the export.
+ *
+ * @param {number|null} epoch
+ * @returns {string} "" when there is no bound
+ */
+export function toDateTimeInputValue(epoch) {
+  if (!Number.isFinite(epoch)) return "";
+  return new Date(epoch).toISOString().slice(0, 16);
+}
+
+/**
+ * The bound a date-and-time box's text stands for: the start of that minute
+ * for a lower bound, its last millisecond for an upper bound (so "to 04:35"
+ * keeps everything up to 04:35:59.999).
+ *
+ * @param {string} text "YYYY-MM-DDTHH:MM", optionally with seconds
+ * @param {"min"|"max"} edge
+ * @returns {number|null} null for an empty or unreadable box
+ */
+export function fromDateTimeInputValue(text, edge) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::\d{2}(?:\.\d+)?)?$/.exec(String(text ?? "").trim());
+  if (!match) return null;
+  const [year, month, day, hour, minute] = match.slice(1).map(Number);
+  const start = Date.UTC(year, month - 1, day, hour, minute);
+  // Date.UTC rolls an impossible date over ("02-30" becomes 2 March) and
+  // reads years below 100 as 19xx; both are refused instead.
+  const date = new Date(start);
+  if (
+    !Number.isFinite(start) || hour > 23 || minute > 59 ||
+    date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day
+  ) {
+    return null;
+  }
+  return edge === "max" ? start + MINUTE_MS - 1 : start;
+}
+
 /**
  * How many points one filter hides on its own (ignoring the other filters),
  * so each filter can say what it is doing.
@@ -509,6 +567,8 @@ export function inferFilterFields(points, { maxCategories = 20 } = {}) {
           inputType: "date",
           min,
           max,
+          // Epoch milliseconds, for the same range slider as numbers.
+          sortedValues: Float64Array.from(dateValues).sort(),
           validCount: dateValues.length,
           missingCount: rows.length - present.length,
           invalidCount: present.length - dateValues.length,

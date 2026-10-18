@@ -51,7 +51,9 @@ export async function checkMarkers(zip, series, rows, label, root, notes = null)
         }
         if (def) {
           defMenu = menu;
-          warnings.push(`${label}: marker "${name}" is not in marker-defs/${series.markerMenu}.json; using the definition from marker-defs/${menu}.json.`);
+          // Said plainly first; the files involved are kept at the end for
+          // whoever fixes the export.
+          warnings.push(`${label}: the colours for "${name}" are missing from this series' own marker file, so the same-named colours from another series are used (marker-defs/${menu}.json instead of marker-defs/${series.markerMenu}.json).`);
         }
       }
     }

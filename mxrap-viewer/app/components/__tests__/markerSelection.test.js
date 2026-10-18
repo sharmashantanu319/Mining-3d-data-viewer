@@ -50,6 +50,23 @@ describe("getMarkerChoices", () => {
     expect(choices.size.map((choice) => choice.name)).toEqual(["ML"]);
   });
 
+  it("does not offer a marker whose column is empty in every row", () => {
+    const emptyDates = MINODES.points.map((point) => ({ ...point, DateTime: "" }));
+    const choices = getMarkerChoices({ ...MINODES, points: [...emptyDates, { ...emptyDates[0], DateTime: null }] });
+    expect(choices.colour.map((choice) => choice.name)).toEqual(["Cross/Grey", "P[ML within R]"]);
+  });
+
+  it("offers a marker whose column has a value in any row, not only the first", () => {
+    const points = [
+      { ...MINODES.points[0], ML: "" },
+      { ...MINODES.points[0], ID: 8, ML: NaN },
+      { ...MINODES.points[0], ID: 9, ML: -0.4 },
+    ];
+    const choices = getMarkerChoices({ ...MINODES, points });
+    expect(choices.colour.map((choice) => choice.name)).toEqual(["Mag/Spheres", "Cross/Grey", "P[ML within R]"]);
+    expect(choices.size.map((choice) => choice.name)).toEqual(["ML"]);
+  });
+
   it("offers every marker when there are no points to check", () => {
     const choices = getMarkerChoices({ ...MINODES, points: [] });
     expect(choices.colour).toHaveLength(5);
