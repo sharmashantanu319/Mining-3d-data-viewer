@@ -260,3 +260,32 @@ export function computeVisibleAxisRanges(axes, seriesList, drawn, fullRanges) {
   }
   return ranges;
 }
+
+// Share of an axis' span left free beyond the data at each end the data
+// sets, so the points at the very top or bottom of a chart are drawn whole
+// instead of being cut in half by the edge of the plot.
+export const CHART_DATA_MARGIN = 0.05;
+
+/**
+ * An axis range with a little room beyond the data. Each end that comes from
+ * the data moves out by `fraction` of the span (on a log10 axis, by that
+ * fraction of the span in powers of ten). An end fixed in the export stays
+ * exactly where it is, and a flat or missing range is returned unchanged.
+ *
+ * @param {{min: number, max: number}|null} range
+ * @param {{scale?: string, minimum?: number|null, maximum?: number|null}} axis
+ * @param {number} [fraction]
+ * @returns {{min: number, max: number}|null}
+ */
+export function addDataMargins(range, axis, fraction = CHART_DATA_MARGIN) {
+  if (!range || !Number.isFinite(range.min) || !Number.isFinite(range.max) || !(range.max > range.min)) return range;
+  const padMin = !Number.isFinite(axis?.minimum);
+  const padMax = !Number.isFinite(axis?.maximum);
+  if (axis?.scale === "log10") {
+    if (!(range.min > 0)) return range;
+    const factor = (range.max / range.min) ** fraction;
+    return { min: padMin ? range.min / factor : range.min, max: padMax ? range.max * factor : range.max };
+  }
+  const pad = (range.max - range.min) * fraction;
+  return { min: padMin ? range.min - pad : range.min, max: padMax ? range.max + pad : range.max };
+}

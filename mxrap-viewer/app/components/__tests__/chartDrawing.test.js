@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { parseExportFile } from "../parseExportFile";
-import { drawChart } from "../ChartView";
+import { drawChart, resolveRanges } from "../ChartView";
 import { resolveChartLineColour, resolveChartPointColours } from "../chartColours";
 import { computeVisibleAxisRanges } from "../chartData";
 
@@ -118,6 +118,67 @@ describe("axes fitted to the drawn series", () => {
     expect(withoutLine).toContain("Local Magnitude");
     expect(withoutLine).not.toContain("Cumulative Events");
     expect(withoutLine).not.toContain("A large spike");
+  });
+});
+
+describe("room around the data", () => {
+  it("draws the highest and lowest magnitudes inside the plot, not on its edge", async () => {
+    const { charts: [chart] } = await parseExportFile(readFileSync(
+      new URL("../../../test-data/visualiser-export-2.zip", import.meta.url)
+    ));
+    const toggles = { "0:points": true, "1:points": true, "2:lines": true };
+    const ranges = resolveRanges(chart, toggles);
+    expect(ranges.left.min).toBeCloseTo(-2.6705, 12);
+    expect(ranges.left.max).toBeCloseTo(3.0605, 12);
+    expect(ranges.right).toEqual({ min: 0, max: 698.25 }); // fixed minimum 0 stays
+    expect(ranges.bottom.min).toBeCloseTo(1682767318004.1, 1);
+    expect(ranges.bottom.max).toBeCloseTo(1685710497537.9, 1);
+
+    vi.stubGlobal("window", { devicePixelRatio: 1 });
+    const ctx = Object.fromEntries([
+      "setTransform", "clearRect", "beginPath", "moveTo", "lineTo", "stroke",
+      "fillText", "save", "restore", "translate", "rotate", "rect", "clip", "arc", "fill",
+    ].map((name) => [name, vi.fn()]));
+    const colours = chart.series.map((series) => ({
+      pointColours: resolveChartPointColours(series),
+      lineColour: resolveChartLineColour(series),
+      lineColours: series.lines.map(() => null),
+    }));
+    drawChart({ clientWidth: 1000, clientHeight: 600, getContext: () => ctx }, chart, ranges, { "0:points": true }, colours);
+    // The plot runs from y = 14 to 556; the 2.8 event now sits 24.6 px below its top.
+    const pointYs = ctx.arc.mock.calls.filter((call) => call[2] === 2.5).map((call) => call[1]);
+    expect(Math.min(...pointYs)).toBeCloseTo(38.63636363636374, 9);
+  });
+
+  it("gives the plot the right-hand axis' room when that axis is hidden", () => {
+    vi.stubGlobal("window", { devicePixelRatio: 1 });
+    const axes = {
+      bottom: { enabled: true, title: "", scale: "linear" },
+      left: { enabled: true, title: "", scale: "linear" },
+      right: { enabled: true, title: "", scale: "linear" },
+      top: { enabled: false },
+    };
+    const chart = {
+      axes,
+      annotations: [],
+      series: [{
+        axisX: { side: "bottom" }, axisY: { side: "left" }, enablePoints: true, enableLines: false,
+        colourMarker: null, points: { x: [0, 1, 2], y: [0, 1, 2], rows: [] }, lines: [],
+      }],
+    };
+    const xs = (ranges) => {
+      const ctx = Object.fromEntries([
+        "setTransform", "clearRect", "beginPath", "moveTo", "lineTo", "stroke",
+        "fillText", "save", "restore", "translate", "rotate", "rect", "clip", "arc", "fill",
+      ].map((name) => [name, vi.fn()]));
+      drawChart({ clientWidth: 1000, clientHeight: 600, getContext: () => ctx }, chart, ranges, { "0:points": true },
+        [{ pointColours: null, pointSizes: null, lineColour: "", lineColours: [] }]);
+      return ctx.arc.mock.calls.map((call) => call[0]);
+    };
+    const shared = { bottom: { min: 0, max: 2 }, left: { min: 0, max: 2 }, top: null };
+    // With a right-hand axis the plot ends 64 px from the right edge; without one, 14 px.
+    expect(xs({ ...shared, right: { min: 0, max: 1 } })).toEqual([64, 500, 936]);
+    expect(xs({ ...shared, right: null })).toEqual([64, 525, 986]);
   });
 });
 

@@ -9,6 +9,7 @@ import {
   computeAxisExtent,
   computeChartAxisRanges,
   computeVisibleAxisRanges,
+  addDataMargins,
 } from "../chartData";
 
 describe("joinChartRows", () => {
@@ -272,5 +273,33 @@ describe("computeVisibleAxisRanges", () => {
   it("keeps the full range on an axis whose drawn series have no values", () => {
     const noCumulativeValues = [seriesList[0], seriesList[1], { ...seriesList[2], points: { x: [], y: [] } }];
     expect(computeVisibleAxisRanges(axes, noCumulativeValues, [true, true, true], full).right).toEqual({ min: 0, max: 3 });
+  });
+});
+
+describe("addDataMargins", () => {
+  const linear = { scale: "linear", minimum: null, maximum: null };
+
+  it("leaves 5% of the span free beyond each end that the data sets", () => {
+    expect(addDataMargins({ min: 0, max: 100 }, linear)).toEqual({ min: -5, max: 105 });
+    expect(addDataMargins({ min: 0, max: 86_400_000 }, { ...linear, scale: "datetime" })).toEqual({ min: -4_320_000, max: 90_720_000 });
+  });
+
+  it("keeps an end fixed in the export exactly where it is", () => {
+    expect(addDataMargins({ min: 0, max: 665 }, { ...linear, minimum: 0 })).toEqual({ min: 0, max: 698.25 });
+    expect(addDataMargins({ min: -3, max: 2.8 }, { ...linear, minimum: -3, maximum: 2.8 })).toEqual({ min: -3, max: 2.8 });
+  });
+
+  it("works in powers of ten on a log axis", () => {
+    const padded = addDataMargins({ min: 1, max: 1000 }, { ...linear, scale: "log10" });
+    expect(padded.min).toBeCloseTo(0.7079457843841379, 12);
+    expect(padded.max).toBeCloseTo(1412.537544622754, 9);
+  });
+
+  it("returns a flat, missing or unusable range unchanged", () => {
+    const flat = { min: 5, max: 5 };
+    expect(addDataMargins(flat, linear)).toBe(flat);
+    expect(addDataMargins(null, linear)).toBeNull();
+    const nonPositiveLog = { min: 0, max: 10 };
+    expect(addDataMargins(nonPositiveLog, { ...linear, scale: "log10" })).toBe(nonPositiveLog);
   });
 });
