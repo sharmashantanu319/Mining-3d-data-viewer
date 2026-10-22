@@ -26,6 +26,8 @@ const STARTING_STATE = {
   annotationsVisible: true,
   markerSelections: {},
   markerSeriesIndex: 0,
+  surfaceStyles: {},
+  surfaceStyleIndex: 0,
 };
 
 const rangeFilter = (input, min, max) => ({
@@ -143,6 +145,8 @@ describe("serializeSceneViewStates / restoreSceneViewStates", () => {
         1: { colourMarker: "Event Date", sizeMarker: null, minSize: 4, maxSize: NaN, invertSize: true },
       },
       markerSeriesIndex: 1,
+      surfaceStyles: {},
+      surfaceStyleIndex: 0,
       projectionMode: "orthographic",
     });
     expect(Object.keys(filtersBySeries)).toEqual(["1"]);
@@ -219,6 +223,34 @@ describe("serializeSceneViewStates / restoreSceneViewStates", () => {
     expect(restoreSceneViewStates([{ projectionMode: "orthographic" }], [obliqueScene])).toEqual({});
     expect(restoreSceneViewStates({ 0: {} }, null)).toEqual({});
     expect(restoreSceneViewState(null, planScene)).toEqual({ ...STARTING_STATE, projectionMode: "orthographic" });
+  });
+});
+
+describe("surface styles in a scene's state", () => {
+  it("keeps each surface's style through JSON and drops unusable settings", () => {
+    const saved = JSON.parse(JSON.stringify(serializeSceneViewStates({
+      0: {
+        ...initialSceneViewState(planScene),
+        surfaceStyles: {
+          0: { colourMarker: "Date", opacity: 0.4 },
+          1: { colourMarker: null, colour: "#ff8800" },
+        },
+        surfaceStyleIndex: 1,
+      },
+    })));
+    const restored = restoreSceneViewStates(saved, [planScene])[0];
+    expect(restored.surfaceStyles).toEqual({
+      0: { colourMarker: "Date", opacity: 0.4 },
+      1: { colourMarker: null, colour: "#ff8800" },
+    });
+    expect(restored.surfaceStyleIndex).toBe(1);
+
+    const cleaned = restoreSceneViewState({
+      surfaceStyles: { 0: { colour: "orange", opacity: 7 }, 1: { colour: "red" }, x: { opacity: 0.5 } },
+      surfaceStyleIndex: -1,
+    }, planScene);
+    expect(cleaned.surfaceStyles).toEqual({ 0: { opacity: 1 } });
+    expect(cleaned.surfaceStyleIndex).toBe(0);
   });
 });
 

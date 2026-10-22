@@ -165,6 +165,12 @@ export function buildSurfaceMesh(surfaceData, vertexColours) {
     }
   }
 
+  // A see-through surface (Surface Style's opacity, surfaceStyle.js).
+  const opacity = Number.isFinite(surfaceData.opacity)
+    ? Math.max(0, Math.min(1, surfaceData.opacity))
+    : 1;
+  if (opacity < 1) transparent = true;
+
   // Create the final surface material.
   const material = new THREE.MeshStandardMaterial({
     color: usesVertexColours
@@ -173,6 +179,7 @@ export function buildSurfaceMesh(surfaceData, vertexColours) {
 
     vertexColors: usesVertexColours,
 
+    opacity,
     transparent,
     depthWrite: !transparent,
 

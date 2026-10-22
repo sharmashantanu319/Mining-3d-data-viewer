@@ -9,7 +9,8 @@
 import { resolveColourMarker, resolveSizeMarker } from "./pointMarkerResolver";
 import { mapColour, toCssRgba } from "./colourMapping";
 import { mapSize } from "./sizeMapping";
-import { parseRgbColour } from "./markerSymbols";
+import { isSingleColourDefinition, parseRgbColour } from "./markerSymbols";
+import { findMarkerDefinition } from "./markerLookup";
 
 export const DEFAULT_CHART_POINT_COLOUR = "rgb(120, 144, 156)";
 export const DEFAULT_CHART_LINE_COLOUR = "rgb(0, 0, 127)";
@@ -42,6 +43,18 @@ export function resolveChartPointColours(series) {
   const rows = series?.points?.rows;
   if (!Array.isArray(rows) || rows.length === 0 || !series.colourMarker) return null;
   if (!Array.isArray(series.markerDefinitions) || series.markerDefinitions.length === 0) return null;
+
+  // A single-colour marker ("Cross/Grey", "Cross/Green") paints every point
+  // its one colour, as it does in the 3D view. It reads no column, so
+  // resolveColourMarker has no ramp for it, and the chart used to fall back
+  // to the default colour: the sample's grey crosses came out blue-grey.
+  const definition = findMarkerDefinition(series.markerDefinitions, series.colourMarker, "colour");
+  if (isSingleColourDefinition(definition)) {
+    const rgb = parseRgbColour(definition.colour);
+    if (!rgb) return null;
+    const colour = toCssRgba({ ...rgb, a: 1 });
+    return rows.map(() => colour);
+  }
 
   const marker = resolveColourMarker({
     markerDefinitions: series.markerDefinitions,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { axisFraction, computeTicks, formatTick, padDegenerateRange } from "./chartScale";
 import {
   DEFAULT_CHART_POINT_COLOUR,
@@ -18,15 +18,6 @@ const TEXT_COLOUR = "#c9d1cf";
 const GRID_COLOUR = "rgba(255, 255, 255, 0.08)";
 const AXIS_COLOUR = "rgba(255, 255, 255, 0.35)";
 const POINT_RADIUS = DEFAULT_CHART_POINT_DIAMETER / 2;
-
-function initialToggles(chart) {
-  const toggles = {};
-  chart.series.forEach((series, index) => {
-    toggles[`${index}:points`] = series.pointsVisible;
-    toggles[`${index}:lines`] = series.linesVisible;
-  });
-  return toggles;
-}
 
 // Each enabled axis' range for the series drawn now (a series is drawn when
 // its Points or Lines switch is on), widening a flat range so there is
@@ -251,11 +242,13 @@ function ChartText({ html, style }) {
 
 /**
  * Renders one parsed chart (see parseExportFile's `charts`): header, a
- * canvas with up to four axes, per-series points/lines toggles and footer.
+ * canvas with up to four axes, and footer. `chart.series` come with the
+ * Marker Style choices already applied (chartStyle.js), and `toggles` say
+ * which series' points and lines are drawn: both are set in the left
+ * sidebar's chart controls, so every control of the chart is in one place.
  */
-export default function ChartView({ chart }) {
+export default function ChartView({ chart, toggles }) {
   const canvasRef = useRef(null);
-  const [toggles, setToggles] = useState(() => initialToggles(chart));
   const ranges = useMemo(() => resolveRanges(chart, toggles), [chart, toggles]);
 
   // Colours depend only on the data and markers, not on the toggles or the
@@ -289,33 +282,9 @@ export default function ChartView({ chart }) {
     return () => observer.disconnect();
   }, [chart, ranges, toggles, seriesColours]);
 
-  function toggle(key) {
-    setToggles((current) => ({ ...current, [key]: !current[key] }));
-  }
-
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", padding: "14px 18px", gap: 8, color: "var(--color-fg)" }}>
       {chart.header && <ChartText html={chart.header} style={{ fontSize: 15, fontWeight: 600 }} />}
-
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 14, fontSize: 12 }}>
-        {chart.series.map((series, index) => (
-          <div key={index} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontWeight: 600 }}>{series.name}</span>
-            {series.enablePoints && (
-              <label style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                <input type="checkbox" checked={toggles[`${index}:points`]} onChange={() => toggle(`${index}:points`)} />
-                Points
-              </label>
-            )}
-            {series.enableLines && (
-              <label style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                <input type="checkbox" checked={toggles[`${index}:lines`]} onChange={() => toggle(`${index}:lines`)} />
-                Lines
-              </label>
-            )}
-          </div>
-        ))}
-      </div>
 
       <canvas
         ref={canvasRef}

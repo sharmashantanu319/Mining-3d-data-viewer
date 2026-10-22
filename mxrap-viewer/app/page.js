@@ -25,6 +25,14 @@ import { buildColourLegend } from "./components/colourLegend";
 import { getMarkerChoices, applyMarkerSelections, pickLegendSeriesIndices } from "./components/markerSelection";
 import { markerSymbolLabel } from "./components/pointMarkerResolver";
 import { findMarkerDefinition } from "./components/markerLookup";
+import {
+  applyChartSelections,
+  chartMarkerValue,
+  countDrawnChartPoints,
+  getChartMarkerChoices,
+  initialChartToggles,
+} from "./components/chartStyle";
+import { applySurfaceStyle, getSurfaceColourChoices, surfaceColourHex } from "./components/surfaceStyle";
 import { IconFitView, IconPerspective, IconOrtho, IconRefresh } from "./components/icons";
 import { loadSession, saveSession, sanitizeAnnotationStyle, sessionKeyFor } from "./components/viewerSession";
 import { isValidCameraState, sanitizeSceneCameras } from "./components/cameraState";
@@ -73,6 +81,14 @@ export default function Home() {
   const [markerSelections, setMarkerSelections] = useState({});
   const [markerSeriesIndex, setMarkerSeriesIndex] = useState(0);
   const [markerScale, setMarkerScale] = useState(0.5);
+  const [surfaceStyles, setSurfaceStyles] = useState({}); // { [surfaceIndex]: Surface Style (surfaceStyle.js) } for the current scene
+  const [surfaceStyleIndex, setSurfaceStyleIndex] = useState(0); // which surface the Surface Style section is set to
+  // Chart settings, kept per chart (by its id) while the file is open:
+  // each series' Points/Lines switches, its Marker Style choices, and which
+  // series the Marker Style section is set to.
+  const [chartToggles, setChartToggles] = useState({});
+  const [chartSelections, setChartSelections] = useState({});
+  const [chartMarkerSeries, setChartMarkerSeries] = useState({});
   const [restoreBanner, setRestoreBanner] = useState(null); // { key, session } for the currently loaded file, if a saved session was found
   const [hoveredPoint, setHoveredPoint] = useState(null);
   const [selectedPoint, setSelectedPoint] = useState(null);
@@ -244,6 +260,8 @@ export default function Home() {
     nullVisibility,
     markerSelections,
     markerSeriesIndex,
+    surfaceStyles,
+    surfaceStyleIndex,
     markerScale,
     rightOpen,
     annotationsVisible,
@@ -319,13 +337,171 @@ export default function Home() {
   // legend stays paired with its originating series by index, including for
   // the fullRenderedPointClouds lookup buildColourLegend's 3rd argument uses
   // to compute the full-dataset range comparison.
+  // ---------- Chart controls (shown in the sidebar while a chart is on screen) ----------
+  const activeChartId = activeChart?.id ?? null;
+  const activeChartSelections = useMemo(
+    () => (activeChartId ? chartSelections[activeChartId] ?? {} : {}),
+    [chartSelections, activeChartId]
+  );
+  // The chart as drawn: every series with its Marker Style choices applied,
+  // so the chart, its legend and the sidebar all read the same colours.
+  const styledChart = useMemo(
+    () => (activeChart ? { ...activeChart, series: applyChartSelections(activeChart.series, activeChartSelections) } : null),
+    [activeChart, activeChartSelections]
+  );
+  const activeChartToggles = useMemo(
+    () => (activeChartId ? chartToggles[activeChartId] ?? initialChartToggles(activeChart) : {}),
+    [chartToggles, activeChartId, activeChart]
+  );
+  const chartSeriesCount = activeChart?.series.length ?? 0;
+  const chartMarkerIndex = Math.min(chartMarkerSeries[activeChartId] ?? 0, Math.max(0, chartSeriesCount - 1));
+  const chartMarkerSource = activeChart?.series[chartMarkerIndex] ?? null;
+  const chartMarkerStyled = styledChart?.series[chartMarkerIndex] ?? null;
+  const chartMarkerSelection = activeChartSelections[chartMarkerIndex] ?? {};
+  const chartColourValue = chartMarkerValue(chartMarkerSource, chartMarkerSelection, "colourMarker");
+  const chartSizeValue = chartMarkerValue(chartMarkerSource, chartMarkerSelection, "sizeMarker");
+  const chartMarkerChoices = useMemo(
+    () => getChartMarkerChoices(chartMarkerSource, { colour: chartColourValue, size: chartSizeValue }),
+    [chartMarkerSource, chartColourValue, chartSizeValue]
+  );
+  const chartNullColumn = colourMarkerInput(chartMarkerStyled);
+  const chartNullCount = useMemo(
+    () => countMissingValues(chartMarkerSource?.points?.rows, chartNullColumn),
+    [chartMarkerSource, chartNullColumn]
+  );
+
+  function updateChartSelection(patch) {
+    if (!activeChartId) return;
+    setChartSelections((current) => {
+      const forChart = current[activeChartId] ?? {};
+      return {
+        ...current,
+        [activeChartId]: { ...forChart, [chartMarkerIndex]: { ...forChart[chartMarkerIndex], ...patch } },
+      };
+    });
+  }
+
+  function toggleChartSeries(key) {
+    if (!activeChartId) return;
+    setChartToggles((current) => {
+      const toggles = current[activeChartId] ?? initialChartToggles(activeChart);
+      return { ...current, [activeChartId]: { ...toggles, [key]: !toggles[key] } };
+    });
+  }
+
+  const chartControls = styledChart
+    ? {
+        series: styledChart.series,
+        toggles: activeChartToggles,
+        onToggle: toggleChartSeries,
+        drawnPointCount: countDrawnChartPoints(styledChart.series, activeChartToggles),
+        totalPointCount: styledChart.series.reduce(
+          (total, series) => total + (series.enablePoints ? series.points?.x?.length ?? 0 : 0),
+          0
+        ),
+        markerStyle: {
+          markerSeriesOptions: styledChart.series.map((series, index) => series.name || `Series ${index + 1}`),
+          markerSeriesIndex: chartMarkerIndex,
+          onMarkerSeriesChange: (index) => setChartMarkerSeries((current) => ({ ...current, [activeChartId]: index })),
+          colourChoices: chartMarkerChoices.colour,
+          colourValue: chartColourValue,
+          onColourChange: (value) => updateChartSelection({ colourMarker: value || null }),
+          nullValueColumn: chartNullColumn,
+          nullValueCount: chartNullCount,
+          showNulls: chartMarkerStyled?.showNullColours === true,
+          onShowNullsChange: (e) => updateChartSelection({ showNullColours: e.target.checked }),
+          sizeChoices: chartMarkerChoices.size,
+          sizeValue: chartSizeValue,
+          onSizeChange: (value) => updateChartSelection({ sizeMarker: value || null }),
+          sizeMinValue: Object.hasOwn(chartMarkerSelection, "minSize")
+            ? chartMarkerSelection.minSize
+            : chartMarkerSource?.sizeMinimum ?? "",
+          sizeMaxValue: Object.hasOwn(chartMarkerSelection, "maxSize")
+            ? chartMarkerSelection.maxSize
+            : chartMarkerSource?.sizeMaximum ?? "",
+          onSizeMinChange: (value) => updateChartSelection({ minSize: value }),
+          onSizeMaxChange: (value) => updateChartSelection({ maxSize: value }),
+          invertSize: chartMarkerSelection.invertSize === true,
+          onInvertSizeChange: (value) => updateChartSelection({ invertSize: value }),
+        },
+      }
+    : null;
+
+  // ---------- Surface Style (3D view) ----------
+  const sceneSurfaces = useMemo(() => currentScene.surfaces ?? [], [currentScene]);
+  const safeSurfaceStyleIndex = Math.min(surfaceStyleIndex, Math.max(0, sceneSurfaces.length - 1));
+  const styledActiveSurface = useMemo(
+    () => applySurfaceStyle(sceneSurfaces[safeSurfaceStyleIndex], surfaceStyles[safeSurfaceStyleIndex]),
+    [sceneSurfaces, safeSurfaceStyleIndex, surfaceStyles]
+  );
+  const surfaceColourChoices = useMemo(
+    () => getSurfaceColourChoices(sceneSurfaces[safeSurfaceStyleIndex], styledActiveSurface?.colourMarker ?? null),
+    [sceneSurfaces, safeSurfaceStyleIndex, styledActiveSurface]
+  );
+
+  function updateSurfaceStyle(patch) {
+    setSurfaceStyles((current) => ({
+      ...current,
+      [safeSurfaceStyleIndex]: { ...current[safeSurfaceStyleIndex], ...patch },
+    }));
+  }
+
+  const surfaceStyleControls = sceneSurfaces.length > 0 && styledActiveSurface
+    ? {
+        surfaceOptions: sceneSurfaces.map((surface, index) => surface.name || `Surface ${index + 1}`),
+        surfaceIndex: safeSurfaceStyleIndex,
+        onSurfaceChange: setSurfaceStyleIndex,
+        colourChoices: surfaceColourChoices,
+        // "" is "Single colour": a surface whose marker does not resolve is
+        // drawn in one colour too, so it reads that way here.
+        colourValue: surfaceColourChoices.some((choice) => choice.name === styledActiveSurface.colourMarker)
+          ? styledActiveSurface.colourMarker
+          : "",
+        onColourChange: (value) => updateSurfaceStyle({ colourMarker: value || null }),
+        colourHex: surfaceColourHex(styledActiveSurface),
+        onColourHexChange: (value) => updateSurfaceStyle({ colour: value }),
+        opacity: Number.isFinite(styledActiveSurface.opacity) ? styledActiveSurface.opacity : 1,
+        onOpacityChange: (value) => updateSurfaceStyle({ opacity: value }),
+      }
+    : null;
+
+  // The legend of the surface chosen in Surface Style, once the user has
+  // picked a colour marker for it there and while it is shown, so the
+  // colours they chose are explained like the points' (a surface in one
+  // colour needs none). A surface as exported keeps the export's legend
+  // setting, which the sample sets off.
+  const surfaceLegends = useMemo(() => {
+    const surface = styledActiveSurface;
+    const chosen = surfaceStyles[safeSurfaceStyleIndex]?.colourMarker;
+    if (showChart || !chosen || !surface?.colourMarker) return [];
+    if (!(surfaceVisibility[safeSurfaceStyleIndex] ?? surface.visible !== false)) return [];
+    const vertices = surface.vertices ?? [];
+    const legend = buildColourLegend({
+      name: surface.name || `Surface ${safeSurfaceStyleIndex + 1}`,
+      markerDefinitions: surface.markerDefinitions,
+      colourMarker: surface.colourMarker,
+      points: vertices,
+      showNullColours: true,
+    });
+    if (!legend || legend.kind === "error") return [];
+    const missingCount = !legend.input ? undefined : countMissingValues(vertices, legend.input);
+    return [{ ...legend, missingCount, sizeLabel: null, symbolLabel: null }];
+  }, [styledActiveSurface, surfaceStyles, showChart, surfaceVisibility, safeSurfaceStyleIndex]);
+
   const colourLegends = useMemo(
     () =>
       (showChart
-        ? activeChart.series.map((series) => ({ ...series, points: series.points.rows }))
+        ? styledChart.series.map((series) => ({ ...series, points: series.points.rows }))
         : [...renderedPointClouds, ...(currentScene.lineSeries ?? []).map(lineColourSeries)])
         .map((series, index, all) =>
-          (showChart ? series?.legend === true : pickLegendSeriesIndices(all, safeMarkerSeriesIndex).includes(index))
+          // A chart follows the 3D rule too: the series the export marks for
+          // a legend, or else the one chosen in Marker Style, so a colour
+          // picked there is always explained.
+          pickLegendSeriesIndices(all, showChart ? chartMarkerIndex : safeMarkerSeriesIndex).includes(index) &&
+          // A chart series switched off in Chart Series has nothing on screen to explain.
+          (!showChart ||
+            (series.enablePoints && activeChartToggles[`${index}:points`]) ||
+            (series.enableLines && activeChartToggles[`${index}:lines`]))
             ? { series, index }
             : null)
         .filter(Boolean)
@@ -361,8 +537,9 @@ export default function Home() {
             symbolLabel: isPointSeries ? markerSymbolLabel(series) : null,
           };
         })
-        .filter(Boolean),
-    [renderedPointClouds, fullRenderedPointClouds, currentScene, activeChart, showChart, safeMarkerSeriesIndex, nullVisibility]
+        .filter(Boolean)
+        .concat(showChart ? [] : surfaceLegends),
+    [renderedPointClouds, fullRenderedPointClouds, currentScene, styledChart, showChart, safeMarkerSeriesIndex, chartMarkerIndex, activeChartToggles, nullVisibility, surfaceLegends]
   );
 
   // Selection survives a filter/visibility change as long as the selected
@@ -537,6 +714,9 @@ export default function Home() {
       setImportReport({ warnings: validation.warnings ?? [], notes: validation.notes ?? [], summaries: validation.summaries ?? [] });
       setCharts(parsed.charts ?? []);
       setChartIndex(0);
+      setChartToggles({});
+      setChartSelections({});
+      setChartMarkerSeries({});
       setActiveView("3d");
       setCurrentIndex(0);
       sceneViewStatesRef.current = {};
@@ -572,6 +752,8 @@ export default function Home() {
       annotationsVisible,
       markerSelections,
       markerSeriesIndex,
+      surfaceStyles,
+      surfaceStyleIndex,
       projectionMode,
     };
   }
@@ -586,6 +768,8 @@ export default function Home() {
     setAnnotationsVisible(state.annotationsVisible);
     setMarkerSelections(state.markerSelections);
     setMarkerSeriesIndex(state.markerSeriesIndex);
+    setSurfaceStyles(state.surfaceStyles ?? {});
+    setSurfaceStyleIndex(state.surfaceStyleIndex ?? 0);
     setProjectionMode(state.projectionMode);
     setHoveredPoint(null);
     setSelectedPoint(null);
@@ -664,6 +848,9 @@ export default function Home() {
       <ImportReport warnings={importReport.warnings} notes={importReport.notes} summaries={importReport.summaries} />
       <div style={{ flex: 1, display: "flex", overflow: "hidden", minHeight: 0 }}>
         <LeftSidebar
+          mode={showChart ? "chart" : "3d"}
+          chartControls={chartControls}
+          surfaceStyle={surfaceStyleControls}
           open={leftOpen}
           onToggle={() => setLeftOpen((v) => !v)}
           scenes={scenes}
@@ -756,6 +943,7 @@ export default function Home() {
               visiblePointClouds={renderedPointClouds}
               lineVisibility={lineVisibility}
               surfaceVisibility={surfaceVisibility}
+              surfaceStyles={surfaceStyles}
               projectionMode={projectionMode}
               annotationsVisible={annotationsVisible}
               annotationScale={annotationScale}
@@ -816,7 +1004,7 @@ export default function Home() {
 
           {activeChart && (
             <div hidden={!showChart} style={{ position: "absolute", inset: 0, zIndex: 6, background: "var(--color-panel)", paddingTop: 44 }}>
-              <ChartView key={activeChart.id} chart={activeChart} />
+              <ChartView key={activeChart.id} chart={styledChart} toggles={activeChartToggles} />
             </div>
           )}
 
