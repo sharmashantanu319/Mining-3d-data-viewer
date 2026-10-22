@@ -19,9 +19,78 @@ function finiteDecimals(value, fallback = 2) {
   return Number.isInteger(number) && number >= 0 && number <= 12 ? number : fallback;
 }
 
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+// Longest first: at each position the first alternative that matches wins.
+const DATE_TOKEN_RE = /'[^']*'|yyyy|yy|MMMM|MMM|MM|M|dddd|ddd|dd|d|hh|h|HH|H|mm|m|ss|s|zzz|z|AP|ap|A|a|t/g;
+
+/**
+ * Formats a date with an mXrap legend's "format" string, such as
+ * "yyyy-MM-dd" or "yyyy-MM-dd\n hh:mm ap". mXrap uses Qt's date format
+ * letters: yyyy/yy year, MMMM/MMM/MM/M month, dddd/ddd day name, dd/d day,
+ * hh/h hour (1-12 when the format has AP/ap/A/a, else 0-23), HH/H hour 0-23,
+ * mm/m minutes, ss/s seconds, zzz/z milliseconds, AP/A "AM"/"PM", ap/a
+ * "am"/"pm", t time zone; text in single quotes is kept as it is ('' is a
+ * quote). Times are shown in UTC, as everywhere else in the viewer.
+ *
+ * @param {number} epochMs
+ * @param {string} pattern
+ * @returns {string}
+ */
+export function formatDateWithPattern(epochMs, pattern) {
+  const date = new Date(epochMs);
+  if (Number.isNaN(date.getTime())) return "—";
+  const unquoted = String(pattern).replace(/'[^']*'/g, "");
+  const twelveHour = /AP|ap|A|a/.test(unquoted);
+  const pad = (number, width = 2) => String(number).padStart(width, "0");
+  const year = date.getUTCFullYear();
+  const month = date.getUTCMonth();
+  const day = date.getUTCDate();
+  const hours = date.getUTCHours();
+  const hours12 = hours % 12 === 0 ? 12 : hours % 12;
+  const hour = twelveHour ? hours12 : hours;
+  const minutes = date.getUTCMinutes();
+  const seconds = date.getUTCSeconds();
+  const millis = date.getUTCMilliseconds();
+  const pm = hours >= 12;
+  const tokens = {
+    yyyy: () => String(year),
+    yy: () => pad(year % 100),
+    MMMM: () => MONTHS[month],
+    MMM: () => MONTHS[month].slice(0, 3),
+    MM: () => pad(month + 1),
+    M: () => String(month + 1),
+    dddd: () => DAYS[date.getUTCDay()],
+    ddd: () => DAYS[date.getUTCDay()].slice(0, 3),
+    dd: () => pad(day),
+    d: () => String(day),
+    hh: () => pad(hour),
+    h: () => String(hour),
+    HH: () => pad(hours),
+    H: () => String(hours),
+    mm: () => pad(minutes),
+    m: () => String(minutes),
+    ss: () => pad(seconds),
+    s: () => String(seconds),
+    zzz: () => pad(millis, 3),
+    z: () => String(millis),
+    AP: () => (pm ? "PM" : "AM"),
+    A: () => (pm ? "PM" : "AM"),
+    ap: () => (pm ? "pm" : "am"),
+    a: () => (pm ? "pm" : "am"),
+    t: () => "UTC",
+  };
+  return String(pattern).replace(DATE_TOKEN_RE, (token) => {
+    if (token.startsWith("'")) return token.length === 2 ? "'" : token.slice(1, -1);
+    return tokens[token]();
+  });
+}
+
 export function formatLegendValue(value, marker) {
   if (!Number.isFinite(value)) return "—";
   if (marker.inputType === "date") {
+    const pattern = marker.legend?.dateFormat;
+    if (typeof pattern === "string" && pattern.trim() !== "") return formatDateWithPattern(value, pattern);
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return "—";
     return new Intl.DateTimeFormat(undefined, {
@@ -43,6 +112,11 @@ export function formatLegendValue(value, marker) {
       return value.toExponential(digits - 1).replace("e+", "e");
     }
     return new Intl.NumberFormat(undefined, { maximumSignificantDigits: digits }).format(value);
+  }
+  // "exponential": JavaScript's toExponential with "numberOfDecimals"
+  // fraction digits, e.g. 1.25e5.
+  if (format.mode === "exponential") {
+    return value.toExponential(finiteDecimals(format.decimals)).replace("e+", "e");
   }
   if (Number.isInteger(format.sigDigits) && format.sigDigits > 0) {
     return new Intl.NumberFormat(undefined, {

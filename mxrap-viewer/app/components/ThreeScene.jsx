@@ -185,7 +185,10 @@ function getDemoRenderOptions(pointSeriesData) {
 function applyAnnotationScale(object, factor) {
   if (object.isSprite) {
     const aspect = object.userData.aspectRatio ?? 1;
-    object.scale.set(aspect * factor, factor, 1);
+    // A callout's sprite also holds its arrow, so it is taller than the
+    // label alone by heightRatio (see annotationsBuilder.js).
+    const height = factor * (object.userData.heightRatio ?? 1);
+    object.scale.set(aspect * height, height, 1);
   } else {
     object.scale.setScalar(factor);
   }

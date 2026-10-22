@@ -23,6 +23,7 @@ const STARTING_STATE = {
   lineVisibility: {},
   surfaceVisibility: {},
   nullVisibility: {},
+  legendVisibility: {},
   annotationsVisible: true,
   markerSelections: {},
   markerSeriesIndex: 0,
@@ -120,6 +121,7 @@ describe("serializeSceneViewStates / restoreSceneViewStates", () => {
         lineVisibility: { 0: false },
         surfaceVisibility: { 2: false },
         nullVisibility: { 1: false },
+        legendVisibility: { 1: true, 0: false },
         annotationsVisible: false,
         markerSelections: {
           1: { colourMarker: "Event Date", sizeMarker: null, minSize: 4, maxSize: NaN, invertSize: true },
@@ -140,6 +142,7 @@ describe("serializeSceneViewStates / restoreSceneViewStates", () => {
       lineVisibility: { 0: false },
       surfaceVisibility: { 2: false },
       nullVisibility: { 1: false },
+      legendVisibility: { 1: true, 0: false },
       annotationsVisible: false,
       markerSelections: {
         1: { colourMarker: "Event Date", sizeMarker: null, minSize: 4, maxSize: NaN, invertSize: true },

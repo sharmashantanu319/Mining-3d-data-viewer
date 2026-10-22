@@ -81,6 +81,8 @@ are visible out of the total, and how many surfaces are loaded.
 - **Show points with no value**: show or hide the points that have no value for the colour
   attribute. The line under it says how many points that is; when shown, they use the legend's
   missing-value colour.
+- **Show legend**: show or hide this series' colour legend in the right panel. It starts as the
+  export sets it; each scene remembers your choice.
 - **Size by**: scale points by an attribute. **Min size** and **Max size** set the marker size at
   the low and high ends of the range; **Invert size** makes small values draw the largest
   markers. These three controls only appear when an attribute is selected; with **None**, every
@@ -101,6 +103,12 @@ settings, each scene keeps its own surface styles.
 
 The **Annotations** section turns text labels on or off and changes their size, font, text
 colour and background colour.
+
+A callout that the export places at a location (for example "Area of interest" in the sample) is
+drawn beside it with an arrow pointing to the spot, in the callout's colour. It stays on top of the
+scene, so tunnels in front of the location do not hide it.
+
+![The sample's "Area of interest" callout, with its arrow pointing to the location](images/annotation-callout.png)
 
 ## 7. Filter data
 
@@ -131,7 +139,8 @@ deselect.
 ## 9. Legends
 
 The right panel shows a legend for each coloured series: a colour ramp with tick labels for
-numeric values, or a list of colours for categories. Each legend can be collapsed or expanded. The
+numeric values or dates, or a list of colours for categories. Numbers and dates are written the
+way the export asks, for example dates as `2023-05-01 12:31 am`. Each legend can be collapsed or expanded. The
 **Collapse** button at the top of each side panel hides it to give the 3D view more space; click
 the narrow strip that remains to expand it again.
 

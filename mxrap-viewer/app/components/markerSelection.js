@@ -97,9 +97,21 @@ export function applyMarkerSelections(pointClouds, selectionsBySeries) {
 // TestResponseViewer exports says legend: false, yet the client's mXrap
 // reference screenshot still shows the ML legend), the series currently
 // chosen in Marker Style gets one, so the colours on screen are explained.
-export function pickLegendSeriesIndices(seriesList, activeIndex) {
+// `overrides` ({ [seriesIndex]: boolean }) are the user's own "Show legend"
+// choices, which win over that rule for the series they name.
+export function pickLegendSeriesIndices(seriesList, activeIndex, overrides = {}) {
   const list = Array.isArray(seriesList) ? seriesList : [];
   const configured = list.flatMap((series, index) => (series?.legend === true ? [index] : []));
-  if (configured.length > 0) return configured;
-  return Number.isInteger(activeIndex) && activeIndex >= 0 && activeIndex < list.length ? [activeIndex] : [];
+  const byDefault = new Set(
+    configured.length > 0
+      ? configured
+      : Number.isInteger(activeIndex) && activeIndex >= 0 && activeIndex < list.length
+        ? [activeIndex]
+        : []
+  );
+  const chosen = overrides && typeof overrides === "object" ? overrides : {};
+  return list.flatMap((_, index) => {
+    const override = chosen[index];
+    return (typeof override === "boolean" ? override : byDefault.has(index)) ? [index] : [];
+  });
 }

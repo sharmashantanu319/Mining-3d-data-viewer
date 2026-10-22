@@ -84,9 +84,9 @@ pull request (PR) or the source module that implements the item.
 | Legend with series name and marker title next to the 3D view | Done | Right panel, `colourLegend.js` |
 | Categorical legends (`categories`) | Done | `colourLegend.js` |
 | `numberDisplay` "fixedDecimal" and "automaticExponential" | Done | `colourLegend.js` |
-| `numberDisplay` "exponential" | Partly done | Read from the export, but values are shown with fixed decimals |
-| Date legends with the export's `format` (for example `yyyy-MM-dd`) | Partly done | The format is read, but dates are shown as day, month and year in one fixed style |
-| User can toggle legends after opening | Partly done | Legends follow the export's `legend` setting. Each legend can be collapsed and the panel hidden, but there is no switch to add or remove a series' legend |
+| `numberDisplay` "exponential" | Done | `colourLegend.js` |
+| Date legends with the export's `format` (for example `yyyy-MM-dd`) | Done | mXrap's date format letters, including two-line formats such as the sample's `yyyy-MM-dd` / `hh:mm ap` (`colourLegend.js`) |
+| User can toggle legends after opening | Done | **Marker Style → Show legend** for each 3D point series, starting from the export's `legend` setting and kept per scene. Chart series' legends follow their **Points** / **Lines** check boxes |
 
 ### Point series
 
@@ -104,7 +104,7 @@ pull request (PR) or the source module that implements the item.
 | Requirement | Status | Evidence / notes |
 | --- | --- | --- |
 | Text series: 3D text facing the camera, fixed orientation from Dip, Dip Direction and Rake, and 2D text (`render2d`) | Done | `annotationsBuilder.js` |
-| 3D annotation at an XYZ location with a colour and text | Partly done | The label is drawn at the location; there is no arrow pointing to it |
+| 3D annotation at an XYZ location with a colour and text | Done | Drawn beside the location with an arrow to it, in the annotation's colour, on top of the scene (`annotationsBuilder.js`) |
 | 3D lines from `LineID` / `VertexID`, coloured per vertex | Done | `lineSeriesData.js`, `linesBuilder.js`; PR #124 |
 | `lineWidth` > 0 drawn as 3D tubes of that diameter | Partly done | Drawn as lines of that width in screen pixels, not as tubes in scene units |
 
@@ -160,7 +160,7 @@ In priority order:
    `colourMapping.js`; the client offered reference formulae. Until then such markers fall back to
    magenta.
 3. **Dashboard layout.** Show a slide's displays side by side, with the slide text.
-4. **Legend and annotation details.** Honour the `exponential` number display and the date
-   `format`; draw an arrow from a 3D annotation to its location; draw `lineWidth` lines as tubes.
+4. **Lines as tubes.** Draw lines with `lineWidth` > 0 as 3D tubes of that diameter, checking
+   the frame rate with the client's response-volume exports, which have many lines.
 5. **Clipping, snapshots and drag-and-drop import.** Clipping is described in the export; snapshots
    and drag-and-drop import are in open PRs #121 and #120, whose checks have not passed yet.

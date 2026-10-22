@@ -46,6 +46,7 @@ export function initialSceneViewState(scene) {
     lineVisibility: {},
     surfaceVisibility: {},
     nullVisibility: {},
+    legendVisibility: {},
     annotationsVisible: true,
     markerSelections: {},
     markerSeriesIndex: 0,
@@ -137,7 +138,7 @@ export function restoreSceneViewState(saved, scene) {
   if (!isPlainObject(saved)) return state;
   if (isIndex(saved.selectedSeries)) state.selectedSeries = saved.selectedSeries;
   if (saved.filtersBySeries !== undefined) state.filtersBySeries = restoreFilters(saved.filtersBySeries);
-  for (const key of ["seriesVisibility", "lineVisibility", "surfaceVisibility", "nullVisibility"]) {
+  for (const key of ["seriesVisibility", "lineVisibility", "surfaceVisibility", "nullVisibility", "legendVisibility"]) {
     state[key] = restoreIndexKeyed(saved[key], restoreBoolean);
   }
   if (typeof saved.annotationsVisible === "boolean") state.annotationsVisible = saved.annotationsVisible;
