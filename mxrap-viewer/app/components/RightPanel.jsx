@@ -102,7 +102,9 @@ function SelectedPointDetails({ inspection, kind, series, onClear, showOtherData
   );
 }
 
-export function RightPanel({ open, onToggle, inspection, inspectionSeries, kind, onClear, legends }) {
+// `showInspection` is false while a chart is shown: hovering and selecting
+// points belong to the 3D view, so the panel then holds only the legends.
+export function RightPanel({ open, onToggle, inspection, inspectionSeries, kind, onClear, legends, showInspection = true }) {
   // Kept here rather than in the details view, which unmounts whenever no
   // point is hovered, so "Show" stays open while moving between points.
   const [showOtherData, setShowOtherData] = useState(false);
@@ -115,7 +117,9 @@ export function RightPanel({ open, onToggle, inspection, inspectionSeries, kind,
         </button>
         <div style={{ width: 1, height: 8 }} />
         <button className="strip-btn" onClick={onToggle} title="Legend — expand panel"><IconLegend size={13} /></button>
-        <button className="strip-btn" onClick={onToggle} title="Selection — expand panel"><IconInfo size={13} /></button>
+        {showInspection && (
+          <button className="strip-btn" onClick={onToggle} title="Selection — expand panel"><IconInfo size={13} /></button>
+        )}
       </div>
     );
   }
@@ -132,13 +136,13 @@ export function RightPanel({ open, onToggle, inspection, inspectionSeries, kind,
           <IconChevronRight size={12} />
         </button>
         <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.07em", textTransform: "uppercase", color: "var(--color-fg-muted)" }}>
-          Legend &amp; Details
+          {showInspection ? <>Legend &amp; Details</> : "Legend"}
         </span>
         <div style={{ width: 22 }} />
       </div>
 
       <div style={{ flex: 1, overflowY: "auto" }}>
-        {inspection?.point ? (
+        {!showInspection ? null : inspection?.point ? (
           <SelectedPointDetails
             inspection={inspection}
             kind={kind}
@@ -159,7 +163,7 @@ export function RightPanel({ open, onToggle, inspection, inspectionSeries, kind,
           </div>
         )}
 
-        <div style={{ padding: "8px 10px 10px", borderTop: inspection?.point ? "1px solid var(--color-border)" : "none" }}>
+        <div style={{ padding: "8px 10px 10px", borderTop: showInspection && inspection?.point ? "1px solid var(--color-border)" : "none" }}>
           <div style={{ fontSize: 9, fontWeight: 600, letterSpacing: "0.07em", textTransform: "uppercase", color: "var(--color-fg-muted)", marginBottom: 8 }}>
             Legend
           </div>

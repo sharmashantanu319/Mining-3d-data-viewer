@@ -72,7 +72,283 @@ const layerIcon = (type) => {
   return null;
 };
 
+// The Marker Style controls: which series, what it is coloured and sized by,
+// and whether points with no value are shown. The same controls style a 3D
+// point series and a chart series (chartStyle.js); the marker display size
+// slider and the symbol line only belong to the 3D view
+// (`showDisplayControls`).
+function MarkerStyleControls({
+  markerSeriesOptions,
+  markerSeriesIndex,
+  onMarkerSeriesChange,
+  colourChoices,
+  colourNoneLabel = null,
+  noColourHint = null,
+  colourValue,
+  onColourChange,
+  nullValueColumn,
+  nullValueCount,
+  showNulls,
+  onShowNullsChange,
+  sizeChoices,
+  sizeValue,
+  onSizeChange,
+  sizeMinValue,
+  sizeMaxValue,
+  onSizeMinChange,
+  onSizeMaxChange,
+  invertSize,
+  onInvertSizeChange,
+  sameSizeHint,
+  showDisplayControls = false,
+  markerScale,
+  onMarkerScaleChange,
+  resolvedSymbolLabel,
+}) {
+  return (
+    <div style={{ padding: "4px 0 6px" }}>
+      {markerSeriesOptions.length > 1 && (
+        <div className="ctrl-row">
+          <span className="ctrl-label">Series</span>
+          <select
+            className="ctrl-select"
+            value={markerSeriesIndex}
+            onChange={(e) => onMarkerSeriesChange(Number(e.target.value))}
+            style={{ maxWidth: 130 }}
+          >
+            {markerSeriesOptions.map((name, i) => (
+              <option key={`${name}-${i}`} value={i}>{name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+      {colourChoices.length > 0 ? (
+        <div className="ctrl-row">
+          <span className="ctrl-label">Colour by</span>
+          <select className="ctrl-select" aria-label="Colour points by" value={colourValue} onChange={(e) => onColourChange(e.target.value)} style={{ maxWidth: 130 }}>
+            {colourNoneLabel && <option value="">{colourNoneLabel}</option>}
+            {colourChoices.map((choice) => (
+              <option key={choice.name} value={choice.name}>{choice.name}{choice.input && choice.input !== choice.name ? ` · ${choice.input}` : ""}</option>
+            ))}
+          </select>
+        </div>
+      ) : noColourHint ? (
+        <div className="ctrl-row">
+          <span className="ctrl-label">Colour by</span>
+          <span className="ctrl-static" title={noColourHint}>Nothing to colour by</span>
+        </div>
+      ) : null}
+      {nullValueColumn && (
+        <div
+          className="ctrl-row"
+          style={{ justifyContent: "space-between" }}
+          title={`Points with an empty ${nullValueColumn} can't be coloured, so they are hidden unless this is on. When shown, they use the legend's missing-value colour.`}
+        >
+          <span className="ctrl-label" style={{ display: "flex", flexDirection: "column", gap: 1, whiteSpace: "normal" }}>
+            <span>Show points with no value</span>
+            <span className="ctrl-hint">
+              {nullValueCount > 0
+                ? `${nullValueCount.toLocaleString()} ${nullValueCount === 1 ? "point has" : "points have"} no ${nullValueColumn}`
+                : `No points are missing ${nullValueColumn}`}
+            </span>
+          </span>
+          <label className="toggle">
+            <input
+              type="checkbox"
+              aria-label="Show points with no colour value"
+              checked={showNulls}
+              disabled={nullValueCount === 0}
+              onChange={onShowNullsChange}
+            />
+            <div className="toggle-track"><div className="toggle-thumb" /></div>
+          </label>
+        </div>
+      )}
+      <div className="ctrl-row">
+        <span className="ctrl-label">Size by</span>
+        {/* A drop-down with only "None" in it looked like a choice that
+            could not be made; with nothing to pick it is plain text. */}
+        {sizeChoices.length > 0 ? (
+          <select className="ctrl-select" aria-label="Size points by" value={sizeValue} onChange={(e) => onSizeChange(e.target.value)} style={{ maxWidth: 130 }}>
+            <option value="">None</option>
+            {sizeChoices.map((choice) => (
+              <option key={choice.name} value={choice.name}>{choice.name}{choice.input && choice.input !== choice.name ? ` · ${choice.input}` : ""}</option>
+            ))}
+          </select>
+        ) : (
+          <span className="ctrl-static" title="The export has no size settings for this series">Nothing to size by</span>
+        )}
+      </div>
+      {/* Min / Max size only matter when a column sets the size. With
+          no size column every point is drawn at their midpoint, so
+          changing Min from 1 to 2 moved it from 13 to 13.5 and looked
+          like the boxes did nothing. */}
+      {sizeValue ? (
+        <>
+          <div className="ctrl-row">
+            <span className="ctrl-label">Min size</span>
+            <input
+              type="number"
+              className="ctrl-input"
+              aria-label="Marker size at the low end of the range"
+              min="0"
+              step="0.5"
+              value={Number.isNaN(sizeMinValue) ? "" : sizeMinValue}
+              onChange={(e) => onSizeMinChange(e.target.value === "" ? NaN : Number(e.target.value))}
+              style={{ width: 64 }}
+            />
+          </div>
+          <div className="ctrl-row">
+            <span className="ctrl-label">Max size</span>
+            <input
+              type="number"
+              className="ctrl-input"
+              aria-label="Marker size at the high end of the range"
+              min="0"
+              step="0.5"
+              value={Number.isNaN(sizeMaxValue) ? "" : sizeMaxValue}
+              onChange={(e) => onSizeMaxChange(e.target.value === "" ? NaN : Number(e.target.value))}
+              style={{ width: 64 }}
+            />
+          </div>
+          <div className="ctrl-row" style={{ justifyContent: "space-between" }}>
+            <span className="ctrl-label">Invert size</span>
+            <label className="toggle">
+              <input
+                type="checkbox"
+                aria-label="Invert size mapping (small values get the larger marker)"
+                checked={invertSize}
+                onChange={(e) => onInvertSizeChange(e.target.checked)}
+              />
+              <div className="toggle-track"><div className="toggle-thumb" /></div>
+            </label>
+          </div>
+        </>
+      ) : (
+        <div className="ctrl-row">
+          <span className="ctrl-hint" style={{ whiteSpace: "normal" }}>
+            {sameSizeHint}
+          </span>
+        </div>
+      )}
+      {showDisplayControls && (
+        <>
+          <label className="ctrl-row">
+            <span className="ctrl-label">Marker size</span>
+            <input
+              type="range"
+              className="ctrl-slider"
+              aria-label="Marker display size"
+              min="0.1"
+              max="1.5"
+              step="0.05"
+              value={markerScale}
+              onChange={(event) => onMarkerScaleChange(Number(event.target.value))}
+              style={{ width: 84 }}
+            />
+            <span style={{ width: 34, textAlign: "right", fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--color-fg-dim)" }}>
+              {Math.round(markerScale * 100)}%
+            </span>
+          </label>
+          <div className="ctrl-row" title="Set by the colour marker in the export">
+            <span className="ctrl-label">Symbol</span>
+            {/* Not a separate choice in this data model: the symbol comes
+                with the colour marker (markers.json, or a Symbol per ramp
+                entry), so this says what is drawn, in the legend's words. */}
+            <span className="ctrl-static">{resolvedSymbolLabel || "Dot"}</span>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// Surface Style: recolour a surface the way Marker Style recolours points
+// (surfaceStyle.js) — by one of its markers or in one colour — and set how
+// see-through it is.
+function SurfaceStyleControls({
+  surfaceOptions,
+  surfaceIndex,
+  onSurfaceChange,
+  colourChoices,
+  colourValue,
+  onColourChange,
+  colourHex,
+  onColourHexChange,
+  opacity,
+  onOpacityChange,
+}) {
+  const singleColour = colourValue === "";
+  return (
+    <div style={{ padding: "4px 0 6px" }}>
+      {surfaceOptions.length > 1 && (
+        <div className="ctrl-row">
+          <span className="ctrl-label">Surface</span>
+          <select
+            className="ctrl-select"
+            aria-label="Surface to style"
+            value={surfaceIndex}
+            onChange={(e) => onSurfaceChange(Number(e.target.value))}
+            style={{ maxWidth: 130 }}
+          >
+            {surfaceOptions.map((name, i) => (
+              <option key={`${name}-${i}`} value={i}>{name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+      <div className="ctrl-row">
+        <span className="ctrl-label">Colour by</span>
+        <select
+          className="ctrl-select"
+          aria-label="Colour surface by"
+          value={colourValue}
+          onChange={(e) => onColourChange(e.target.value)}
+          style={{ maxWidth: 130 }}
+        >
+          <option value="">Single colour</option>
+          {colourChoices.map((choice) => (
+            <option key={choice.name} value={choice.name}>{choice.name}{choice.input && choice.input !== choice.name ? ` · ${choice.input}` : ""}</option>
+          ))}
+        </select>
+      </div>
+      {singleColour && (
+        <div className="ctrl-row" style={{ justifyContent: "space-between" }}>
+          <span className="ctrl-label">Colour</span>
+          <input
+            type="color"
+            value={colourHex}
+            onChange={(e) => onColourHexChange(e.target.value)}
+            aria-label="Surface colour"
+            style={{ width: 22, height: 22, padding: 0, border: "1px solid var(--color-border)", borderRadius: 3, background: "none" }}
+          />
+        </div>
+      )}
+      <label className="ctrl-row">
+        <span className="ctrl-label">Opacity</span>
+        <input
+          type="range"
+          className="ctrl-slider"
+          aria-label="Surface opacity"
+          min="0.1"
+          max="1"
+          step="0.05"
+          value={opacity}
+          onChange={(e) => onOpacityChange(Number(e.target.value))}
+          style={{ width: 84 }}
+        />
+        <span style={{ width: 34, textAlign: "right", fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--color-fg-dim)" }}>
+          {Math.round(opacity * 100)}%
+        </span>
+      </label>
+    </div>
+  );
+}
+
 export function LeftSidebar({
+  mode = "3d",
+  surfaceStyle = null,
+  chartControls = null,
   open,
   onToggle,
   scenes,
@@ -128,8 +404,10 @@ export function LeftSidebar({
   totalCount,
 }) {
   const [open_, setOpen] = useState({
-    scene: true, layers: true, markers: true, annotations: false, filters: false,
+    scene: true, layers: true, markers: true, surfaces: false, annotations: false, filters: false,
+    chartMarkers: true,
   });
+  const isChart = mode === "chart" && chartControls !== null;
   const toggle = (k) => setOpen((prev) => ({ ...prev, [k]: !prev[k] }));
 
   const activeByInput = new Map((filters ?? []).map((filter) => [filter.input, filter]));
@@ -146,9 +424,12 @@ export function LeftSidebar({
     onFiltersChange((filters ?? []).map((filter) => (filter.input === input ? nextFilter : filter)));
   }
 
-  // Everything here belongs to a 3D view; an export with only charts has
-  // none to control.
-  if (scenes.length === 0) return null;
+  // The sidebar shows the controls of the view on screen, as the client
+  // asked at the final check-in before handover: the 3D view's scene,
+  // layers, styles and filters, or the chart's marker style (each chart
+  // series' Points and Lines check boxes stay above the chart, where the
+  // client uses them). An export with only charts has no 3D view to control.
+  if (!isChart && scenes.length === 0) return null;
 
   if (!open) {
     return (
@@ -157,10 +438,17 @@ export function LeftSidebar({
           <IconChevronRight size={14} />
         </button>
         <div style={{ width: 1, height: 8 }} />
-        <button className="strip-btn" onClick={onToggle} title="Scene — expand sidebar"><IconMap size={13} /></button>
-        <button className="strip-btn" onClick={onToggle} title="Layers — expand sidebar"><IconLayers size={13} /></button>
-        <button className="strip-btn" onClick={onToggle} title="Marker Style — expand sidebar"><IconDot size={13} /></button>
-        <button className="strip-btn" onClick={onToggle} title="Filters — expand sidebar"><IconFilter size={13} /></button>
+        {isChart ? (
+          <button className="strip-btn" onClick={onToggle} title="Marker Style — expand sidebar"><IconDot size={13} /></button>
+        ) : (
+          <>
+            <button className="strip-btn" onClick={onToggle} title="Scene — expand sidebar"><IconMap size={13} /></button>
+            <button className="strip-btn" onClick={onToggle} title="Layers — expand sidebar"><IconLayers size={13} /></button>
+            <button className="strip-btn" onClick={onToggle} title="Marker Style — expand sidebar"><IconDot size={13} /></button>
+            {surfaceStyle && <button className="strip-btn" onClick={onToggle} title="Surface Style — expand sidebar"><IconSurface size={13} /></button>}
+            <button className="strip-btn" onClick={onToggle} title="Filters — expand sidebar"><IconFilter size={13} /></button>
+          </>
+        )}
       </div>
     );
   }
@@ -189,7 +477,7 @@ export function LeftSidebar({
         }}
       >
         <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.07em", textTransform: "uppercase", color: "var(--color-fg-muted)" }}>
-          Scene Controls
+          {isChart ? "Chart Controls" : "Scene Controls"}
         </span>
         <button className="strip-btn" onClick={onToggle} title="Collapse" style={{ width: 22, height: 22 }}>
           <IconChevronLeft size={12} />
@@ -197,6 +485,27 @@ export function LeftSidebar({
       </div>
 
       <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>
+        {isChart ? (
+          <>
+            {/* CHART MARKER STYLE */}
+            <div>
+              <div className="section-header" onClick={() => toggle("chartMarkers")} style={{ borderTop: "none" }}>
+                <IconSettings size={11} />
+                <span style={{ flex: 1 }}>Marker Style</span>
+                {open_.chartMarkers ? <IconChevronUp size={10} /> : <IconChevronDown size={10} />}
+              </div>
+              {open_.chartMarkers && (
+                <MarkerStyleControls
+                  {...chartControls.markerStyle}
+                  colourNoneLabel="Default colour"
+                  noColourHint="The export gives this series no colour markers"
+                  sameSizeHint="Every point is the same size."
+                />
+              )}
+            </div>
+          </>
+        ) : (
+        <>
         {/* SCENE */}
         <div>
           <div className="section-header" onClick={() => toggle("scene")} style={{ borderTop: "none" }}>
@@ -273,152 +582,46 @@ export function LeftSidebar({
             {open_.markers ? <IconChevronUp size={10} /> : <IconChevronDown size={10} />}
           </div>
           {open_.markers && (
-            <div style={{ padding: "4px 0 6px" }}>
-              {markerSeriesOptions.length > 1 && (
-                <div className="ctrl-row">
-                  <span className="ctrl-label">Series</span>
-                  <select
-                    className="ctrl-select"
-                    value={markerSeriesIndex}
-                    onChange={(e) => onMarkerSeriesChange(Number(e.target.value))}
-                    style={{ maxWidth: 130 }}
-                  >
-                    {markerSeriesOptions.map((name, i) => (
-                      <option key={`${name}-${i}`} value={i}>{name}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              {colourChoices.length > 0 && (
-                <div className="ctrl-row">
-                  <span className="ctrl-label">Colour by</span>
-                  <select className="ctrl-select" aria-label="Colour points by" value={colourValue} onChange={(e) => onColourChange(e.target.value)} style={{ maxWidth: 130 }}>
-                    {colourChoices.map((choice) => (
-                      <option key={choice.name} value={choice.name}>{choice.name}{choice.input && choice.input !== choice.name ? ` · ${choice.input}` : ""}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              {nullValueColumn && (
-                <div
-                  className="ctrl-row"
-                  style={{ justifyContent: "space-between" }}
-                  title={`Points with an empty ${nullValueColumn} can't be coloured, so they are hidden unless this is on. When shown, they use the legend's missing-value colour.`}
-                >
-                  <span className="ctrl-label" style={{ display: "flex", flexDirection: "column", gap: 1, whiteSpace: "normal" }}>
-                    <span>Show points with no value</span>
-                    <span className="ctrl-hint">
-                      {nullValueCount > 0
-                        ? `${nullValueCount.toLocaleString()} ${nullValueCount === 1 ? "point has" : "points have"} no ${nullValueColumn}`
-                        : `No points are missing ${nullValueColumn}`}
-                    </span>
-                  </span>
-                  <label className="toggle">
-                    <input
-                      type="checkbox"
-                      aria-label="Show points with no colour value"
-                      checked={showNulls}
-                      disabled={nullValueCount === 0}
-                      onChange={onShowNullsChange}
-                    />
-                    <div className="toggle-track"><div className="toggle-thumb" /></div>
-                  </label>
-                </div>
-              )}
-              <div className="ctrl-row">
-                <span className="ctrl-label">Size by</span>
-                {/* A drop-down with only "None" in it looked like a choice that
-                    could not be made; with nothing to pick it is plain text. */}
-                {sizeChoices.length > 0 ? (
-                  <select className="ctrl-select" aria-label="Size points by" value={sizeValue} onChange={(e) => onSizeChange(e.target.value)} style={{ maxWidth: 130 }}>
-                    <option value="">None</option>
-                    {sizeChoices.map((choice) => (
-                      <option key={choice.name} value={choice.name}>{choice.name}{choice.input && choice.input !== choice.name ? ` · ${choice.input}` : ""}</option>
-                    ))}
-                  </select>
-                ) : (
-                  <span className="ctrl-static" title="The export has no size settings for this series">Nothing to size by</span>
-                )}
-              </div>
-              {/* Min / Max size only matter when a column sets the size. With
-                  no size column every point is drawn at their midpoint, so
-                  changing Min from 1 to 2 moved it from 13 to 13.5 and looked
-                  like the boxes did nothing. */}
-              {sizeValue ? (
-                <>
-                  <div className="ctrl-row">
-                    <span className="ctrl-label">Min size</span>
-                    <input
-                      type="number"
-                      className="ctrl-input"
-                      aria-label="Marker size at the low end of the range"
-                      min="0"
-                      step="0.5"
-                      value={Number.isNaN(sizeMinValue) ? "" : sizeMinValue}
-                      onChange={(e) => onSizeMinChange(e.target.value === "" ? NaN : Number(e.target.value))}
-                      style={{ width: 64 }}
-                    />
-                  </div>
-                  <div className="ctrl-row">
-                    <span className="ctrl-label">Max size</span>
-                    <input
-                      type="number"
-                      className="ctrl-input"
-                      aria-label="Marker size at the high end of the range"
-                      min="0"
-                      step="0.5"
-                      value={Number.isNaN(sizeMaxValue) ? "" : sizeMaxValue}
-                      onChange={(e) => onSizeMaxChange(e.target.value === "" ? NaN : Number(e.target.value))}
-                      style={{ width: 64 }}
-                    />
-                  </div>
-                  <div className="ctrl-row" style={{ justifyContent: "space-between" }}>
-                    <span className="ctrl-label">Invert size</span>
-                    <label className="toggle">
-                      <input
-                        type="checkbox"
-                        aria-label="Invert size mapping (small values get the larger marker)"
-                        checked={invertSize}
-                        onChange={(e) => onInvertSizeChange(e.target.checked)}
-                      />
-                      <div className="toggle-track"><div className="toggle-thumb" /></div>
-                    </label>
-                  </div>
-                </>
-              ) : (
-                <div className="ctrl-row">
-                  <span className="ctrl-hint" style={{ whiteSpace: "normal" }}>
-                    Every point is the same size. Use Marker size to make them bigger or smaller.
-                  </span>
-                </div>
-              )}
-              <label className="ctrl-row">
-                <span className="ctrl-label">Marker size</span>
-                <input
-                  type="range"
-                  className="ctrl-slider"
-                  aria-label="Marker display size"
-                  min="0.1"
-                  max="1.5"
-                  step="0.05"
-                  value={markerScale}
-                  onChange={(event) => onMarkerScaleChange(Number(event.target.value))}
-                  style={{ width: 84 }}
-                />
-                <span style={{ width: 34, textAlign: "right", fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--color-fg-dim)" }}>
-                  {Math.round(markerScale * 100)}%
-                </span>
-              </label>
-              <div className="ctrl-row" title="Set by the colour marker in the export">
-                <span className="ctrl-label">Symbol</span>
-                {/* Not a separate choice in this data model: the symbol comes
-                    with the colour marker (markers.json, or a Symbol per ramp
-                    entry), so this says what is drawn, in the legend's words. */}
-                <span className="ctrl-static">{resolvedSymbolLabel || "Dot"}</span>
-              </div>
-            </div>
+            <MarkerStyleControls
+              markerSeriesOptions={markerSeriesOptions}
+              markerSeriesIndex={markerSeriesIndex}
+              onMarkerSeriesChange={onMarkerSeriesChange}
+              colourChoices={colourChoices}
+              colourValue={colourValue}
+              onColourChange={onColourChange}
+              nullValueColumn={nullValueColumn}
+              nullValueCount={nullValueCount}
+              showNulls={showNulls}
+              onShowNullsChange={onShowNullsChange}
+              sizeChoices={sizeChoices}
+              sizeValue={sizeValue}
+              onSizeChange={onSizeChange}
+              sizeMinValue={sizeMinValue}
+              sizeMaxValue={sizeMaxValue}
+              onSizeMinChange={onSizeMinChange}
+              onSizeMaxChange={onSizeMaxChange}
+              invertSize={invertSize}
+              onInvertSizeChange={onInvertSizeChange}
+              sameSizeHint="Every point is the same size. Use Marker size to make them bigger or smaller."
+              showDisplayControls
+              markerScale={markerScale}
+              onMarkerScaleChange={onMarkerScaleChange}
+              resolvedSymbolLabel={resolvedSymbolLabel}
+            />
           )}
         </div>
+
+        {/* SURFACE STYLE */}
+        {surfaceStyle && (
+          <div>
+            <div className="section-header" onClick={() => toggle("surfaces")}>
+              <IconSurface size={11} />
+              <span style={{ flex: 1 }}>Surface Style</span>
+              {open_.surfaces ? <IconChevronUp size={10} /> : <IconChevronDown size={10} />}
+            </div>
+            {open_.surfaces && <SurfaceStyleControls {...surfaceStyle} />}
+          </div>
+        )}
 
         {/* ANNOTATIONS */}
         <div>
@@ -577,6 +780,8 @@ export function LeftSidebar({
             </div>
           )}
         </div>
+        </>
+        )}
       </div>
 
       {/* Point count footer */}
@@ -591,10 +796,10 @@ export function LeftSidebar({
           background: "var(--color-surface)",
         }}
       >
-        <span style={{ fontSize: 10, color: "var(--color-fg-muted)" }}>Visible points</span>
+        <span style={{ fontSize: 10, color: "var(--color-fg-muted)" }}>{isChart ? "Points in chart" : "Visible points"}</span>
         <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--color-fg-dim)" }}>
-          <span style={{ color: "var(--color-lime)" }}>{visibleCount.toLocaleString()}</span>
-          <span style={{ color: "var(--color-fg-muted)" }}> / {totalCount.toLocaleString()}</span>
+          <span style={{ color: "var(--color-lime)" }}>{(isChart ? chartControls.drawnPointCount : visibleCount).toLocaleString()}</span>
+          <span style={{ color: "var(--color-fg-muted)" }}> / {(isChart ? chartControls.totalPointCount : totalCount).toLocaleString()}</span>
         </span>
       </div>
     </div>

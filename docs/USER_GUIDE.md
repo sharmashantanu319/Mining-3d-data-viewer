@@ -85,6 +85,12 @@ are visible out of the total, and how many surfaces are loaded.
 
 These start from the settings saved in the export, so the view initially matches mXrap.
 
+**Surface Style** (shown when the scene has surfaces) recolours a surface the same way. Choose the
+**Surface** if there are several, then **Colour by** one of its attributes (for example Material
+or Date; its legend appears in the right panel) or **Single colour** and pick the colour.
+**Opacity** makes the surface see-through, so events behind it stay visible. Like the other
+settings, each scene keeps its own surface styles.
+
 ## 6. Annotations
 
 The **Annotations** section turns text labels on or off and changes their size, font, text
@@ -126,6 +132,12 @@ Open **Chart** to see the Magnitude-Time chart (choose another chart from the dr
 are several). An export with only charts opens straight on them. Each series has **Points** and
 **Lines** check boxes to show or hide it. Axes, colours and logarithmic scales follow the chart
 settings in the export.
+
+The left sidebar follows the view on screen. With a chart open it shows **Chart Controls** in place
+of the 3D scene's controls, and the 3D view's point details, point counts and projection are
+hidden. Its **Marker Style** works as in the 3D view for the selected **Series**: **Colour by** an
+attribute (or **Default colour**), **Show points with no value**, and **Size by** with **Min
+size**, **Max size** and **Invert size**. The legend in the right panel follows the colour chosen.
 
 The axes fit the series that are shown: hide the smaller events, for example, and the magnitude
 axis closes in on the larger ones. An axis with a fixed minimum or maximum in the export keeps it.

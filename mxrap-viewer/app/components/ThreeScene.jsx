@@ -32,6 +32,7 @@ import {
   resolveMarkerRenderOptions,
 } from "./pointMarkerResolver";
 import { resolveSurfaceVertexColours } from "./surfaceMarkerResolver";
+import { applySurfaceStyle } from "./surfaceStyle";
 import {
   orthoParallelScaleFromCamera,
   parallelCartoonScale as computeParallelCartoonScale,
@@ -192,6 +193,13 @@ function applyAnnotationScale(object, factor) {
 
 // Shared between the initial scene build and the style-override rebuild
 // effect so the filter/build/baseScale logic only lives in one place.
+// A surface's mesh as the user styled it (Surface Style, surfaceStyle.js):
+// its colour marker, single colour and opacity.
+function buildStyledSurfaceMesh(surfaceData, style) {
+  const styled = applySurfaceStyle(surfaceData, style);
+  return buildSurfaceMesh(styled, resolveSurfaceVertexColours(styled));
+}
+
 function buildAnnotationObjects(sceneData, style) {
   return (sceneData.annotations ?? [])
     .filter((annotationData) => annotationData?.text)
@@ -207,6 +215,7 @@ const ThreeScene = forwardRef(function ThreeScene(
     visiblePointClouds = null,
     lineVisibility = {},
     surfaceVisibility = {},
+    surfaceStyles = {},
     projectionMode = "perspective",
     annotationsVisible = true,
     annotationScale = 1,
@@ -249,6 +258,33 @@ const ThreeScene = forwardRef(function ThreeScene(
       mesh.visible = surfaceVisibility[index] ?? sceneData.surfaces?.[index]?.visible !== false;
     });
   }, [surfaceVisibility, sceneData]);
+  // Each surface mesh is built with its Surface Style; a change of style
+  // rebuilds only that surface's mesh, so the camera and everything else
+  // stay as they are. A colour picker fires on every drag step, so the
+  // rebuild waits until the colour settles.
+  const surfaceStylesRef = useRef(surfaceStyles);
+  surfaceStylesRef.current = surfaceStyles;
+  const builtSurfaceStylesRef = useRef([]); // the style each mesh in meshesRef was built with
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      const scene = sceneRef.current;
+      if (!scene) return;
+      const surfaces = sceneData.surfaces ?? [];
+      meshesRef.current = meshesRef.current.map((mesh, index) => {
+        const style = surfaceStyles[index];
+        if (builtSurfaceStylesRef.current[index] === style || !surfaces[index]) return mesh;
+        const nextMesh = buildStyledSurfaceMesh(surfaces[index], style);
+        nextMesh.visible = mesh.visible;
+        scene.remove(mesh);
+        mesh.geometry.dispose();
+        mesh.material.dispose();
+        scene.add(nextMesh);
+        builtSurfaceStylesRef.current[index] = style;
+        return nextMesh;
+      });
+    }, 120);
+    return () => clearTimeout(timeoutId);
+  }, [surfaceStyles, sceneData]);
   const markerScaleRef = useRef(markerScale);
   markerScaleRef.current = markerScale;
   const buildPointCloudRef = useRef(null);
@@ -582,8 +618,9 @@ const ThreeScene = forwardRef(function ThreeScene(
       // Real marker-def data (parsed from the export's markers.json) takes
       // priority; surfaces with no resolvable colour marker fall back to
       // the flat placeholder colour buildSurfaceMesh's own default handles.
-      const vertexColours = resolveSurfaceVertexColours(surfaceData);
-      const mesh = buildSurfaceMesh(surfaceData, vertexColours);
+      const style = surfaceStylesRef.current[index];
+      const mesh = buildStyledSurfaceMesh(surfaceData, style);
+      builtSurfaceStylesRef.current[index] = style;
       mesh.visible = surfaceVisibilityRef.current[index] ?? surfaceData.visible !== false;
       scene.add(mesh);
       meshes.push(mesh);
@@ -921,7 +958,8 @@ function createPointCloud(pointSeriesData) {
       renderer.domElement.removeEventListener("pointerleave", handlePointerLeave);
       renderer.domElement.removeEventListener("click", handleClick);
 
-      meshes.forEach((mesh) => {
+      // The meshes now in the scene: a Surface Style change replaces them.
+      meshesRef.current.forEach((mesh) => {
         mesh.geometry.dispose();
         mesh.material.dispose();
       });

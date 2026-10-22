@@ -10,8 +10,8 @@ export function StatusBar({
   surfaceCount,
   activeFilterCount,
   viewMode,
-  currentScene,
-  showSceneInfo = true, // false for an export with only charts: no points or projection to report
+  viewTitle, // the scene's title in the 3D view, the chart's title while a chart is shown
+  showSceneInfo = true, // false while a chart is shown (or the export has only charts): no 3D points or projection to report
   errorMessage,
 }) {
   const active = hoveredPoint ?? selectedPoint;
@@ -52,9 +52,9 @@ export function StatusBar({
           </span>
         </div>
 
-        {currentScene && (
+        {viewTitle && (
           <span style={{ fontSize: 10, color: "var(--color-fg-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 280 }}>
-            {currentScene.title}
+            {viewTitle}
           </span>
         )}
       </div>

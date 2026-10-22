@@ -1,13 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { axisFraction, computeTicks, formatTick, padDegenerateRange } from "./chartScale";
 import {
   DEFAULT_CHART_POINT_COLOUR,
   DEFAULT_CHART_POINT_DIAMETER,
-  resolveChartLineColour,
-  resolveChartPointColours,
-  resolveChartPointSizes,
+  resolveChartSeriesColours,
 } from "./chartColours";
 import { addDataMargins, computeVisibleAxisRanges } from "./chartData";
 import { chartTextToPlain, parseChartText } from "./chartText";
@@ -22,15 +20,6 @@ const TEXT_COLOUR = "#c9d1cf";
 const GRID_COLOUR = "rgba(255, 255, 255, 0.08)";
 const AXIS_COLOUR = "rgba(255, 255, 255, 0.35)";
 const POINT_RADIUS = DEFAULT_CHART_POINT_DIAMETER / 2;
-
-function initialToggles(chart) {
-  const toggles = {};
-  chart.series.forEach((series, index) => {
-    toggles[`${index}:points`] = series.pointsVisible;
-    toggles[`${index}:lines`] = series.linesVisible;
-  });
-  return toggles;
-}
 
 // Each enabled axis' range for the series drawn now (a series is drawn when
 // its Points or Lines switch is on), with a little room beyond the data
@@ -257,34 +246,20 @@ function ChartText({ html, style }) {
 }
 
 /**
- * Renders one parsed chart (see parseExportFile's `charts`): header, a
- * canvas with up to four axes, per-series points/lines toggles and footer.
+ * Renders one parsed chart (see parseExportFile's `charts`): header, per-series
+ * Points / Lines check boxes, a canvas with up to four axes, and footer.
+ * `chart.series` come with the sidebar's Marker Style choices already applied
+ * (chartStyle.js). `toggles` say which series' points and lines are drawn;
+ * the page keeps them, so the legend can leave out a series that is switched
+ * off, and the check boxes change them through `onToggle`.
  */
-export default function ChartView({ chart }) {
+export default function ChartView({ chart, toggles, onToggle }) {
   const canvasRef = useRef(null);
-  const [toggles, setToggles] = useState(() => initialToggles(chart));
   const ranges = useMemo(() => resolveRanges(chart, toggles), [chart, toggles]);
 
   // Colours depend only on the data and markers, not on the toggles or the
   // canvas size, so they are resolved once per chart.
-  const seriesColours = useMemo(
-    () =>
-      chart.series.map((series) => {
-        const lineColour = resolveChartLineColour(series);
-        const useLegendLines = !series.lineOverrideColour && series.lines.length > 0;
-        return {
-          pointColours: resolveChartPointColours(series),
-          pointSizes: resolveChartPointSizes(series),
-          lineColour,
-          lineColours: series.lines.map((line) =>
-            useLegendLines
-              ? resolveChartPointColours({ ...series, points: { rows: line.rows } })
-              : null
-          ),
-        };
-      }),
-    [chart]
-  );
+  const seriesColours = useMemo(() => resolveChartSeriesColours(chart), [chart]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -296,10 +271,6 @@ export default function ChartView({ chart }) {
     return () => observer.disconnect();
   }, [chart, ranges, toggles, seriesColours]);
 
-  function toggle(key) {
-    setToggles((current) => ({ ...current, [key]: !current[key] }));
-  }
-
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", padding: "14px 18px", gap: 8, color: "var(--color-fg)" }}>
       {chart.header && <ChartText html={chart.header} style={{ fontSize: 15, fontWeight: 600 }} />}
@@ -310,13 +281,13 @@ export default function ChartView({ chart }) {
             <span style={{ fontWeight: 600 }}>{series.name}</span>
             {series.enablePoints && (
               <label style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                <input type="checkbox" checked={toggles[`${index}:points`]} onChange={() => toggle(`${index}:points`)} />
+                <input type="checkbox" checked={toggles[`${index}:points`] === true} onChange={() => onToggle(`${index}:points`)} />
                 Points
               </label>
             )}
             {series.enableLines && (
               <label style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                <input type="checkbox" checked={toggles[`${index}:lines`]} onChange={() => toggle(`${index}:lines`)} />
+                <input type="checkbox" checked={toggles[`${index}:lines`] === true} onChange={() => onToggle(`${index}:lines`)} />
                 Lines
               </label>
             )}

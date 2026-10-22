@@ -8,8 +8,9 @@
 //
 // Kept per scene (a "scene view state", below): the projection, which point
 // series, lines, surfaces and annotations are shown, the filters, the
-// "points with no value" switches, the Marker Style choices, and which
-// series the Filters and Marker Style sections are set to. A scene shown for
+// "points with no value" switches, the Marker Style and Surface Style
+// choices, and which series and surface the Filters, Marker Style and
+// Surface Style sections are set to. A scene shown for
 // the first time starts from its export: perspective or orthographic as its
 // camera's Perspective flag says, and everything else as exported. Leaving a
 // scene keeps its state and coming back restores it; the camera is kept the
@@ -21,6 +22,7 @@
 // they stay as they are while stepping through the slides.
 
 import { restoreFilters, serializeFilters } from "./viewerSession";
+import { restoreSurfaceStyle } from "./surfaceStyle";
 
 const PROJECTIONS = ["perspective", "orthographic"];
 
@@ -47,6 +49,8 @@ export function initialSceneViewState(scene) {
     annotationsVisible: true,
     markerSelections: {},
     markerSeriesIndex: 0,
+    surfaceStyles: {},
+    surfaceStyleIndex: 0,
     projectionMode: sceneProjection(scene),
   };
 }
@@ -139,6 +143,8 @@ export function restoreSceneViewState(saved, scene) {
   if (typeof saved.annotationsVisible === "boolean") state.annotationsVisible = saved.annotationsVisible;
   state.markerSelections = restoreIndexKeyed(saved.markerSelections, restoreMarkerSelection);
   if (isIndex(saved.markerSeriesIndex)) state.markerSeriesIndex = saved.markerSeriesIndex;
+  state.surfaceStyles = restoreIndexKeyed(saved.surfaceStyles, restoreSurfaceStyle);
+  if (isIndex(saved.surfaceStyleIndex)) state.surfaceStyleIndex = saved.surfaceStyleIndex;
   if (PROJECTIONS.includes(saved.projectionMode)) state.projectionMode = saved.projectionMode;
   return state;
 }
