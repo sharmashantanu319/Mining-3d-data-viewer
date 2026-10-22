@@ -33,6 +33,7 @@ import {
   initialChartToggles,
 } from "./components/chartStyle";
 import { applySurfaceStyle, getSurfaceColourChoices, surfaceColourHex } from "./components/surfaceStyle";
+import { chartPointDetails } from "./components/chartPointDetails";
 import { IconFitView, IconPerspective, IconOrtho, IconRefresh } from "./components/icons";
 import { loadSession, saveSession, sanitizeAnnotationStyle, sessionKeyFor } from "./components/viewerSession";
 import { isValidCameraState, sanitizeSceneCameras } from "./components/cameraState";
@@ -89,6 +90,9 @@ export default function Home() {
   const [chartToggles, setChartToggles] = useState({});
   const [chartSelections, setChartSelections] = useState({});
   const [chartMarkerSeries, setChartMarkerSeries] = useState({});
+  // The chart point under the mouse and the one clicked: { chartId, seriesIndex, index }.
+  const [chartHover, setChartHover] = useState(null);
+  const [chartSelection, setChartSelection] = useState(null);
   const [restoreBanner, setRestoreBanner] = useState(null); // { key, session } for the currently loaded file, if a saved session was found
   const [hoveredPoint, setHoveredPoint] = useState(null);
   const [selectedPoint, setSelectedPoint] = useState(null);
@@ -424,6 +428,21 @@ export default function Home() {
       }
     : null;
 
+  // A hovered or selected chart point counts while it is still drawn: in the
+  // chart on screen, in a series whose points are switched on.
+  const chartPointShown = (pick) =>
+    Boolean(pick) &&
+    pick.chartId === activeChartId &&
+    styledChart?.series[pick.seriesIndex]?.enablePoints === true &&
+    activeChartToggles[`${pick.seriesIndex}:points`] === true &&
+    pick.index < (styledChart.series[pick.seriesIndex].points?.rows?.length ?? 0);
+  const shownChartHover = chartPointShown(chartHover) ? chartHover : null;
+  const shownChartSelection = chartPointShown(chartSelection) ? chartSelection : null;
+  const chartInspection = useMemo(() => {
+    const pick = shownChartSelection ?? shownChartHover;
+    return pick ? chartPointDetails(styledChart.series[pick.seriesIndex], pick.index) : null;
+  }, [shownChartSelection, shownChartHover, styledChart]);
+
   // ---------- Surface Style (3D view) ----------
   const sceneSurfaces = useMemo(() => currentScene.surfaces ?? [], [currentScene]);
   const safeSurfaceStyleIndex = Math.min(surfaceStyleIndex, Math.max(0, sceneSurfaces.length - 1));
@@ -714,6 +733,8 @@ export default function Home() {
       setChartToggles({});
       setChartSelections({});
       setChartMarkerSeries({});
+      setChartHover(null);
+      setChartSelection(null);
       setActiveView("3d");
       setCurrentIndex(0);
       sceneViewStatesRef.current = {};
@@ -1005,7 +1026,16 @@ export default function Home() {
 
           {activeChart && (
             <div hidden={!showChart} style={{ position: "absolute", inset: 0, zIndex: 6, background: "var(--color-panel)", paddingTop: 44 }}>
-              <ChartView key={activeChart.id} chart={styledChart} toggles={activeChartToggles} onToggle={toggleChartSeries} />
+              <ChartView
+                key={activeChart.id}
+                chart={styledChart}
+                toggles={activeChartToggles}
+                onToggle={toggleChartSeries}
+                hovered={shownChartHover}
+                selected={shownChartSelection}
+                onPointHover={(pick) => setChartHover(pick ? { chartId: activeChart.id, ...pick } : null)}
+                onPointSelect={(pick) => setChartSelection(pick ? { chartId: activeChart.id, ...pick } : null)}
+              />
             </div>
           )}
 
@@ -1068,12 +1098,12 @@ export default function Home() {
         <RightPanel
           open={rightOpen}
           onToggle={() => setRightOpen((v) => !v)}
-          inspection={activeSelectedPoint ?? hoveredPoint}
-          inspectionSeries={renderedPointClouds[(activeSelectedPoint ?? hoveredPoint)?.seriesIndex] ?? null}
-          kind={activeSelectedPoint ? "selected" : "hovered"}
-          onClear={() => setSelectedPoint(null)}
+          inspection={showChart ? chartInspection : activeSelectedPoint ?? hoveredPoint}
+          inspectionSeries={showChart ? null : renderedPointClouds[(activeSelectedPoint ?? hoveredPoint)?.seriesIndex] ?? null}
+          kind={(showChart ? shownChartSelection : activeSelectedPoint) ? "selected" : "hovered"}
+          onClear={() => (showChart ? setChartSelection(null) : setSelectedPoint(null))}
           legends={colourLegends}
-          showInspection={!showChart}
+          emptyHint={showChart ? "Hover or click a point in the chart to see its details." : null}
         />
       </div>
 

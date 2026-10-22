@@ -139,6 +139,12 @@ hidden. Its **Marker Style** works as in the 3D view for the selected **Series**
 attribute (or **Default colour**), **Show points with no value**, and **Size by** with **Min
 size**, **Max size** and **Invert size**. The legend in the right panel follows the colour chosen.
 
+Chart points can be inspected like 3D points (section 8): hover over one to see its details in the
+right panel, and click it to keep them as the **Selected point**. The point is ringed on the chart,
+and its details also list **On the chart**, the values it is plotted at (for example its date, or
+its hours after the trigger and cumulative count). Click **Clear** or an empty part of the chart to
+deselect.
+
 The axes fit the series that are shown: hide the smaller events, for example, and the magnitude
 axis closes in on the larger ones. An axis with a fixed minimum or maximum in the export keeps it.
 When every series on an axis is hidden, the axis is hidden too, as in mXrap, together with any
