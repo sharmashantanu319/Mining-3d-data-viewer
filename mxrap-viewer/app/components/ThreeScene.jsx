@@ -20,16 +20,19 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import * as THREE from "three";
 import { buildAnnotation, disposeAnnotations, resolveLabelFont } from "./annotationsBuilder";
-import { applyCameraState, snapshotCameraState } from "./cameraState";
+import { applyCameraState, convertCameraState, snapshotCameraState } from "./cameraState";
 import { buildSurfaceMesh } from "./geometryBuilder";
 import { buildLineSegments, lineObjectHasSegments } from "./linesBuilder";
 import { axisIndicatorTitle, updateAxisIndicator } from "./orientationGizmo";
 import AxisIndicator from "./AxisIndicator";
+import PlanGridLabels, { updatePlanGridLabels } from "./PlanGridLabels";
+import { computePlanGrid } from "./planGrid";
 import { buildPointCloud, getHardwarePointSizeRange } from "./pointsBuilder";
 import {
   resolveMarkerRenderOptions,
 } from "./pointMarkerResolver";
 import { resolveSurfaceVertexColours } from "./surfaceMarkerResolver";
+import { applySurfaceStyle } from "./surfaceStyle";
 import {
   orthoParallelScaleFromCamera,
   parallelCartoonScale as computeParallelCartoonScale,
@@ -41,6 +44,8 @@ import {
   fitBoxToView,
   levelCameraUp,
   presetCameraOffset,
+  setPlanNavigation,
+  stopCameraGlide,
   updateCameraAspect,
 } from "./cameraControls";
 
@@ -52,6 +57,11 @@ const DEFAULT_CAMERA = {
   focal: { x: 0, y: 0, z: 0 },
   up: { x: 0, y: 1, z: 0 },
 };
+
+// Plan-view grid lines (planGrid.js): a little lighter than the viewport
+// background (0x121a20), and drawn before everything else so the data stays
+// on top of them.
+const PLAN_GRID_COLOUR = 0x2b3a44;
 
 // The renderer/camera-dependent inputs to the customer point-size model
 // (see pointSizing.js), shared by every point cloud regardless of whether
@@ -183,6 +193,13 @@ function applyAnnotationScale(object, factor) {
 
 // Shared between the initial scene build and the style-override rebuild
 // effect so the filter/build/baseScale logic only lives in one place.
+// A surface's mesh as the user styled it (Surface Style, surfaceStyle.js):
+// its colour marker, single colour and opacity.
+function buildStyledSurfaceMesh(surfaceData, style) {
+  const styled = applySurfaceStyle(surfaceData, style);
+  return buildSurfaceMesh(styled, resolveSurfaceVertexColours(styled));
+}
+
 function buildAnnotationObjects(sceneData, style) {
   return (sceneData.annotations ?? [])
     .filter((annotationData) => annotationData?.text)
@@ -198,6 +215,7 @@ const ThreeScene = forwardRef(function ThreeScene(
     visiblePointClouds = null,
     lineVisibility = {},
     surfaceVisibility = {},
+    surfaceStyles = {},
     projectionMode = "perspective",
     annotationsVisible = true,
     annotationScale = 1,
@@ -224,6 +242,8 @@ const ThreeScene = forwardRef(function ThreeScene(
   const cameraRef = useRef(null);
   const controlsRef = useRef(null);
   const axisIndicatorRef = useRef(null); // the XYZ indicator's <svg>
+  const planGridOverlayRef = useRef(null); // the plan-view grid's labels
+  const homeDistanceRef = useRef(null); // export camera to focal distance; sizes the orthographic frustum
   const homeViewRef = useRef(null); // { position, target } to return to on reset
   const cancelAnimationRef = useRef(null);
   const sceneRef = useRef(null);
@@ -238,6 +258,33 @@ const ThreeScene = forwardRef(function ThreeScene(
       mesh.visible = surfaceVisibility[index] ?? sceneData.surfaces?.[index]?.visible !== false;
     });
   }, [surfaceVisibility, sceneData]);
+  // Each surface mesh is built with its Surface Style; a change of style
+  // rebuilds only that surface's mesh, so the camera and everything else
+  // stay as they are. A colour picker fires on every drag step, so the
+  // rebuild waits until the colour settles.
+  const surfaceStylesRef = useRef(surfaceStyles);
+  surfaceStylesRef.current = surfaceStyles;
+  const builtSurfaceStylesRef = useRef([]); // the style each mesh in meshesRef was built with
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      const scene = sceneRef.current;
+      if (!scene) return;
+      const surfaces = sceneData.surfaces ?? [];
+      meshesRef.current = meshesRef.current.map((mesh, index) => {
+        const style = surfaceStyles[index];
+        if (builtSurfaceStylesRef.current[index] === style || !surfaces[index]) return mesh;
+        const nextMesh = buildStyledSurfaceMesh(surfaces[index], style);
+        nextMesh.visible = mesh.visible;
+        scene.remove(mesh);
+        mesh.geometry.dispose();
+        mesh.material.dispose();
+        scene.add(nextMesh);
+        builtSurfaceStylesRef.current[index] = style;
+        return nextMesh;
+      });
+    }, 120);
+    return () => clearTimeout(timeoutId);
+  }, [surfaceStyles, sceneData]);
   const markerScaleRef = useRef(markerScale);
   markerScaleRef.current = markerScale;
   const buildPointCloudRef = useRef(null);
@@ -368,13 +415,19 @@ const ThreeScene = forwardRef(function ThreeScene(
     },
 
     // Snaps straight to the given state — no animation, since this is
-    // "restore exactly where I left off", not a guided navigation.
+    // "restore exactly where I left off", not a guided navigation. A state
+    // captured through the other kind of camera (before a perspective /
+    // orthographic switch) is converted so the same view stays on screen.
     setCameraState(state) {
       const camera = cameraRef.current;
       const controls = controlsRef.current;
       if (!camera || !controls) return;
+      const projection = camera.isOrthographicCamera ? "orthographic" : "perspective";
+      const converted = convertCameraState(state, projection, homeDistanceRef.current);
+      if (!converted) return;
       cancelAnimationRef.current?.();
-      applyCameraState(camera, controls, state);
+      stopCameraGlide(controls);
+      applyCameraState(camera, controls, converted);
     },
 
     // Reframes on the currently visible data, keeping the current viewing
@@ -435,6 +488,7 @@ const ThreeScene = forwardRef(function ThreeScene(
 
     const distanceToTarget =
       Math.hypot(camPos.x - camFocal.x, camPos.y - camFocal.y, camPos.z - camFocal.z) || 10;
+    homeDistanceRef.current = distanceToTarget;
 
     // projectionMode lets the parent switch between perspective (default)
     // and orthographic (parallel projection, no foreshortening) — see
@@ -564,8 +618,9 @@ const ThreeScene = forwardRef(function ThreeScene(
       // Real marker-def data (parsed from the export's markers.json) takes
       // priority; surfaces with no resolvable colour marker fall back to
       // the flat placeholder colour buildSurfaceMesh's own default handles.
-      const vertexColours = resolveSurfaceVertexColours(surfaceData);
-      const mesh = buildSurfaceMesh(surfaceData, vertexColours);
+      const style = surfaceStylesRef.current[index];
+      const mesh = buildStyledSurfaceMesh(surfaceData, style);
+      builtSurfaceStylesRef.current[index] = style;
       mesh.visible = surfaceVisibilityRef.current[index] ?? surfaceData.visible !== false;
       scene.add(mesh);
       meshes.push(mesh);
@@ -821,6 +876,50 @@ function createPointCloud(pointSeriesData) {
     // frame of a rebuilt scene draw it.
     const axisIndicatorMemo = {};
 
+    // Plan-view grid (planGrid.js): shown only while the orthographic camera
+    // looks straight along an axis. Its lines ignore depth and are drawn
+    // first, so surfaces, lines and points always cover them. In the same
+    // views a drag pans instead of rotating (setPlanNavigation).
+    const planGrid = new THREE.LineSegments(
+      new THREE.BufferGeometry(),
+      new THREE.LineBasicMaterial({ color: PLAN_GRID_COLOUR, depthTest: false, depthWrite: false })
+    );
+    planGrid.renderOrder = -1;
+    planGrid.frustumCulled = false;
+    planGrid.visible = false;
+    scene.add(planGrid);
+    const planGridMemo = { key: null, plan: false };
+    const planGridOverlay = planGridOverlayRef.current;
+
+    function refreshPlanGrid() {
+      const width = container.clientWidth;
+      const height = container.clientHeight;
+      const key = [
+        camera.position.x, camera.position.y, camera.position.z,
+        camera.quaternion.x, camera.quaternion.y, camera.quaternion.z, camera.quaternion.w,
+        camera.zoom, camera.left, camera.right, camera.top, camera.bottom,
+        controls.target.x, controls.target.y, controls.target.z, width, height,
+      ].join(",");
+      if (key === planGridMemo.key) return;
+      planGridMemo.key = key;
+
+      const grid = computePlanGrid(camera, controls.target, width, height);
+      if (grid) {
+        const positions = new Float32Array(grid.lines.length * 6);
+        grid.lines.forEach((line, index) => {
+          line.from.toArray(positions, index * 6);
+          line.to.toArray(positions, index * 6 + 3);
+        });
+        planGrid.geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+      }
+      planGrid.visible = Boolean(grid);
+      updatePlanGridLabels(planGridOverlay, grid, width, height);
+      if (planGridMemo.plan !== Boolean(grid)) {
+        planGridMemo.plan = Boolean(grid);
+        setPlanNavigation(controls, planGridMemo.plan);
+      }
+    }
+
     // ---------- 4. Resize 监听 ----------
     function handleResize() {
       const width = container.clientWidth;
@@ -843,6 +942,7 @@ function createPointCloud(pointSeriesData) {
       animationId = requestAnimationFrame(animate);
       controls.update();
       refreshOrthographicPointSizing();
+      refreshPlanGrid();
       renderer.render(scene, camera);
       updateAxisIndicator(axisIndicatorRef.current, camera.quaternion, axisIndicatorMemo);
     }
@@ -858,7 +958,8 @@ function createPointCloud(pointSeriesData) {
       renderer.domElement.removeEventListener("pointerleave", handlePointerLeave);
       renderer.domElement.removeEventListener("click", handleClick);
 
-      meshes.forEach((mesh) => {
+      // The meshes now in the scene: a Surface Style change replaces them.
+      meshesRef.current.forEach((mesh) => {
         mesh.geometry.dispose();
         mesh.material.dispose();
       });
@@ -881,6 +982,11 @@ function createPointCloud(pointSeriesData) {
       // that is the rebuilt set, not the array built when the scene was created.
       disposeAnnotations(annotationsRef.current);
       annotationsRef.current = [];
+
+      planGrid.geometry.dispose();
+      planGrid.material.dispose();
+      scene.remove(planGrid);
+      updatePlanGridLabels(planGridOverlay, null);
 
       controls.removeEventListener("change", handleControlsChange);
       controls.dispose();
@@ -942,6 +1048,7 @@ function createPointCloud(pointSeriesData) {
   return (
     <div style={{ position: "relative", width: "100%", height: "100%" }}>
       <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
+      <PlanGridLabels ref={planGridOverlayRef} />
       <AxisIndicator ref={axisIndicatorRef} title={axisIndicatorTitle(sceneData?.camera?.up ?? DEFAULT_CAMERA.up)} />
     </div>
   );

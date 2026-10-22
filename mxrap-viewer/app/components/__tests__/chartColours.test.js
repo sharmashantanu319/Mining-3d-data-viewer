@@ -91,3 +91,22 @@ describe("resolveChartPointColours", () => {
     });
   });
 });
+
+describe("resolveChartPointColours with a single-colour marker", () => {
+  const series = (colourMarker) => ({
+    colourMarker,
+    points: { x: [1, 2], y: [1, 2], rows: [{ ML: 1 }, { ML: null }] },
+    markerDefinitions: [
+      { name: "Cross/Grey", type: "single-colour", colour: "rgb(159,159,159)", symbol: "cross2.png" },
+      { name: "Broken", type: "single-colour", colour: "grey" },
+    ],
+  });
+
+  it("paints every point the marker's colour, as the 3D view does", () => {
+    expect(resolveChartPointColours(series("Cross/Grey"))).toEqual(["rgba(159, 159, 159, 1)", "rgba(159, 159, 159, 1)"]);
+  });
+
+  it("falls back to the default colour when the marker's colour cannot be read", () => {
+    expect(resolveChartPointColours(series("Broken"))).toBeNull();
+  });
+});

@@ -98,6 +98,24 @@ describe("buildSurfaceMesh", () => {
     dispose(mesh);
   });
 
+  it("draws a see-through surface at the opacity Surface Style sets", () => {
+    const mesh = buildSurfaceMesh({ vertices, faces, color: 0x123456, opacity: 0.4 });
+
+    expect(mesh.material.opacity).toBe(0.4);
+    expect(mesh.material.transparent).toBe(true);
+    expect(mesh.material.depthWrite).toBe(false);
+    dispose(mesh);
+  });
+
+  it("stays opaque at full opacity", () => {
+    const mesh = buildSurfaceMesh({ vertices, faces, opacity: 1 });
+
+    expect(mesh.material.opacity).toBe(1);
+    expect(mesh.material.transparent).toBe(false);
+    expect(mesh.material.depthWrite).toBe(true);
+    dispose(mesh);
+  });
+
   it("switches to white vertex colours when per-vertex colours are supplied", () => {
     const colours = new Float32Array(vertices.length * 3).fill(0.25);
     const mesh = buildSurfaceMesh({ vertices, faces, color: 0x123456 }, colours);

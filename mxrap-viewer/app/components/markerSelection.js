@@ -11,10 +11,15 @@ function isSizeDefinition(definition) {
   return definition?.type === "size";
 }
 
-// Only markers whose input column the series' data has are offered. The
-// TestHazards "Minodes" series uses the seismic-events menu, so it offered
-// "Mag/Spheres", "Event Date", "Moment" and size "ML" for nodes that have none
-// of those columns; picking one turned every node the missing-value colour.
+const isEmptyValue = (value) =>
+  value === null || value === undefined || value === "" || (typeof value === "number" && !Number.isFinite(value));
+
+// Only markers whose input column has values in the series' data are
+// offered. The TestHazards "Minodes" series uses the seismic-events menu, so
+// it offered "Mag/Spheres", "Event Date", "Moment" and size "ML" for nodes
+// that have none of those columns; picking one turned every node the
+// missing-value colour. A column that is there but empty in every row is no
+// better, so the values are checked, not just the column names.
 // The markers in use stay listed so the dropdowns can show them, markers that
 // read no column (single-colour) are always offered, and a series with no
 // points to look at keeps every choice.
@@ -28,13 +33,17 @@ export function getMarkerChoices(series, current = {}) {
     : [];
   const unique = (items) =>
     Array.from(new Map(items.filter((item) => item?.name).map((item) => [item.name, item])).values());
-  const firstPoint = Array.isArray(series?.points) ? series.points[0] : null;
-  const columns = firstPoint && typeof firstPoint === "object" ? new Set(Object.keys(firstPoint)) : null;
+  const points = Array.isArray(series?.points) ? series.points : [];
+  const filled = new Map();
+  const hasValues = (column) => {
+    if (!filled.has(column)) filled.set(column, points.some((point) => !isEmptyValue(point?.[column])));
+    return filled.get(column);
+  };
   const usable = (currentName) => (definition) =>
-    columns === null ||
+    points.length === 0 ||
     definition.name === currentName ||
     definition.input == null ||
-    columns.has(definition.input);
+    hasValues(definition.input);
   const choice = (definition) => ({ name: definition.name, input: definition.input ?? null });
 
   return {

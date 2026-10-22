@@ -23,16 +23,37 @@ import {
 } from "./components/dataFilters";
 import { buildColourLegend } from "./components/colourLegend";
 import { getMarkerChoices, applyMarkerSelections, pickLegendSeriesIndices } from "./components/markerSelection";
-import { resolveMarkerRenderOptions } from "./components/pointMarkerResolver";
+import { markerSymbolLabel } from "./components/pointMarkerResolver";
 import { findMarkerDefinition } from "./components/markerLookup";
+import {
+  applyChartSelections,
+  chartMarkerValue,
+  countDrawnChartPoints,
+  getChartMarkerChoices,
+  initialChartToggles,
+} from "./components/chartStyle";
+import { applySurfaceStyle, getSurfaceColourChoices, surfaceColourHex } from "./components/surfaceStyle";
+import { chartPointDetails } from "./components/chartPointDetails";
 import { IconFitView, IconPerspective, IconOrtho, IconRefresh } from "./components/icons";
-import { loadSession, restoreFilters, saveSession, sanitizeAnnotationStyle, serializeFilters, sessionKeyFor } from "./components/viewerSession";
-import { cameraStateForProjection, sanitizeSceneCameras } from "./components/cameraState";
-import { SCENE_SCOPED_STATE_DEFAULTS, isSceneSwitch } from "./components/sceneViewState";
+import { loadSession, saveSession, sanitizeAnnotationStyle, sessionKeyFor } from "./components/viewerSession";
+import { isValidCameraState, sanitizeSceneCameras } from "./components/cameraState";
+import {
+  initialSceneViewState,
+  isSceneSwitch,
+  restoreSceneViewState,
+  restoreSceneViewStates,
+  sceneViewStateOnEntry,
+  serializeSceneViewStates,
+} from "./components/sceneViewState";
 
 function colourMarkerInput(series) {
   return findMarkerDefinition(series?.markerDefinitions, series?.colourMarker, "colour")?.input ?? null;
 }
+
+// Stands in for the current scene when an export has charts but no 3D views:
+// the 3D panels are hidden then, and anything that still reads the scene
+// finds no data in it.
+const NO_3D_VIEW = Object.freeze({ id: "no-3d-view", title: "", surfaces: [], pointClouds: [], lineSeries: [], annotations: [] });
 
 export default function Home() {
   const [scenes, setScenes] = useState(mockScenes); // 初始用 mock 数据占位，上传真实文件后会替换
@@ -61,17 +82,31 @@ export default function Home() {
   const [markerSelections, setMarkerSelections] = useState({});
   const [markerSeriesIndex, setMarkerSeriesIndex] = useState(0);
   const [markerScale, setMarkerScale] = useState(0.5);
+  const [surfaceStyles, setSurfaceStyles] = useState({}); // { [surfaceIndex]: Surface Style (surfaceStyle.js) } for the current scene
+  const [surfaceStyleIndex, setSurfaceStyleIndex] = useState(0); // which surface the Surface Style section is set to
+  // Chart settings, kept per chart (by its id) while the file is open:
+  // each series' Points/Lines switches, its Marker Style choices, and which
+  // series the Marker Style section is set to.
+  const [chartToggles, setChartToggles] = useState({});
+  const [chartSelections, setChartSelections] = useState({});
+  const [chartMarkerSeries, setChartMarkerSeries] = useState({});
+  // The chart point under the mouse and the one clicked: { chartId, seriesIndex, index }.
+  const [chartHover, setChartHover] = useState(null);
+  const [chartSelection, setChartSelection] = useState(null);
   const [restoreBanner, setRestoreBanner] = useState(null); // { key, session } for the currently loaded file, if a saved session was found
   const [hoveredPoint, setHoveredPoint] = useState(null);
   const [selectedPoint, setSelectedPoint] = useState(null);
   const threeSceneRef = useRef(null);
   const sessionKeyRef = useRef(null); // which file's session to save to, or null for the initial mock demo (not persisted)
+  const sceneViewStatesRef = useRef({}); // { [sceneIndex]: scene view state } recorded when a scene is left, so switching back restores its settings (sceneViewState.js)
   const sceneCamerasRef = useRef({}); // { [sceneIndex]: camera state } recorded when a scene is left, so switching back restores its camera
   const pendingCameraRestoreRef = useRef(null); // camera state to apply once the rebuilt ThreeScene has mounted
   const saveTimeoutRef = useRef(null);
-  const currentScene = scenes[currentIndex];
+  const hasScenes = scenes.length > 0;
+  const currentScene = scenes[currentIndex] ?? NO_3D_VIEW;
   const activeChart = charts[Math.min(chartIndex, charts.length - 1)] ?? null;
-  const showChart = activeView === "chart" && activeChart !== null;
+  // An export with only charts always shows them.
+  const showChart = activeChart !== null && (activeView === "chart" || !hasScenes);
   const pointSeries = useMemo(() => currentScene.pointClouds ?? [], [currentScene]);
   const safeSelectedSeries = Math.min(selectedSeries, Math.max(0, pointSeries.length - 1));
   const safeMarkerSeriesIndex = Math.min(markerSeriesIndex, Math.max(0, pointSeries.length - 1));
@@ -194,20 +229,16 @@ export default function Home() {
       const liveCamera = threeSceneRef.current?.getCameraState() ?? null;
       saveSession(sessionKeyRef.current, {
         sceneIndex: currentIndex,
-        filtersBySeries: serializeFilters(filtersBySeries),
-        seriesVisibility,
-        surfaceVisibility,
-        nullVisibility,
-        markerSelections,
-        markerSeriesIndex,
+        sceneStates: serializeSceneViewStates({
+          ...sceneViewStatesRef.current,
+          [currentIndex]: currentSceneViewState(),
+        }),
         markerScale,
         rightOpen,
-        annotationsVisible,
         annotationScale,
         annotationFont,
         annotationTextColor,
         annotationBackgroundColor,
-        projectionMode,
         camera: liveCamera,
         sceneCameras: liveCamera
           ? { ...sceneCamerasRef.current, [currentIndex]: liveCamera }
@@ -225,12 +256,16 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     currentIndex,
+    selectedSeries,
     filtersBySeries,
     seriesVisibility,
+    lineVisibility,
     surfaceVisibility,
     nullVisibility,
     markerSelections,
     markerSeriesIndex,
+    surfaceStyles,
+    surfaceStyleIndex,
     markerScale,
     rightOpen,
     annotationsVisible,
@@ -257,16 +292,15 @@ export default function Home() {
       Number.isInteger(session.sceneIndex) && session.sceneIndex >= 0 && session.sceneIndex < scenes.length
         ? session.sceneIndex
         : currentIndex;
+    // Every scene's settings. A session saved before scenes kept their own
+    // settings only has those of the scene it was on, at its top level.
+    const restoredStates = restoreSceneViewStates(session.sceneStates, scenes);
+    const restoredState = restoredStates[restoredIndex] ?? restoreSceneViewState(session, scenes[restoredIndex]);
+    sceneViewStatesRef.current = restoredStates;
     setCurrentIndex(restoredIndex);
-    if (session.filtersBySeries) setFiltersBySeries(restoreFilters(session.filtersBySeries));
-    if (session.seriesVisibility) setSeriesVisibility(session.seriesVisibility);
-    setSurfaceVisibility(session.surfaceVisibility ?? {});
-    if (session.nullVisibility) setNullVisibility(session.nullVisibility);
-    if (session.markerSelections) setMarkerSelections(session.markerSelections);
-    if (Number.isInteger(session.markerSeriesIndex)) setMarkerSeriesIndex(session.markerSeriesIndex);
+    showSceneViewState(restoredState);
     if (Number.isFinite(session.markerScale)) setMarkerScale(Math.min(1.5, Math.max(0.1, session.markerScale)));
     if (typeof session.rightOpen === "boolean") setRightOpen(session.rightOpen);
-    if (typeof session.annotationsVisible === "boolean") setAnnotationsVisible(session.annotationsVisible);
     if (Number.isFinite(session.annotationScale)) setAnnotationScale(session.annotationScale);
     const annotationStyle = sanitizeAnnotationStyle(session);
     textColourAutoSeededRef.current = false;
@@ -275,23 +309,21 @@ export default function Home() {
     if ("annotationBackgroundColor" in annotationStyle) {
       setAnnotationBackgroundColor(annotationStyle.annotationBackgroundColor);
     }
-    const restoredProjection = session.projectionMode || projectionMode;
-    if (session.projectionMode) setProjectionMode(session.projectionMode);
 
     // Restore every scene's remembered camera, and the current scene's live
     // camera on top. `camera` alone is what sessions saved before per-scene
-    // cameras hold.
+    // cameras hold. ThreeScene converts a camera seen through the other kind
+    // of projection.
     const restoredCameras = sanitizeSceneCameras(session.sceneCameras, scenes.length);
-    const liveCamera = cameraStateForProjection(session.camera, restoredProjection);
-    if (liveCamera) restoredCameras[restoredIndex] = liveCamera;
+    if (isValidCameraState(session.camera)) restoredCameras[restoredIndex] = session.camera;
     sceneCamerasRef.current = restoredCameras;
 
-    const restoredCamera = cameraStateForProjection(restoredCameras[restoredIndex], restoredProjection);
+    const restoredCamera = restoredCameras[restoredIndex];
     if (restoredCamera) {
       // ThreeScene only rebuilds (and so needs the camera applied afterwards)
       // when the scene or projection actually changes; otherwise it is
       // already mounted and can be moved straight away.
-      if (restoredIndex !== currentIndex || restoredProjection !== projectionMode) {
+      if (restoredIndex !== currentIndex || restoredState.projectionMode !== projectionMode) {
         pendingCameraRestoreRef.current = restoredCamera;
       } else {
         threeSceneRef.current?.setCameraState(restoredCamera);
@@ -309,13 +341,183 @@ export default function Home() {
   // legend stays paired with its originating series by index, including for
   // the fullRenderedPointClouds lookup buildColourLegend's 3rd argument uses
   // to compute the full-dataset range comparison.
+  // ---------- Chart controls (shown in the sidebar while a chart is on screen) ----------
+  const activeChartId = activeChart?.id ?? null;
+  const activeChartSelections = useMemo(
+    () => (activeChartId ? chartSelections[activeChartId] ?? {} : {}),
+    [chartSelections, activeChartId]
+  );
+  // The chart as drawn: every series with its Marker Style choices applied,
+  // so the chart, its legend and the sidebar all read the same colours.
+  const styledChart = useMemo(
+    () => (activeChart ? { ...activeChart, series: applyChartSelections(activeChart.series, activeChartSelections) } : null),
+    [activeChart, activeChartSelections]
+  );
+  const activeChartToggles = useMemo(
+    () => (activeChartId ? chartToggles[activeChartId] ?? initialChartToggles(activeChart) : {}),
+    [chartToggles, activeChartId, activeChart]
+  );
+  const chartSeriesCount = activeChart?.series.length ?? 0;
+  const chartMarkerIndex = Math.min(chartMarkerSeries[activeChartId] ?? 0, Math.max(0, chartSeriesCount - 1));
+  const chartMarkerSource = activeChart?.series[chartMarkerIndex] ?? null;
+  const chartMarkerStyled = styledChart?.series[chartMarkerIndex] ?? null;
+  const chartMarkerSelection = activeChartSelections[chartMarkerIndex] ?? {};
+  const chartColourValue = chartMarkerValue(chartMarkerSource, chartMarkerSelection, "colourMarker");
+  const chartSizeValue = chartMarkerValue(chartMarkerSource, chartMarkerSelection, "sizeMarker");
+  const chartMarkerChoices = useMemo(
+    () => getChartMarkerChoices(chartMarkerSource, { colour: chartColourValue, size: chartSizeValue }),
+    [chartMarkerSource, chartColourValue, chartSizeValue]
+  );
+  const chartNullColumn = colourMarkerInput(chartMarkerStyled);
+  const chartNullCount = useMemo(
+    () => countMissingValues(chartMarkerSource?.points?.rows, chartNullColumn),
+    [chartMarkerSource, chartNullColumn]
+  );
+
+  function updateChartSelection(patch) {
+    if (!activeChartId) return;
+    setChartSelections((current) => {
+      const forChart = current[activeChartId] ?? {};
+      return {
+        ...current,
+        [activeChartId]: { ...forChart, [chartMarkerIndex]: { ...forChart[chartMarkerIndex], ...patch } },
+      };
+    });
+  }
+
+  function toggleChartSeries(key) {
+    if (!activeChartId) return;
+    setChartToggles((current) => {
+      const toggles = current[activeChartId] ?? initialChartToggles(activeChart);
+      return { ...current, [activeChartId]: { ...toggles, [key]: !toggles[key] } };
+    });
+  }
+
+  const chartControls = styledChart
+    ? {
+        drawnPointCount: countDrawnChartPoints(styledChart.series, activeChartToggles),
+        totalPointCount: styledChart.series.reduce(
+          (total, series) => total + (series.enablePoints ? series.points?.x?.length ?? 0 : 0),
+          0
+        ),
+        markerStyle: {
+          markerSeriesOptions: styledChart.series.map((series, index) => series.name || `Series ${index + 1}`),
+          markerSeriesIndex: chartMarkerIndex,
+          onMarkerSeriesChange: (index) => setChartMarkerSeries((current) => ({ ...current, [activeChartId]: index })),
+          colourChoices: chartMarkerChoices.colour,
+          colourValue: chartColourValue,
+          onColourChange: (value) => updateChartSelection({ colourMarker: value || null }),
+          nullValueColumn: chartNullColumn,
+          nullValueCount: chartNullCount,
+          showNulls: chartMarkerStyled?.showNullColours === true,
+          onShowNullsChange: (e) => updateChartSelection({ showNullColours: e.target.checked }),
+          sizeChoices: chartMarkerChoices.size,
+          sizeValue: chartSizeValue,
+          onSizeChange: (value) => updateChartSelection({ sizeMarker: value || null }),
+          sizeMinValue: Object.hasOwn(chartMarkerSelection, "minSize")
+            ? chartMarkerSelection.minSize
+            : chartMarkerSource?.sizeMinimum ?? "",
+          sizeMaxValue: Object.hasOwn(chartMarkerSelection, "maxSize")
+            ? chartMarkerSelection.maxSize
+            : chartMarkerSource?.sizeMaximum ?? "",
+          onSizeMinChange: (value) => updateChartSelection({ minSize: value }),
+          onSizeMaxChange: (value) => updateChartSelection({ maxSize: value }),
+          invertSize: chartMarkerSelection.invertSize === true,
+          onInvertSizeChange: (value) => updateChartSelection({ invertSize: value }),
+        },
+      }
+    : null;
+
+  // A hovered or selected chart point counts while it is still drawn: in the
+  // chart on screen, in a series whose points are switched on.
+  const chartPointShown = (pick) =>
+    Boolean(pick) &&
+    pick.chartId === activeChartId &&
+    styledChart?.series[pick.seriesIndex]?.enablePoints === true &&
+    activeChartToggles[`${pick.seriesIndex}:points`] === true &&
+    pick.index < (styledChart.series[pick.seriesIndex].points?.rows?.length ?? 0);
+  const shownChartHover = chartPointShown(chartHover) ? chartHover : null;
+  const shownChartSelection = chartPointShown(chartSelection) ? chartSelection : null;
+  const chartInspection = useMemo(() => {
+    const pick = shownChartSelection ?? shownChartHover;
+    return pick ? chartPointDetails(styledChart.series[pick.seriesIndex], pick.index) : null;
+  }, [shownChartSelection, shownChartHover, styledChart]);
+
+  // ---------- Surface Style (3D view) ----------
+  const sceneSurfaces = useMemo(() => currentScene.surfaces ?? [], [currentScene]);
+  const safeSurfaceStyleIndex = Math.min(surfaceStyleIndex, Math.max(0, sceneSurfaces.length - 1));
+  const styledActiveSurface = useMemo(
+    () => applySurfaceStyle(sceneSurfaces[safeSurfaceStyleIndex], surfaceStyles[safeSurfaceStyleIndex]),
+    [sceneSurfaces, safeSurfaceStyleIndex, surfaceStyles]
+  );
+  const surfaceColourChoices = useMemo(
+    () => getSurfaceColourChoices(sceneSurfaces[safeSurfaceStyleIndex], styledActiveSurface?.colourMarker ?? null),
+    [sceneSurfaces, safeSurfaceStyleIndex, styledActiveSurface]
+  );
+
+  function updateSurfaceStyle(patch) {
+    setSurfaceStyles((current) => ({
+      ...current,
+      [safeSurfaceStyleIndex]: { ...current[safeSurfaceStyleIndex], ...patch },
+    }));
+  }
+
+  const surfaceStyleControls = sceneSurfaces.length > 0 && styledActiveSurface
+    ? {
+        surfaceOptions: sceneSurfaces.map((surface, index) => surface.name || `Surface ${index + 1}`),
+        surfaceIndex: safeSurfaceStyleIndex,
+        onSurfaceChange: setSurfaceStyleIndex,
+        colourChoices: surfaceColourChoices,
+        // "" is "Single colour": a surface whose marker does not resolve is
+        // drawn in one colour too, so it reads that way here.
+        colourValue: surfaceColourChoices.some((choice) => choice.name === styledActiveSurface.colourMarker)
+          ? styledActiveSurface.colourMarker
+          : "",
+        onColourChange: (value) => updateSurfaceStyle({ colourMarker: value || null }),
+        colourHex: surfaceColourHex(styledActiveSurface),
+        onColourHexChange: (value) => updateSurfaceStyle({ colour: value }),
+        opacity: Number.isFinite(styledActiveSurface.opacity) ? styledActiveSurface.opacity : 1,
+        onOpacityChange: (value) => updateSurfaceStyle({ opacity: value }),
+      }
+    : null;
+
+  // The legend of the surface chosen in Surface Style, once the user has
+  // picked a colour marker for it there and while it is shown, so the
+  // colours they chose are explained like the points' (a surface in one
+  // colour needs none). A surface as exported keeps the export's legend
+  // setting, which the sample sets off.
+  const surfaceLegends = useMemo(() => {
+    const surface = styledActiveSurface;
+    const chosen = surfaceStyles[safeSurfaceStyleIndex]?.colourMarker;
+    if (showChart || !chosen || !surface?.colourMarker) return [];
+    if (!(surfaceVisibility[safeSurfaceStyleIndex] ?? surface.visible !== false)) return [];
+    const vertices = surface.vertices ?? [];
+    const legend = buildColourLegend({
+      name: surface.name || `Surface ${safeSurfaceStyleIndex + 1}`,
+      markerDefinitions: surface.markerDefinitions,
+      colourMarker: surface.colourMarker,
+      points: vertices,
+      showNullColours: true,
+    });
+    if (!legend || legend.kind === "error") return [];
+    const missingCount = !legend.input ? undefined : countMissingValues(vertices, legend.input);
+    return [{ ...legend, missingCount, sizeLabel: null, symbolLabel: null }];
+  }, [styledActiveSurface, surfaceStyles, showChart, surfaceVisibility, safeSurfaceStyleIndex]);
+
   const colourLegends = useMemo(
     () =>
       (showChart
-        ? activeChart.series.map((series) => ({ ...series, points: series.points.rows }))
+        ? styledChart.series.map((series) => ({ ...series, points: series.points.rows }))
         : [...renderedPointClouds, ...(currentScene.lineSeries ?? []).map(lineColourSeries)])
         .map((series, index, all) =>
-          (showChart ? series?.legend === true : pickLegendSeriesIndices(all, safeMarkerSeriesIndex).includes(index))
+          // A chart follows the 3D rule too: the series the export marks for
+          // a legend, or else the one chosen in Marker Style, so a colour
+          // picked there is always explained.
+          pickLegendSeriesIndices(all, showChart ? chartMarkerIndex : safeMarkerSeriesIndex).includes(index) &&
+          // A chart series switched off in Chart Series has nothing on screen to explain.
+          (!showChart ||
+            (series.enablePoints && activeChartToggles[`${index}:points`]) ||
+            (series.enableLines && activeChartToggles[`${index}:lines`]))
             ? { series, index }
             : null)
         .filter(Boolean)
@@ -334,14 +536,26 @@ export default function Home() {
               (typeof value === "number" && !Number.isFinite(value))
             );
           }).length;
-          const renderOptions = resolveMarkerRenderOptions(series);
-          const symbolLabel =
-            legend.symbolLabel ??
-            (renderOptions?.renderAsShadedSphere ? "Shaded sphere" : renderOptions?.symbolFn ? "From colour ramp" : "None");
-          return { ...legend, missingCount, sizeLabel: series.sizeMarker || "Constant", symbolLabel };
+          // Size and symbol are said for 3D points (the Marker Style panel
+          // uses the same words) and size for chart points; a chart draws
+          // plain dots or crosses, and lines have neither.
+          const isPointSeries = !showChart && index < renderedPointClouds.length;
+          // Whether points with no value are drawn is the user's choice now
+          // ("Show points with no value"), not only the export's setting.
+          const nullEntry = isPointSeries && legend.nullEntry
+            ? { ...legend.nullEntry, visible: nullVisibility[index] ?? series.showNullColours !== false }
+            : legend.nullEntry;
+          return {
+            ...legend,
+            nullEntry,
+            missingCount,
+            sizeLabel: showChart || isPointSeries ? series.sizeMarker || "Constant" : null,
+            symbolLabel: isPointSeries ? markerSymbolLabel(series) : null,
+          };
         })
-        .filter(Boolean),
-    [renderedPointClouds, fullRenderedPointClouds, currentScene, activeChart, showChart, safeMarkerSeriesIndex]
+        .filter(Boolean)
+        .concat(showChart ? [] : surfaceLegends),
+    [renderedPointClouds, fullRenderedPointClouds, currentScene, styledChart, showChart, safeMarkerSeriesIndex, chartMarkerIndex, activeChartToggles, nullVisibility, surfaceLegends]
   );
 
   // Selection survives a filter/visibility change as long as the selected
@@ -453,7 +667,12 @@ export default function Home() {
   const sizeValue = Object.hasOwn(markerActiveSelection, "sizeMarker")
     ? markerActiveSelection.sizeMarker ?? ""
     : markerActiveSeries?.sizeMarker ?? "";
-  const markerChoices = getMarkerChoices(markerActiveSeries, { colour: colourValue, size: sizeValue });
+  // Checked against every point of the series, not only the ones shown now:
+  // a hidden or filtered-out series used to be offered every marker.
+  const markerChoices = useMemo(
+    () => getMarkerChoices(pointSeries[safeMarkerSeriesIndex], { colour: colourValue, size: sizeValue }),
+    [pointSeries, safeMarkerSeriesIndex, colourValue, sizeValue]
+  );
   // Points of the Marker Style series that have no value for the colour in
   // use: "Show points with no value" shows or hides exactly these.
   const markerNullColumn = colourMarkerInput(fullRenderedPointClouds[safeMarkerSeriesIndex]);
@@ -475,8 +694,7 @@ export default function Home() {
     if (!markerActiveSeries) return null;
     const selection = markerSelections?.[safeMarkerSeriesIndex] ?? {};
     const [previewSeries] = applyMarkerSelections([markerActiveSeries], { 0: selection });
-    const renderOptions = resolveMarkerRenderOptions(previewSeries);
-    return renderOptions?.symbolFn ? "From colour ramp" : "None";
+    return markerSymbolLabel(previewSeries);
   }, [markerActiveSeries, markerSelections, safeMarkerSeriesIndex]);
 
   async function handleFileChange(event) {
@@ -501,24 +719,32 @@ export default function Home() {
       // 第二步：Validate 通过后，才真正解析并渲染
       // Step 2: only parse and render once validation passes.
       const parsed = await parseExportFile(file);
-      // An export whose displays are all non-3D views (charts) parses to zero
-      // scenes; there is nothing to render, and the viewer needs a current
-      // scene to exist.
-      if (parsed.scenes.length === 0) {
-        setErrors(["This export has no 3D views to display."]);
+      // Which displays to show is up to the export (client email, 22
+      // September): one with only charts opens on its charts. One with
+      // neither has nothing to show.
+      if (parsed.scenes.length === 0 && (parsed.charts ?? []).length === 0) {
+        setErrors(["This export has no 3D views or charts to display."]);
         return;
       }
       setScenes(parsed.scenes);
       setImportReport({ warnings: validation.warnings ?? [], notes: validation.notes ?? [], summaries: validation.summaries ?? [] });
       setCharts(parsed.charts ?? []);
       setChartIndex(0);
+      setChartToggles({});
+      setChartSelections({});
+      setChartMarkerSeries({});
+      setChartHover(null);
+      setChartSelection(null);
       setActiveView("3d");
       setCurrentIndex(0);
-      resetSceneScopedState();
+      sceneViewStatesRef.current = {};
+      showSceneViewState(initialSceneViewState(parsed.scenes[0]));
       sceneCamerasRef.current = {};
       pendingCameraRestoreRef.current = null;
 
-      sessionKeyRef.current = sessionKeyFor(file);
+      // Sessions keep 3D view settings, so an export with only charts has
+      // nothing to save.
+      sessionKeyRef.current = parsed.scenes.length > 0 ? sessionKeyFor(file) : null;
       setRestoreBanner(null);
       const saved = loadSession(sessionKeyRef.current);
       if (saved) setRestoreBanner({ key: sessionKeyRef.current, session: saved });
@@ -530,44 +756,81 @@ export default function Home() {
     }
   }
 
-  // Resets the state that belongs to one scene's data (see sceneViewState.js
-  // for what is reset and what is deliberately kept across a scene switch).
-  function resetSceneScopedState() {
-    setSelectedSeries(SCENE_SCOPED_STATE_DEFAULTS.selectedSeries);
-    setFiltersBySeries({ ...SCENE_SCOPED_STATE_DEFAULTS.filtersBySeries });
-    setSeriesVisibility({ ...SCENE_SCOPED_STATE_DEFAULTS.seriesVisibility });
-    setLineVisibility({});
-    setSurfaceVisibility({});
-    setNullVisibility({ ...SCENE_SCOPED_STATE_DEFAULTS.nullVisibility });
-    setMarkerSelections({ ...SCENE_SCOPED_STATE_DEFAULTS.markerSelections });
-    setMarkerSeriesIndex(SCENE_SCOPED_STATE_DEFAULTS.markerSeriesIndex);
+  // The current scene's own settings, and showing a scene's settings (see
+  // sceneViewState.js for which settings each scene keeps and which are
+  // shared). Hover and selection always start empty in a scene.
+  function currentSceneViewState() {
+    return {
+      selectedSeries,
+      filtersBySeries,
+      seriesVisibility,
+      lineVisibility,
+      surfaceVisibility,
+      nullVisibility,
+      annotationsVisible,
+      markerSelections,
+      markerSeriesIndex,
+      surfaceStyles,
+      surfaceStyleIndex,
+      projectionMode,
+    };
+  }
+
+  function showSceneViewState(state) {
+    setSelectedSeries(state.selectedSeries);
+    setFiltersBySeries(state.filtersBySeries);
+    setSeriesVisibility(state.seriesVisibility);
+    setLineVisibility(state.lineVisibility);
+    setSurfaceVisibility(state.surfaceVisibility);
+    setNullVisibility(state.nullVisibility);
+    setAnnotationsVisible(state.annotationsVisible);
+    setMarkerSelections(state.markerSelections);
+    setMarkerSeriesIndex(state.markerSeriesIndex);
+    setSurfaceStyles(state.surfaceStyles ?? {});
+    setSurfaceStyleIndex(state.surfaceStyleIndex ?? 0);
+    setProjectionMode(state.projectionMode);
     setHoveredPoint(null);
     setSelectedPoint(null);
+  }
+
+  // Switching projection rebuilds the 3D view with the other kind of camera.
+  // The current view is handed over (ThreeScene converts it), so a Top view
+  // stays a Top view instead of jumping back to the export's camera.
+  function changeProjection(mode) {
+    if (mode === projectionMode) return;
+    const liveCamera = threeSceneRef.current?.getCameraState();
+    if (liveCamera) pendingCameraRestoreRef.current = liveCamera;
+    setProjectionMode(mode);
   }
 
   function switchToScene(index) {
     if (!isSceneSwitch(index, currentIndex, scenes.length)) return;
 
-    // Remember where the camera was in the scene being left, and queue the
-    // target scene's remembered camera (if it has been visited and was seen
-    // through the same kind of camera) to be applied once it has mounted.
-    // Otherwise the scene opens on the export's own default camera.
+    // Remember the scene being left (its settings and camera), then show the
+    // target scene as it was left, or as its export sets it up the first
+    // time it is shown. Its remembered camera, if any, is applied once the
+    // scene has mounted; otherwise it opens on the export's camera.
+    sceneViewStatesRef.current[currentIndex] = currentSceneViewState();
     const leavingCamera = threeSceneRef.current?.getCameraState();
     if (leavingCamera) sceneCamerasRef.current[currentIndex] = leavingCamera;
-    pendingCameraRestoreRef.current = cameraStateForProjection(sceneCamerasRef.current[index], projectionMode);
+    pendingCameraRestoreRef.current = sceneCamerasRef.current[index] ?? null;
 
     setCurrentIndex(index);
-    resetSceneScopedState();
+    showSceneViewState(sceneViewStateOnEntry(sceneViewStatesRef.current, index, scenes[index]));
     setRestoreBanner(null);
   }
 
   const dataState = errors.length > 0 ? "error" : isLoadingExport ? "loading" : "loaded";
+  // What the header and status bar name: the chart while one is shown,
+  // otherwise the 3D scene. Everything else about the 3D view (point
+  // details, point counts, projection) is hidden while a chart is shown.
+  const viewTitle = showChart ? activeChart.title : currentScene.title;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh", overflow: "hidden", background: "var(--color-base)" }}>
       <Header
         fileName={fileName}
-        currentScene={currentScene}
+        viewTitle={viewTitle}
         isLoadingExport={isLoadingExport}
         onFileChange={handleFileChange}
       />
@@ -607,6 +870,9 @@ export default function Home() {
       <ImportReport warnings={importReport.warnings} notes={importReport.notes} summaries={importReport.summaries} />
       <div style={{ flex: 1, display: "flex", overflow: "hidden", minHeight: 0 }}>
         <LeftSidebar
+          mode={showChart ? "chart" : "3d"}
+          chartControls={chartControls}
+          surfaceStyle={surfaceStyleControls}
           open={leftOpen}
           onToggle={() => setLeftOpen((v) => !v)}
           scenes={scenes}
@@ -692,24 +958,27 @@ export default function Home() {
         />
 
         <section style={{ flex: 1, position: "relative", minWidth: 0, minHeight: 0, overflow: "hidden" }} aria-label="3D scene">
-          <ThreeScene
-            ref={threeSceneRef}
-            sceneData={currentScene}
-            visiblePointClouds={renderedPointClouds}
-            lineVisibility={lineVisibility}
-            surfaceVisibility={surfaceVisibility}
-            projectionMode={projectionMode}
-            annotationsVisible={annotationsVisible}
-            annotationScale={annotationScale}
-            annotationFont={annotationFont}
-            annotationTextColor={annotationTextColor}
-            annotationBackgroundColor={annotationBackgroundColor}
-            markerScale={markerScale}
-            onCameraChange={scheduleSessionSave}
-            selectedPoint={activeSelectedPoint}
-            onPointHover={setHoveredPoint}
-            onPointSelect={setSelectedPoint}
-          />
+          {hasScenes && (
+            <ThreeScene
+              ref={threeSceneRef}
+              sceneData={currentScene}
+              visiblePointClouds={renderedPointClouds}
+              lineVisibility={lineVisibility}
+              surfaceVisibility={surfaceVisibility}
+              surfaceStyles={surfaceStyles}
+              projectionMode={projectionMode}
+              annotationsVisible={annotationsVisible}
+              annotationScale={annotationScale}
+              annotationFont={annotationFont}
+              annotationTextColor={annotationTextColor}
+              annotationBackgroundColor={annotationBackgroundColor}
+              markerScale={markerScale}
+              onCameraChange={scheduleSessionSave}
+              selectedPoint={activeSelectedPoint}
+              onPointHover={setHoveredPoint}
+              onPointSelect={setSelectedPoint}
+            />
+          )}
 
           {charts.length > 0 && (
             <div
@@ -724,6 +993,8 @@ export default function Home() {
                   className={`vp-btn ${!showChart ? "active" : ""}`}
                   style={{ border: "none", borderRadius: 0, padding: "0 12px", fontSize: 12, whiteSpace: "nowrap", width: "auto", height: 28 }}
                   onClick={() => setActiveView("3d")}
+                  disabled={!hasScenes}
+                  title={hasScenes ? undefined : "This export has no 3D views"}
                 >
                   3D View
                 </button>
@@ -740,9 +1011,10 @@ export default function Home() {
               {showChart && charts.length > 1 && (
                 <select
                   aria-label="Chart"
+                  className="ctrl-select"
                   value={chartIndex}
                   onChange={(e) => setChartIndex(Number(e.target.value))}
-                  style={{ fontSize: 12 }}
+                  style={{ fontSize: 12, height: 28, background: "rgba(18,25,24,0.85)" }}
                 >
                   {charts.map((chart, index) => (
                     <option key={chart.id} value={index}>{chart.title}</option>
@@ -754,7 +1026,16 @@ export default function Home() {
 
           {activeChart && (
             <div hidden={!showChart} style={{ position: "absolute", inset: 0, zIndex: 6, background: "var(--color-panel)", paddingTop: 44 }}>
-              <ChartView key={activeChart.id} chart={activeChart} />
+              <ChartView
+                key={activeChart.id}
+                chart={styledChart}
+                toggles={activeChartToggles}
+                onToggle={toggleChartSeries}
+                hovered={shownChartHover}
+                selected={shownChartSelection}
+                onPointHover={(pick) => setChartHover(pick ? { chartId: activeChart.id, ...pick } : null)}
+                onPointSelect={(pick) => setChartSelection(pick ? { chartId: activeChart.id, ...pick } : null)}
+              />
             </div>
           )}
 
@@ -785,7 +1066,7 @@ export default function Home() {
           <div className="vp-group" role="group" aria-label="Projection" style={{ position: "absolute", top: 10, right: 10, zIndex: 5 }}>
             <button
               className={`vp-btn vp-btn-label ${projectionMode === "perspective" ? "active" : ""}`}
-              onClick={() => setProjectionMode("perspective")}
+              onClick={() => changeProjection("perspective")}
               aria-pressed={projectionMode === "perspective"}
               title="Perspective — things further away look smaller, like a photo"
             >
@@ -793,9 +1074,9 @@ export default function Home() {
             </button>
             <button
               className={`vp-btn vp-btn-label ${projectionMode === "orthographic" ? "active" : ""}`}
-              onClick={() => setProjectionMode("orthographic")}
+              onClick={() => changeProjection("orthographic")}
               aria-pressed={projectionMode === "orthographic"}
-              title="Orthographic — no shrinking with distance, so sizes and distances compare directly; clearest with Top, Front or Side"
+              title="Orthographic — no shrinking with distance, so sizes and distances compare directly. With Top, Front or Side it shows a coordinate grid, and dragging moves the view"
             >
               <IconOrtho size={12} /> Orthographic
             </button>
@@ -817,24 +1098,26 @@ export default function Home() {
         <RightPanel
           open={rightOpen}
           onToggle={() => setRightOpen((v) => !v)}
-          inspection={activeSelectedPoint ?? hoveredPoint}
-          inspectionSeries={renderedPointClouds[(activeSelectedPoint ?? hoveredPoint)?.seriesIndex] ?? null}
-          kind={activeSelectedPoint ? "selected" : "hovered"}
-          onClear={() => setSelectedPoint(null)}
+          inspection={showChart ? chartInspection : activeSelectedPoint ?? hoveredPoint}
+          inspectionSeries={showChart ? null : renderedPointClouds[(activeSelectedPoint ?? hoveredPoint)?.seriesIndex] ?? null}
+          kind={(showChart ? shownChartSelection : activeSelectedPoint) ? "selected" : "hovered"}
+          onClear={() => (showChart ? setChartSelection(null) : setSelectedPoint(null))}
           legends={colourLegends}
+          emptyHint={showChart ? "Hover or click a point in the chart to see its details." : null}
         />
       </div>
 
       <StatusBar
         dataState={dataState}
-        hoveredPoint={hoveredPoint}
-        selectedPoint={activeSelectedPoint}
+        hoveredPoint={showChart ? null : hoveredPoint}
+        selectedPoint={showChart ? null : activeSelectedPoint}
         visibleCount={totalVisibleCount}
         totalCount={totalPointCount}
         surfaceCount={surfaceCount}
         activeFilterCount={activeFilterCount}
         viewMode={projectionMode}
-        currentScene={currentScene}
+        viewTitle={viewTitle}
+        showSceneInfo={hasScenes && !showChart}
         errorMessage={errors[0]}
       />
     </div>

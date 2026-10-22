@@ -1,43 +1,52 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { axisFraction, computeTicks, formatTick, padDegenerateRange } from "./chartScale";
 import {
   DEFAULT_CHART_POINT_COLOUR,
   DEFAULT_CHART_POINT_DIAMETER,
-  resolveChartLineColour,
-  resolveChartPointColours,
-  resolveChartPointSizes,
+  resolveChartSeriesColours,
 } from "./chartColours";
+import { addDataMargins, computeVisibleAxisRanges } from "./chartData";
 import { chartTextToPlain, parseChartText } from "./chartText";
+import { findChartPointAt } from "./chartPointDetails";
 import { parseCustomerDate } from "./customerDate";
 
-const MARGIN = { top: 14, right: 64, bottom: 44, left: 64 };
+// Room around the plot for an axis' tick labels and title. A side with no
+// axis drawn keeps only a small gap, so hiding the right-hand axis gives its
+// room to the plot.
+const AXIS_MARGIN = { top: 44, right: 64, bottom: 44, left: 64 };
+const BARE_MARGIN = 14;
 const TEXT_COLOUR = "#c9d1cf";
 const GRID_COLOUR = "rgba(255, 255, 255, 0.08)";
 const AXIS_COLOUR = "rgba(255, 255, 255, 0.35)";
 const POINT_RADIUS = DEFAULT_CHART_POINT_DIAMETER / 2;
+// The rings around a hovered or selected chart point, in the 3D view's colours.
+const HOVER_RING_COLOUR = "#84cc16";
+const SELECTED_RING_COLOUR = "#e8f7d1";
 
-function initialToggles(chart) {
-  const toggles = {};
-  chart.series.forEach((series, index) => {
-    toggles[`${index}:points`] = series.pointsVisible;
-    toggles[`${index}:lines`] = series.linesVisible;
-  });
-  return toggles;
-}
-
-// Resolves each enabled axis' range once per chart, widening a flat range so
-// there is something to draw.
-function resolveRanges(chart) {
+// Each enabled axis' range for the series drawn now (a series is drawn when
+// its Points or Lines switch is on), with a little room beyond the data
+// (addDataMargins) and a flat range widened so there is something to draw.
+// An axis none of whose series is drawn gets no range, so it is hidden along
+// with anything placed on it (computeVisibleAxisRanges).
+export function resolveRanges(chart, toggles) {
+  const drawn = chart.series.map((series, index) =>
+    Boolean((series.enablePoints && toggles[`${index}:points`]) || (series.enableLines && toggles[`${index}:lines`]))
+  );
+  const fitted = computeVisibleAxisRanges(chart.axes, chart.series, drawn, chart.axisRanges);
   const ranges = {};
   for (const [side, axis] of Object.entries(chart.axes)) {
-    ranges[side] = axis.enabled ? padDegenerateRange(chart.axisRanges?.[side] ?? null) : null;
+    ranges[side] = axis.enabled ? padDegenerateRange(addDataMargins(fitted[side] ?? null, axis)) : null;
   }
   return ranges;
 }
 
-export function drawChart(canvas, chart, ranges, toggles, seriesColours) {
+// Draws the chart and returns where each point was drawn
+// ({ seriesIndex, index, x, y, r } in canvas pixels), so a point under the
+// mouse can be found (chartPointDetails.js). `highlights` ring the hovered and
+// selected points: [{ seriesIndex, index, kind: "hovered" | "selected" }].
+export function drawChart(canvas, chart, ranges, toggles, seriesColours, highlights = []) {
   const dpr = window.devicePixelRatio || 1;
   const width = canvas.clientWidth;
   const height = canvas.clientHeight;
@@ -47,13 +56,15 @@ export function drawChart(canvas, chart, ranges, toggles, seriesColours) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, width, height);
 
+  const margin = (side) => (ranges[side] ? AXIS_MARGIN[side] : BARE_MARGIN);
   const plot = {
-    left: MARGIN.left,
-    right: width - MARGIN.right,
-    top: MARGIN.top,
-    bottom: height - MARGIN.bottom,
+    left: margin("left"),
+    right: width - margin("right"),
+    top: margin("top"),
+    bottom: height - margin("bottom"),
   };
-  if (plot.right - plot.left < 20 || plot.bottom - plot.top < 20) return;
+  if (plot.right - plot.left < 20 || plot.bottom - plot.top < 20) return [];
+  const targets = [];
 
   const toX = (side, value) => {
     const f = axisFraction(value, ranges[side], chart.axes[side].scale);
@@ -175,6 +186,7 @@ export function drawChart(canvas, chart, ranges, toggles, seriesColours) {
         const y = toY(axisY.side, series.points.y[i]);
         if (x === null || y === null) continue;
         const radius = sizes ? sizes[i] / 2 : POINT_RADIUS;
+        targets.push({ seriesIndex: index, index: i, x, y, r: radius });
         if (cross) {
           ctx.strokeStyle = colour;
           ctx.beginPath();
@@ -188,6 +200,14 @@ export function drawChart(canvas, chart, ranges, toggles, seriesColours) {
       }
     }
   });
+
+  for (const highlight of Array.isArray(highlights) ? highlights : []) {
+    const target = targets.find((t) => t.seriesIndex === highlight.seriesIndex && t.index === highlight.index);
+    if (!target) continue;
+    ctx.strokeStyle = highlight.kind === "selected" ? SELECTED_RING_COLOUR : HOVER_RING_COLOUR;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(target.x, target.y, target.r + 3, 0, Math.PI * 2); ctx.stroke();
+  }
   ctx.restore();
 
   // Annotations are placed in axis coordinates (one horizontal and one
@@ -214,6 +234,7 @@ export function drawChart(canvas, chart, ranges, toggles, seriesColours) {
       ctx.fillText(line, x + (ctx.textAlign === "left" ? 8 : -8), y - 6 - (lines.length - 1 - i) * 13);
     });
   }
+  return targets;
 }
 
 function ChartText({ html, style }) {
@@ -244,47 +265,71 @@ function ChartText({ html, style }) {
 }
 
 /**
- * Renders one parsed chart (see parseExportFile's `charts`): header, a
- * canvas with up to four axes, per-series points/lines toggles and footer.
+ * Renders one parsed chart (see parseExportFile's `charts`): header, per-series
+ * Points / Lines check boxes, a canvas with up to four axes, and footer.
+ * `chart.series` come with the sidebar's Marker Style choices already applied
+ * (chartStyle.js). `toggles` say which series' points and lines are drawn;
+ * the page keeps them, so the legend can leave out a series that is switched
+ * off, and the check boxes change them through `onToggle`.
+ *
+ * Hovering or clicking a point reports it ({ seriesIndex, index }, or null)
+ * through `onPointHover` / `onPointSelect`, and `hovered` / `selected` ring it,
+ * so the Legend & Details panel can show the point as it does in the 3D view.
  */
-export default function ChartView({ chart }) {
+export default function ChartView({ chart, toggles, onToggle, hovered = null, selected = null, onPointHover, onPointSelect }) {
   const canvasRef = useRef(null);
-  const [toggles, setToggles] = useState(() => initialToggles(chart));
-  const ranges = useMemo(() => resolveRanges(chart), [chart]);
+  const targetsRef = useRef([]); // where the last draw put each point
+  const ranges = useMemo(() => resolveRanges(chart, toggles), [chart, toggles]);
 
   // Colours depend only on the data and markers, not on the toggles or the
   // canvas size, so they are resolved once per chart.
-  const seriesColours = useMemo(
-    () =>
-      chart.series.map((series) => {
-        const lineColour = resolveChartLineColour(series);
-        const useLegendLines = !series.lineOverrideColour && series.lines.length > 0;
-        return {
-          pointColours: resolveChartPointColours(series),
-          pointSizes: resolveChartPointSizes(series),
-          lineColour,
-          lineColours: series.lines.map((line) =>
-            useLegendLines
-              ? resolveChartPointColours({ ...series, points: { rows: line.rows } })
-              : null
-          ),
-        };
-      }),
-    [chart]
-  );
+  const seriesColours = useMemo(() => resolveChartSeriesColours(chart), [chart]);
 
+  const highlights = useMemo(() => {
+    const list = [];
+    if (selected) list.push({ ...selected, kind: "selected" });
+    if (hovered && !(selected && hovered.seriesIndex === selected.seriesIndex && hovered.index === selected.index)) {
+      list.push({ ...hovered, kind: "hovered" });
+    }
+    return list;
+  }, [hovered, selected]);
+
+  // Redraw when what is drawn changes, and when the canvas changes size. The
+  // size observer is set up once, so moving between points draws only once.
+  const redrawRef = useRef(() => {});
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    redrawRef.current = () => {
+      targetsRef.current = drawChart(canvas, chart, ranges, toggles, seriesColours, highlights);
+    };
+    redrawRef.current();
+  }, [chart, ranges, toggles, seriesColours, highlights]);
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return undefined;
-    const redraw = () => drawChart(canvas, chart, ranges, toggles, seriesColours);
-    redraw();
-    const observer = new ResizeObserver(redraw);
+    const observer = new ResizeObserver(() => redrawRef.current());
     observer.observe(canvas);
     return () => observer.disconnect();
-  }, [chart, ranges, toggles, seriesColours]);
+  }, []);
 
-  function toggle(key) {
-    setToggles((current) => ({ ...current, [key]: !current[key] }));
+  function pointAt(event) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    return findChartPointAt(targetsRef.current, event.clientX - rect.left, event.clientY - rect.top);
+  }
+
+  function handleMouseMove(event) {
+    const target = pointAt(event);
+    event.currentTarget.style.cursor = target ? "pointer" : "default";
+    const same = target
+      ? hovered?.seriesIndex === target.seriesIndex && hovered?.index === target.index
+      : hovered === null;
+    if (!same) onPointHover?.(target ? { seriesIndex: target.seriesIndex, index: target.index } : null);
+  }
+
+  function handleClick(event) {
+    const target = pointAt(event);
+    onPointSelect?.(target ? { seriesIndex: target.seriesIndex, index: target.index } : null);
   }
 
   return (
@@ -297,13 +342,13 @@ export default function ChartView({ chart }) {
             <span style={{ fontWeight: 600 }}>{series.name}</span>
             {series.enablePoints && (
               <label style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                <input type="checkbox" checked={toggles[`${index}:points`]} onChange={() => toggle(`${index}:points`)} />
+                <input type="checkbox" checked={toggles[`${index}:points`] === true} onChange={() => onToggle(`${index}:points`)} />
                 Points
               </label>
             )}
             {series.enableLines && (
               <label style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                <input type="checkbox" checked={toggles[`${index}:lines`]} onChange={() => toggle(`${index}:lines`)} />
+                <input type="checkbox" checked={toggles[`${index}:lines`] === true} onChange={() => onToggle(`${index}:lines`)} />
                 Lines
               </label>
             )}
@@ -316,6 +361,9 @@ export default function ChartView({ chart }) {
         role="img"
         aria-label={`${chart.title} chart`}
         style={{ flex: 1, minHeight: 0, width: "100%", display: "block" }}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={() => { if (hovered) onPointHover?.(null); }}
+        onClick={handleClick}
       />
 
       {chart.footer && (

@@ -51,14 +51,21 @@ export async function checkMarkers(zip, series, rows, label, root, notes = null)
         }
         if (def) {
           defMenu = menu;
-          warnings.push(`${label}: marker "${name}" is not in marker-defs/${series.markerMenu}.json; using the definition from marker-defs/${menu}.json.`);
+          // Said plainly first; the files involved are kept at the end for
+          // whoever fixes the export.
+          warnings.push(`${label}: the colours for "${name}" are missing from this series' own marker file, so the same-named colours from another series are used (marker-defs/${menu}.json instead of marker-defs/${series.markerMenu}.json).`);
         }
       }
     }
     if (!def) {
-      warnings.push(series.type === "lines" && name === "RQD"
-        ? `${label}: no RQD colour definition supplied; using the viewer's default 0–100 palette.`
-        : `${label}: marker "${name}" is unavailable; fallback styling will be used.`);
+      if (series.type === "lines" && name === "RQD") {
+        // Nothing in the viewer can change this, and the legend already
+        // names the colours as its default palette, so it is reported with
+        // the notes rather than counted as a warning.
+        (notes ?? warnings).push(`${label}: no RQD colour definition supplied; using the viewer's default 0–100 palette.`);
+      } else {
+        warnings.push(`${label}: marker "${name}" is unavailable; fallback styling will be used.`);
+      }
       continue;
     }
     if (isSingleColourDefinition(def)) {

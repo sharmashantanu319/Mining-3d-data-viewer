@@ -109,5 +109,7 @@ describe("surface import and rendering", () => {
         dispose(mesh);
       }
     }
-  });
+    // Parsing the whole sample export takes about 5 s on a slow machine,
+    // right at Vitest's default timeout.
+  }, 60000);
 });

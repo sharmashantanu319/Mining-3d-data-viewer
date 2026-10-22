@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { IconChevronLeft, IconChevronRight, IconLegend, IconInfo, IconChevronDown, IconChevronUp } from "./icons";
 import { describePointSeries, formatDetailNumber, groupPointDetails } from "./pointDetails";
+import { missingValueText } from "./colourLegend";
 
 const NA = <span style={{ color: "var(--color-fg-disabled)", fontStyle: "italic" }}>Not available</span>;
 
@@ -42,10 +43,15 @@ function SectionTitle({ children }) {
   );
 }
 
+// A chart point comes with its sections already worked out
+// (chartPointDetails.js); a 3D point is described from its series here.
 function SelectedPointDetails({ inspection, kind, series, onClear, showOtherData, onToggleOtherData }) {
-  const { point } = inspection;
-  const description = useMemo(() => describePointSeries(series), [series]);
-  const sections = groupPointDetails(point, description);
+  const { point, sections: givenSections, seriesName } = inspection;
+  const description = useMemo(
+    () => (givenSections ? { seriesName: seriesName ?? null } : describePointSeries(series)),
+    [givenSections, seriesName, series]
+  );
+  const sections = givenSections ?? groupPointDetails(point, description);
   const selected = kind !== "hovered";
 
   return (
@@ -101,7 +107,9 @@ function SelectedPointDetails({ inspection, kind, series, onClear, showOtherData
   );
 }
 
-export function RightPanel({ open, onToggle, inspection, inspectionSeries, kind, onClear, legends }) {
+// `emptyHint` says how to pick a point when none is shown (the 3D view's
+// wording by default; the chart passes its own).
+export function RightPanel({ open, onToggle, inspection, inspectionSeries, kind, onClear, legends, emptyHint = null }) {
   // Kept here rather than in the details view, which unmounts whenever no
   // point is hovered, so "Show" stays open while moving between points.
   const [showOtherData, setShowOtherData] = useState(false);
@@ -153,7 +161,7 @@ export function RightPanel({ open, onToggle, inspection, inspectionSeries, kind,
               <span style={{ fontSize: 11 }}>No point selected</span>
             </div>
             <div style={{ fontSize: 10, color: "var(--color-fg-disabled)", marginTop: 3, paddingLeft: 19 }}>
-              {kind === "hovered" ? "Previewing a hovered point." : "Hover or click a point in the viewport to view its attributes."}
+              {emptyHint ?? (kind === "hovered" ? "Previewing a hovered point." : "Hover or click a point in the viewport to view its attributes.")}
             </div>
           </div>
         )}
@@ -258,13 +266,10 @@ function LegendCard({ legend }) {
             </div>
           )}
 
-          {legend.kind !== "error" && legend.nullEntry && (
+          {legend.kind !== "error" && legend.nullEntry && legend.missingCount !== 0 && (
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
-              <span className="swatch" style={{ backgroundColor: legend.nullEntry.colour }} />
-              <span style={{ fontSize: 10, color: "var(--color-fg-dim)" }}>
-                {legend.nullEntry.label}
-                {Number.isFinite(legend.missingCount) ? ` (${legend.missingCount.toLocaleString()})` : ""}
-              </span>
+              <span className="swatch" style={{ backgroundColor: legend.nullEntry.colour, flexShrink: 0 }} />
+              <span style={{ fontSize: 10, color: "var(--color-fg-dim)" }}>{missingValueText(legend)}</span>
               {!legend.nullEntry.visible && <span style={{ fontSize: 9, color: "var(--color-fg-muted)", fontStyle: "italic" }}>hidden</span>}
             </div>
           )}

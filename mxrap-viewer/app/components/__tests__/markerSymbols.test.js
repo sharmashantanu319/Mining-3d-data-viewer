@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import JSZip from "jszip";
 import { symbolFileCandidates, isShadingSprite, parseRgbColour } from "../markerSymbols";
-import { resolveMarkerRenderOptions } from "../pointMarkerResolver";
+import { markerSymbolLabel, resolveMarkerRenderOptions } from "../pointMarkerResolver";
 import { getMarkerChoices } from "../markerSelection";
 import { parseExportFile } from "../parseExportFile";
 
@@ -62,6 +62,20 @@ describe("point render options", () => {
     expect(options.tintSymbols).toBe(true);
     expect(options.renderAsShadedSphere).toBe(false);
     expect([options.minPointSize, options.maxPointSize]).toEqual([10, 19]);
+  });
+
+  it("names what the points are drawn as, for the legend and the Marker Style panel alike", () => {
+    expect(markerSymbolLabel({ name: "Response Events", colourMarker: "Event ML", points, markerDefinitions: [colourDef("master ball sprite 64x64.png")] }))
+      .toBe("Shaded sphere");
+    expect(markerSymbolLabel({ name: "Sensors", colourMarker: "Event ML", points, markerDefinitions: [colourDef("Triaxial.png")] }))
+      .toBe("Icon per value");
+    expect(markerSymbolLabel({ name: "Events", colourMarker: "Event ML", points, markerDefinitions: [colourDef("")] }))
+      .toBe("Dot");
+    expect(markerSymbolLabel({ name: "Selected Triggers", colourMarker: "Cross/Grey", points, markerDefinitions: [crossGrey] }))
+      .toBe("Icon (cross2.png)");
+    expect(markerSymbolLabel({ name: "Selected Triggers", colourMarker: "Cross/Grey", points, markerDefinitions: [{ ...crossGrey, symbol: undefined }] }))
+      .toBe("Dot");
+    expect(markerSymbolLabel({ name: "Minodes", colourMarker: null, points, markerDefinitions: [] })).toBe("Dot");
   });
 
   it("offers a single-colour marker in the Colour by choices", () => {

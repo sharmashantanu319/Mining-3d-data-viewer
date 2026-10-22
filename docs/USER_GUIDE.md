@@ -25,11 +25,14 @@ and shows the error.
 
 ## 2. Move around the 3D view
 
-| Action | Mouse |
-| --- | --- |
-| Rotate | Left-drag |
-| Pan | Right-drag |
-| Zoom | Scroll wheel |
+| Action | Mouse | Trackpad |
+| --- | --- | --- |
+| Rotate | Left-drag | Drag |
+| Pan | Right-drag, or Shift-drag | Shift-drag, or two-finger click and drag |
+| Zoom | Scroll wheel | Pinch or two-finger scroll |
+
+In a plan or section view (see below) the first two swap: dragging moves the view like a map,
+and Shift-drag or right-drag rotates it.
 
 The toolbar in the top-left corner of the view has:
 
@@ -39,9 +42,11 @@ The toolbar in the top-left corner of the view has:
   **Top** looks straight down with north up, **Front** looks north and **Side** looks west.
   Each view is framed on the visible data.
 
-The **Perspective / Orthographic** switch in the top-right corner changes the projection.
-Orthographic has no perspective distortion, so it is clearest with **Top**, **Front** or
-**Side**.
+The **Perspective / Orthographic** switch in the top-right corner changes the projection of the
+current scene and keeps the current view. Orthographic has no perspective distortion, so it is clearest with
+**Top**, **Front** or **Side**. In those views it also shows a coordinate grid, labelled along
+the bottom and left edges, which keeps about 6 to 8 lines on screen as you zoom. The grid
+disappears as soon as the view is tilted.
 
 The axis indicator in the bottom-left corner shows the X, Y and Z directions at all times (in
 mine exports X points east, Y north and Z up). Axes pointing away from you are drawn fainter.
@@ -49,8 +54,13 @@ mine exports X points east, Y north and Z up). Axes pointing away from you are d
 ## 3. Switch scenes
 
 An export can contain several scenes. In the left sidebar, **Scene** shows the current scene;
-choose another from the drop-down or use **Prev** / **Next**. Each scene has its own
-layers, legends and camera, and the viewer remembers where you left the camera in each scene.
+choose another from the drop-down or use **Prev** / **Next**.
+
+Each scene keeps its own settings. The first time you open a scene it looks the way the export
+set it up: its camera, perspective or orthographic, and every layer as exported. If you change
+the camera, the projection, layers, filters or marker style and then come back to the scene
+later, it is as you left it. The marker size slider and the annotation text size, font and
+colours apply to every scene.
 
 ## 4. Layers
 
@@ -74,6 +84,12 @@ are visible out of the total, and how many surfaces are loaded.
 - **Marker size** and **Symbol**: overall display size and marker shape.
 
 These start from the settings saved in the export, so the view initially matches mXrap.
+
+**Surface Style** (shown when the scene has surfaces) recolours a surface the same way. Choose the
+**Surface** if there are several, then **Colour by** one of its attributes (for example Material
+or Date; its legend appears in the right panel) or **Single colour** and pick the colour.
+**Opacity** makes the surface see-through, so events behind it stay visible. Like the other
+settings, each scene keeps its own surface styles.
 
 ## 6. Annotations
 
@@ -113,8 +129,26 @@ the narrow strip that remains to expand it again.
 
 If the export contains charts, **3D View** and **Chart** tabs appear at the top of the view.
 Open **Chart** to see the Magnitude-Time chart (choose another chart from the drop-down if there
-are several). Each series has **Points** and **Lines** check boxes to show or hide it. Axes,
-colours and logarithmic scales follow the chart settings in the export.
+are several). An export with only charts opens straight on them. Each series has **Points** and
+**Lines** check boxes to show or hide it. Axes, colours and logarithmic scales follow the chart
+settings in the export.
+
+The left sidebar follows the view on screen. With a chart open it shows **Chart Controls** in place
+of the 3D scene's controls, and the 3D view's point details, point counts and projection are
+hidden. Its **Marker Style** works as in the 3D view for the selected **Series**: **Colour by** an
+attribute (or **Default colour**), **Show points with no value**, and **Size by** with **Min
+size**, **Max size** and **Invert size**. The legend in the right panel follows the colour chosen.
+
+Chart points can be inspected like 3D points (section 8): hover over one to see its details in the
+right panel, and click it to keep them as the **Selected point**. The point is ringed on the chart,
+and its details also list **On the chart**, the values it is plotted at (for example its date, or
+its hours after the trigger and cumulative count). Click **Clear** or an empty part of the chart to
+deselect.
+
+The axes fit the series that are shown: hide the smaller events, for example, and the magnitude
+axis closes in on the larger ones. An axis with a fixed minimum or maximum in the export keeps it.
+When every series on an axis is hidden, the axis is hidden too, as in mXrap, together with any
+chart note placed against it.
 
 ## Troubleshooting
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildColourLegend, buildSceneColourLegends, formatLegendValue } from "../colourLegend";
+import { buildColourLegend, buildSceneColourLegends, formatLegendValue, missingValueText } from "../colourLegend";
 import { rampCsv, rampRow } from "./fixtures/ramps";
 
 function series(overrides = {}) {
@@ -295,7 +295,6 @@ describe("single-colour marker legend", () => {
     expect(legend.input).toBeNull();
     expect(legend.nullEntry).toBeNull();
     expect(legend.categories).toEqual([{ value: null, label: "All points", colour: "rgba(159, 159, 159, 1)" }]);
-    expect(legend.symbolLabel).toBe("cross2.png");
   });
 
   it("reports an unreadable single colour as an error legend", () => {
@@ -326,5 +325,21 @@ describe("legend number display", () => {
     }));
     expect(legend.title).toBe("P[ML within R]");
     expect(legend.units).toBeNull();
+  });
+});
+
+describe("missingValueText", () => {
+  it("says how many points have no value and that they use the swatch's colour", () => {
+    expect(missingValueText({ input: "ml", missingCount: 66, nullEntry: { visible: true } })).toBe("66 points with no ml use this colour");
+    expect(missingValueText({ input: "ml", missingCount: 1, nullEntry: { visible: true } })).toBe("1 point with no ml uses this colour");
+  });
+
+  it("leaves out the colour when those points are hidden", () => {
+    expect(missingValueText({ input: "P[ML within R]", missingCount: 66, nullEntry: { visible: false } })).toBe("66 points with no P[ML within R]");
+  });
+
+  it("still reads without a count or a column name", () => {
+    expect(missingValueText({ input: "RQD", nullEntry: { visible: true } })).toBe("Points with no RQD use this colour");
+    expect(missingValueText({ input: null, missingCount: 2, nullEntry: { visible: false } })).toBe("2 points with no value");
   });
 });

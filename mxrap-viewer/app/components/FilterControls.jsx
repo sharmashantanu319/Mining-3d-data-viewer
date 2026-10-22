@@ -3,22 +3,14 @@ import {
   FILTER_SLIDER_STEPS,
   createCategoryFilter,
   createRangeFilter,
+  fromDateTimeInputValue,
   niceRangeBounds,
+  roundDateBound,
   roundSliderBound,
   sliderPositionForValue,
+  toDateTimeInputValue,
   valueForSliderPosition,
 } from "./dataFilters";
-
-function toDateInput(epoch) {
-  if (!Number.isFinite(epoch)) return "";
-  return new Date(epoch).toISOString().slice(0, 10);
-}
-
-function fromDateInput(value, endBoundary = false) {
-  if (!value) return null;
-  const [year, month, day] = value.split("-").map(Number);
-  return Date.UTC(year, month - 1, day + (endBoundary ? 1 : 0));
-}
 
 // The same filter with one setting changed, rebuilt so it stays validated.
 function withChanges(filter, changes) {
@@ -122,28 +114,53 @@ function NumberRange({ field, filter, onChange }) {
   );
 }
 
+// A time window: From / To boxes to the minute, and the same two-thumb
+// slider as a number range, so the window can be dragged through the data
+// (the client's "time filtering within one slide", email of 22 September).
 function DateRange({ field, filter, onChange }) {
+  const sorted = field.sortedValues;
+  const low = sliderPositionForValue(sorted, filter.min, "min");
+  const high = sliderPositionForValue(sorted, filter.max, "max");
+  const minAt = (position) =>
+    roundDateBound(position <= 0 ? field.min : valueForSliderPosition(sorted, position), "down");
+  const maxAt = (position) =>
+    roundDateBound(position >= FILTER_SLIDER_STEPS ? field.max : valueForSliderPosition(sorted, position), "up");
+  const typed = (event, edge) => fromDateTimeInputValue(event.target.value, edge) ?? undefined;
+
   return (
-    <div className="filter-range-inputs">
-      <input
-        type="date"
-        className="ctrl-input"
-        aria-label={`${field.label} from`}
-        value={toDateInput(filter.min)}
-        onChange={(event) => onChange(withChanges(filter, { min: fromDateInput(event.target.value) ?? undefined }))}
-      />
-      <span className="filter-range-to">to</span>
-      <input
-        type="date"
-        className="ctrl-input"
-        aria-label={`${field.label} to`}
-        value={toDateInput(filter.max)}
-        onChange={(event) => {
-          const boundary = fromDateInput(event.target.value, true);
-          onChange(withChanges(filter, { max: boundary === null ? undefined : boundary - 1 }));
-        }}
-      />
-    </div>
+    <>
+      <div className="filter-date-inputs">
+        <span className="filter-range-to">From</span>
+        <input
+          type="datetime-local"
+          className="ctrl-input"
+          aria-label={`${field.label} from`}
+          title="Earliest time to show (as in the export)"
+          step="60"
+          value={toDateTimeInputValue(filter.min)}
+          onChange={(event) => onChange(withChanges(filter, { min: typed(event, "min") }))}
+        />
+        <span className="filter-range-to">To</span>
+        <input
+          type="datetime-local"
+          className="ctrl-input"
+          aria-label={`${field.label} to`}
+          title="Latest time to show (as in the export)"
+          step="60"
+          value={toDateTimeInputValue(filter.max)}
+          onChange={(event) => onChange(withChanges(filter, { max: typed(event, "max") }))}
+        />
+      </div>
+      {sorted?.length > 1 && (
+        <RangeSlider
+          label={field.label}
+          low={low}
+          high={high}
+          onLowChange={(position) => onChange(withChanges(filter, { min: minAt(position) }))}
+          onHighChange={(position) => onChange(withChanges(filter, { max: maxAt(position) }))}
+        />
+      )}
+    </>
   );
 }
 

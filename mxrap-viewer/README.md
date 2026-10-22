@@ -35,6 +35,16 @@ npm start       # serve it on http://localhost:3000 (use -p <port> for another p
 
 Because all processing happens in the browser, any host that can run a Next.js app works, for example [Vercel](https://vercel.com/docs/frameworks/nextjs) (import the repository and set the root directory to `mxrap-viewer`) or a server/VM running `npm start` behind a reverse proxy. No environment variables, database or storage are needed. No public hosted deployment is claimed here.
 
+### Static website
+
+Because everything runs in the browser, the viewer can also be built as a plain static website that needs no Node.js server to host:
+
+1. In `next.config.mjs`, add `output: "export",` inside `nextConfig`.
+2. Run `npm run build`. The site is written to `out/` (about 2 MB).
+3. Copy the contents of `out/` to any static web host or web server. To try it locally: `python3 -m http.server 8080 --directory out`, then open http://localhost:8080.
+
+`npm start` does not work while `output: "export"` is set, so leave the setting out when you want to use `npm start`. This was checked by serving `out/` from a plain static file server at the site root and loading `visualiser-export-2.zip` (3D view, chart and Colour by). Hosting under a sub-path, such as a GitHub Pages project site, also needs `basePath` in `next.config.mjs`; that case has not been tested.
+
 The interface fonts (Inter and JetBrains Mono) are bundled in `app/fonts`, so building and running the viewer need no internet access once `npm ci` has installed the dependencies.
 
 ## Demonstration in under five minutes
@@ -53,11 +63,11 @@ A smaller additional archive, `mxrap-viewer/test-data/test-export-big.zip`, is p
 | Area | Current MVP capability |
 | --- | --- |
 | Import | Browser-based selection of supported mXrap ZIP exports, a configurable compressed-size limit, structural/data-reference validation, error messages and import diagnostics |
-| 3D geometry | Mine surfaces from vertices/faces, with camera navigation (fit, reset, plan and section views, perspective/orthographic), an XYZ axis indicator and per-layer visibility |
+| 3D geometry | Mine surfaces from vertices/faces, with camera navigation (fit, reset, plan and section views, perspective/orthographic), a coordinate grid in orthographic plan and section views, an XYZ axis indicator and per-layer visibility |
 | Seismic/sensors | Point series, symbol and colour/size marker mapping, configurable legends, visibility and point inspection |
-| Exploration | Numeric/date/category filtering, annotation controls, scene picker, per-scene camera handling and session-restoration support |
+| Exploration | Numeric/date/category filtering, annotation controls, scene picker, per-scene settings (each scene opens as exported and is remembered as you left it: camera, projection, layers, filters, marker style) and session-restoration support |
 | RMQ | Interval line-series loading/rendering with RQD colouring, legend and line visibility controls |
-| Charts | Parsed chart displays, a Chart tab, Magnitude–Time plot, multiple configured axes and per-series point/line toggles |
+| Charts | Parsed chart displays, a Chart tab, Magnitude–Time plot, multiple configured axes, per-series point/line toggles with axes that fit the shown series, and chart-only exports |
 | Quality assurance | Vitest unit tests, ESLint and production build checks in GitHub Actions on every pull request and on pushes to `Development` and `main` |
 
 **Scope qualification:** Feature presence is verified from the current source and merged PRs; CI checks lint, tests and the build, but complete visual browser testing and final client acceptance should be recorded separately.
@@ -80,7 +90,7 @@ export.zip
 └── s2-3dview/config.json
 ```
 
-Exact files and display folders depend on the export. The application follows slide/display configurations and reads relevant surface, point, annotation, line and chart references. Missing or malformed data can be reported as blocking errors or recoverable warnings. **A ZIP containing only charts and no 3D views is not currently supported by the main workspace.** The file picker advertises `.zip,.json`, but the implemented loading/validation path expects an mXrap ZIP archive; use ZIP files for the documented workflow.
+Exact files and display folders depend on the export. The application follows slide/display configurations and reads relevant surface, point, annotation, line and chart references. Missing or malformed data can be reported as blocking errors or recoverable warnings. A ZIP with only charts and no 3D views opens straight on its charts. The file picker advertises `.zip,.json`, but the implemented loading/validation path expects an mXrap ZIP archive; use ZIP files for the documented workflow.
 
 Files are parsed in the browser using JSZip and Papa Parse. The team has not implemented server-side storage, database ingestion or streaming of extremely large export archives.
 

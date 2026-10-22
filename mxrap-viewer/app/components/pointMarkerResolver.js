@@ -470,3 +470,21 @@ function resolveSingleColourRenderOptions(s, definition) {
     distanceAttenuation: s.distanceAttenuation ?? null,
   };
 }
+
+/**
+ * What a series' points are drawn as, in words, so the legend and the Marker
+ * Style panel say the same thing: "Shaded sphere" for event spheres, the
+ * symbol image of a single-colour marker, "Icon per value" when the colour
+ * marker's ramp gives each value range its own symbol, otherwise "Dot".
+ *
+ * @param {object} series a point series with any Marker Style choices applied
+ * @returns {string}
+ */
+export function markerSymbolLabel(series) {
+  const definition = findMarkerDef(series?.markerDefinitions, series?.colourMarker, "colour");
+  if (isSingleColourDefinition(definition)) return definition.symbol ? `Icon (${definition.symbol})` : "Dot";
+  const options = resolveMarkerRenderOptions(series);
+  if (options?.renderAsShadedSphere) return "Shaded sphere";
+  if (!options?.symbolFn || !definition) return "Dot";
+  return parseColourRampCsv(definition.rampCsv).segments.some((segment) => segment.symbol) ? "Icon per value" : "Dot";
+}

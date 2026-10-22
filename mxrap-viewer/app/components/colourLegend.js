@@ -77,7 +77,6 @@ function singleColourLegend(pointSeriesData, definition) {
     categories: colour ? [{ value: null, label: "All points", colour: toCssRgba(colour) }] : [],
     samples: [],
     ticks: [],
-    symbolLabel: definition.symbol || "None",
   };
 }
 
@@ -122,7 +121,6 @@ export function buildColourLegend(pointSeriesData, sampleCount = DEFAULT_SAMPLE_
     warnings: marker.warnings ?? [],
     noVisiblePoints,
     nullEntry: {
-      label: "Missing / invalid",
       colour: toCssRgba(marker.nullColour),
       visible: marker.showNullColours,
     },
@@ -190,4 +188,23 @@ export function buildSceneColourLegends(pointClouds, fullPointClouds = null) {
   return (Array.isArray(pointClouds) ? pointClouds : [])
     .map((series, index) => (series?.legend === true ? buildColourLegend(series, DEFAULT_SAMPLE_COUNT, full?.[index]) : null))
     .filter(Boolean);
+}
+
+/**
+ * The legend's missing-value line: how many points have no value in the
+ * colour column, and that the swatch beside it is the colour they are drawn
+ * in (or, with "hidden" beside it, that they are not drawn). It used to read
+ * "Missing / invalid (66)", which sounded as if 66 points were missing from
+ * the view.
+ *
+ * @param {{input?: string|null, missingCount?: number, nullEntry?: {visible: boolean}}} legend
+ * @returns {string}
+ */
+export function missingValueText(legend) {
+  const column = legend.input ?? "value";
+  const count = legend.missingCount;
+  const visible = legend.nullEntry?.visible !== false;
+  if (!Number.isFinite(count)) return visible ? `Points with no ${column} use this colour` : `Points with no ${column}`;
+  const points = `${count.toLocaleString()} ${count === 1 ? "point" : "points"} with no ${column}`;
+  return visible ? `${points} ${count === 1 ? "uses" : "use"} this colour` : points;
 }

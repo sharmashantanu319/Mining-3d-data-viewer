@@ -1,7 +1,8 @@
-// Per-file viewer session persistence (scene, filters, marker selections,
-// panel/legend visibility, projection mode, camera position) via
-// localStorage, so reopening the same export can offer to pick up where
-// the user left off instead of starting from scratch every time.
+// Per-file viewer session persistence via localStorage (the current scene,
+// every visited scene's own settings and camera, and the viewer preferences
+// shared by all scenes; see sceneViewState.js), so reopening the same export
+// can offer to pick up where the user left off instead of starting from
+// scratch every time.
 //
 // The file's name+size is used as a lightweight "same file" fingerprint —
 // not a content hash, which would be expensive for a large export and is

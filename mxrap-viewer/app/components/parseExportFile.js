@@ -305,6 +305,9 @@ function parseCameraConfig(camera) {
         position: toVec(camera?.Position, { x: 3, y: 3, z: 5 }),
         focal: toVec(camera?.Focal, { x: 0, y: 0, z: 0 }),
         up: toVec(camera?.Up, { x: 0, y: 1, z: 0 }),
+        // mXrap's Perspective switch: with it off the view is orthographic
+        // (24 Sep meeting). Anything but an explicit false is perspective.
+        projection: camera?.Perspective === false ? "orthographic" : "perspective",
     };
 }
 

@@ -10,7 +10,8 @@ export function StatusBar({
   surfaceCount,
   activeFilterCount,
   viewMode,
-  currentScene,
+  viewTitle, // the scene's title in the 3D view, the chart's title while a chart is shown
+  showSceneInfo = true, // false while a chart is shown (or the export has only charts): no 3D points or projection to report
   errorMessage,
 }) {
   const active = hoveredPoint ?? selectedPoint;
@@ -51,9 +52,9 @@ export function StatusBar({
           </span>
         </div>
 
-        {currentScene && (
+        {viewTitle && (
           <span style={{ fontSize: 10, color: "var(--color-fg-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 280 }}>
-            {currentScene.title}
+            {viewTitle}
           </span>
         )}
       </div>
@@ -75,31 +76,33 @@ export function StatusBar({
               x {Number(activePoint.x).toFixed(1)} · y {Number(activePoint.y).toFixed(1)} · z {Number(activePoint.z).toFixed(1)}
             </span>
           </>
-        ) : (
+        ) : showSceneInfo ? (
           <span style={{ fontSize: 10, color: "var(--color-fg-disabled)" }}>Hover or click a point for coordinates</span>
-        )}
+        ) : null}
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 10, borderLeft: "1px solid var(--color-border)", paddingLeft: 10, marginLeft: 10 }}>
-        <span style={{ fontSize: 10, color: "var(--color-fg-muted)" }}>
-          <span style={{ fontFamily: "var(--font-mono)", color: "var(--color-fg-dim)" }}>{visibleCount.toLocaleString()}</span>
-          <span style={{ color: "var(--color-fg-disabled)" }}> / {totalCount.toLocaleString()}</span>
-          <span style={{ color: "var(--color-fg-muted)" }}> pts</span>
-        </span>
-        {Number.isFinite(surfaceCount) && surfaceCount > 0 && (
+      {showSceneInfo && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, borderLeft: "1px solid var(--color-border)", paddingLeft: 10, marginLeft: 10 }}>
           <span style={{ fontSize: 10, color: "var(--color-fg-muted)" }}>
-            <span style={{ fontFamily: "var(--font-mono)", color: "var(--color-fg-dim)" }}>{surfaceCount}</span> surf
+            <span style={{ fontFamily: "var(--font-mono)", color: "var(--color-fg-dim)" }}>{visibleCount.toLocaleString()}</span>
+            <span style={{ color: "var(--color-fg-disabled)" }}> / {totalCount.toLocaleString()}</span>
+            <span style={{ color: "var(--color-fg-muted)" }}> pts</span>
           </span>
-        )}
-        {Number.isFinite(activeFilterCount) && activeFilterCount > 0 && (
-          <span style={{ fontSize: 10, color: "var(--color-fg-muted)" }}>
-            <span style={{ fontFamily: "var(--font-mono)", color: "var(--color-lime)" }}>{activeFilterCount}</span> filter{activeFilterCount === 1 ? "" : "s"}
+          {Number.isFinite(surfaceCount) && surfaceCount > 0 && (
+            <span style={{ fontSize: 10, color: "var(--color-fg-muted)" }}>
+              <span style={{ fontFamily: "var(--font-mono)", color: "var(--color-fg-dim)" }}>{surfaceCount}</span> surf
+            </span>
+          )}
+          {Number.isFinite(activeFilterCount) && activeFilterCount > 0 && (
+            <span style={{ fontSize: 10, color: "var(--color-fg-muted)" }}>
+              <span style={{ fontFamily: "var(--font-mono)", color: "var(--color-lime)" }}>{activeFilterCount}</span> filter{activeFilterCount === 1 ? "" : "s"}
+            </span>
+          )}
+          <span style={{ fontSize: 10, letterSpacing: "0.04em", textTransform: "uppercase", color: "var(--color-fg-disabled)" }}>
+            {viewMode === "perspective" ? "PERSP" : "ORTHO"}
           </span>
-        )}
-        <span style={{ fontSize: 10, letterSpacing: "0.04em", textTransform: "uppercase", color: "var(--color-fg-disabled)" }}>
-          {viewMode === "perspective" ? "PERSP" : "ORTHO"}
-        </span>
-      </div>
+        </div>
+      )}
     </div>
   );
 }
