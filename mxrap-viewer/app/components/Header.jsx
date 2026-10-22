@@ -1,6 +1,8 @@
 import { IconMxrap, IconFile } from "./icons";
 
-export default function Header({ fileName, currentScene, isLoadingExport, onFileChange }) {
+// `viewTitle` is the scene's title in the 3D view and the chart's title while
+// a chart is shown, so the header names what is on screen.
+export default function Header({ fileName, viewTitle, isLoadingExport, onFileChange }) {
   return (
     <header
       style={{
@@ -66,9 +68,9 @@ export default function Header({ fileName, currentScene, isLoadingExport, onFile
           >
             {fileName}
           </span>
-          {currentScene?.title && (
+          {viewTitle && (
             <span style={{ fontSize: 10, color: "var(--color-fg-muted)", flexShrink: 0 }}>
-              — {currentScene.title}
+              — {viewTitle}
             </span>
           )}
         </div>

@@ -241,13 +241,14 @@ function ChartText({ html, style }) {
 }
 
 /**
- * Renders one parsed chart (see parseExportFile's `charts`): header, a
- * canvas with up to four axes, and footer. `chart.series` come with the
- * Marker Style choices already applied (chartStyle.js), and `toggles` say
- * which series' points and lines are drawn: both are set in the left
- * sidebar's chart controls, so every control of the chart is in one place.
+ * Renders one parsed chart (see parseExportFile's `charts`): header, per-series
+ * Points / Lines check boxes, a canvas with up to four axes, and footer.
+ * `chart.series` come with the sidebar's Marker Style choices already applied
+ * (chartStyle.js). `toggles` say which series' points and lines are drawn;
+ * the page keeps them, so the legend can leave out a series that is switched
+ * off, and the check boxes change them through `onToggle`.
  */
-export default function ChartView({ chart, toggles }) {
+export default function ChartView({ chart, toggles, onToggle }) {
   const canvasRef = useRef(null);
   const ranges = useMemo(() => resolveRanges(chart, toggles), [chart, toggles]);
 
@@ -285,6 +286,26 @@ export default function ChartView({ chart, toggles }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", padding: "14px 18px", gap: 8, color: "var(--color-fg)" }}>
       {chart.header && <ChartText html={chart.header} style={{ fontSize: 15, fontWeight: 600 }} />}
+
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 14, fontSize: 12 }}>
+        {chart.series.map((series, index) => (
+          <div key={index} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontWeight: 600 }}>{series.name}</span>
+            {series.enablePoints && (
+              <label style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                <input type="checkbox" checked={toggles[`${index}:points`] === true} onChange={() => onToggle(`${index}:points`)} />
+                Points
+              </label>
+            )}
+            {series.enableLines && (
+              <label style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                <input type="checkbox" checked={toggles[`${index}:lines`] === true} onChange={() => onToggle(`${index}:lines`)} />
+                Lines
+              </label>
+            )}
+          </div>
+        ))}
+      </div>
 
       <canvas
         ref={canvasRef}

@@ -391,9 +391,6 @@ export default function Home() {
 
   const chartControls = styledChart
     ? {
-        series: styledChart.series,
-        toggles: activeChartToggles,
-        onToggle: toggleChartSeries,
         drawnPointCount: countDrawnChartPoints(styledChart.series, activeChartToggles),
         totalPointCount: styledChart.series.reduce(
           (total, series) => total + (series.enablePoints ? series.points?.x?.length ?? 0 : 0),
@@ -803,12 +800,16 @@ export default function Home() {
   }
 
   const dataState = errors.length > 0 ? "error" : isLoadingExport ? "loading" : "loaded";
+  // What the header and status bar name: the chart while one is shown,
+  // otherwise the 3D scene. Everything else about the 3D view (point
+  // details, point counts, projection) is hidden while a chart is shown.
+  const viewTitle = showChart ? activeChart.title : currentScene.title;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh", overflow: "hidden", background: "var(--color-base)" }}>
       <Header
         fileName={fileName}
-        currentScene={currentScene}
+        viewTitle={viewTitle}
         isLoadingExport={isLoadingExport}
         onFileChange={handleFileChange}
       />
@@ -1004,7 +1005,7 @@ export default function Home() {
 
           {activeChart && (
             <div hidden={!showChart} style={{ position: "absolute", inset: 0, zIndex: 6, background: "var(--color-panel)", paddingTop: 44 }}>
-              <ChartView key={activeChart.id} chart={styledChart} toggles={activeChartToggles} />
+              <ChartView key={activeChart.id} chart={styledChart} toggles={activeChartToggles} onToggle={toggleChartSeries} />
             </div>
           )}
 
@@ -1072,20 +1073,21 @@ export default function Home() {
           kind={activeSelectedPoint ? "selected" : "hovered"}
           onClear={() => setSelectedPoint(null)}
           legends={colourLegends}
+          showInspection={!showChart}
         />
       </div>
 
       <StatusBar
         dataState={dataState}
-        hoveredPoint={hoveredPoint}
-        selectedPoint={activeSelectedPoint}
+        hoveredPoint={showChart ? null : hoveredPoint}
+        selectedPoint={showChart ? null : activeSelectedPoint}
         visibleCount={totalVisibleCount}
         totalCount={totalPointCount}
         surfaceCount={surfaceCount}
         activeFilterCount={activeFilterCount}
         viewMode={projectionMode}
-        currentScene={currentScene}
-        showSceneInfo={hasScenes}
+        viewTitle={viewTitle}
+        showSceneInfo={hasScenes && !showChart}
         errorMessage={errors[0]}
       />
     </div>

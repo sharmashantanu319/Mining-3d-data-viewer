@@ -3,7 +3,7 @@ import {
   IconChevronLeft, IconChevronRight, IconChevronDown, IconChevronUp,
   IconEye, IconEyeOff, IconLayers, IconMap, IconFilter,
   IconRefresh,
-  IconSurface, IconDot, IconTag, IconSettings, IconLegend,
+  IconSurface, IconDot, IconTag, IconSettings,
 } from "./icons";
 import { createCategoryFilter, createRangeFilter, niceRangeBounds, roundDateBound } from "./dataFilters";
 import { ActiveFilter } from "./FilterControls";
@@ -345,55 +345,6 @@ function SurfaceStyleControls({
   );
 }
 
-// A chart's series, each with its Points and Lines switches: the chart's
-// counterpart of the 3D view's Layers.
-function ChartSeriesControls({ series, toggles, onToggle }) {
-  const switchRow = (index, kind, label, count) => {
-    const key = `${index}:${kind}`;
-    const on = toggles[key] === true;
-    return (
-      <div
-        key={key}
-        className="ctrl-row"
-        style={{ cursor: "pointer", paddingLeft: 26 }}
-        role="switch"
-        aria-checked={on}
-        tabIndex={0}
-        onClick={() => onToggle(key)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            onToggle(key);
-          }
-        }}
-        title={`${on ? "Hide" : "Show"} the ${label.toLowerCase()} of ${series[index].name}`}
-      >
-        <span className="ctrl-label" style={{ opacity: on ? 1 : 0.45 }}>{label}</span>
-        {count !== null && (
-          <span style={{ fontSize: 10, color: "var(--color-fg-muted)", flexShrink: 0, fontFamily: "var(--font-mono)" }}>{count}</span>
-        )}
-        <div style={{ flexShrink: 0, color: on ? "var(--color-lime)" : "var(--color-fg-disabled)" }}>
-          {on ? <IconEye size={12} /> : <IconEyeOff size={12} />}
-        </div>
-      </div>
-    );
-  };
-  return (
-    <div style={{ paddingBottom: 4 }}>
-      {series.map((item, index) => (
-        <div key={`${item.name}-${index}`}>
-          <div className="ctrl-row">
-            <div style={{ color: "var(--color-fg-dim)", flexShrink: 0 }}><IconDot size={11} /></div>
-            <span className="ctrl-label" style={{ fontWeight: 600 }}>{item.name}</span>
-          </div>
-          {item.enablePoints && switchRow(index, "points", "Points", item.points?.x?.length ?? 0)}
-          {item.enableLines && switchRow(index, "lines", "Lines", null)}
-        </div>
-      ))}
-    </div>
-  );
-}
-
 export function LeftSidebar({
   mode = "3d",
   surfaceStyle = null,
@@ -454,7 +405,7 @@ export function LeftSidebar({
 }) {
   const [open_, setOpen] = useState({
     scene: true, layers: true, markers: true, surfaces: false, annotations: false, filters: false,
-    chartSeries: true, chartMarkers: true,
+    chartMarkers: true,
   });
   const isChart = mode === "chart" && chartControls !== null;
   const toggle = (k) => setOpen((prev) => ({ ...prev, [k]: !prev[k] }));
@@ -475,8 +426,9 @@ export function LeftSidebar({
 
   // The sidebar shows the controls of the view on screen, as the client
   // asked at the final check-in before handover: the 3D view's scene,
-  // layers, styles and filters, or the chart's series and marker style. An
-  // export with only charts has no 3D view to control.
+  // layers, styles and filters, or the chart's marker style (each chart
+  // series' Points and Lines check boxes stay above the chart, where the
+  // client uses them). An export with only charts has no 3D view to control.
   if (!isChart && scenes.length === 0) return null;
 
   if (!open) {
@@ -487,10 +439,7 @@ export function LeftSidebar({
         </button>
         <div style={{ width: 1, height: 8 }} />
         {isChart ? (
-          <>
-            <button className="strip-btn" onClick={onToggle} title="Chart series — expand sidebar"><IconLegend size={13} /></button>
-            <button className="strip-btn" onClick={onToggle} title="Marker Style — expand sidebar"><IconDot size={13} /></button>
-          </>
+          <button className="strip-btn" onClick={onToggle} title="Marker Style — expand sidebar"><IconDot size={13} /></button>
         ) : (
           <>
             <button className="strip-btn" onClick={onToggle} title="Scene — expand sidebar"><IconMap size={13} /></button>
@@ -538,25 +487,9 @@ export function LeftSidebar({
       <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>
         {isChart ? (
           <>
-            {/* CHART SERIES */}
-            <div>
-              <div className="section-header" onClick={() => toggle("chartSeries")} style={{ borderTop: "none" }}>
-                <IconLegend size={11} />
-                <span style={{ flex: 1 }}>Chart Series</span>
-                {open_.chartSeries ? <IconChevronUp size={10} /> : <IconChevronDown size={10} />}
-              </div>
-              {open_.chartSeries && (
-                <ChartSeriesControls
-                  series={chartControls.series}
-                  toggles={chartControls.toggles}
-                  onToggle={chartControls.onToggle}
-                />
-              )}
-            </div>
-
             {/* CHART MARKER STYLE */}
             <div>
-              <div className="section-header" onClick={() => toggle("chartMarkers")}>
+              <div className="section-header" onClick={() => toggle("chartMarkers")} style={{ borderTop: "none" }}>
                 <IconSettings size={11} />
                 <span style={{ flex: 1 }}>Marker Style</span>
                 {open_.chartMarkers ? <IconChevronUp size={10} /> : <IconChevronDown size={10} />}
