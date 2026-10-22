@@ -9,11 +9,15 @@ import {
   resolveChartPointColours,
   resolveChartPointSizes,
 } from "./chartColours";
-import { computeVisibleAxisRanges } from "./chartData";
+import { addDataMargins, computeVisibleAxisRanges } from "./chartData";
 import { chartTextToPlain, parseChartText } from "./chartText";
 import { parseCustomerDate } from "./customerDate";
 
-const MARGIN = { top: 14, right: 64, bottom: 44, left: 64 };
+// Room around the plot for an axis' tick labels and title. A side with no
+// axis drawn keeps only a small gap, so hiding the right-hand axis gives its
+// room to the plot.
+const AXIS_MARGIN = { top: 44, right: 64, bottom: 44, left: 64 };
+const BARE_MARGIN = 14;
 const TEXT_COLOUR = "#c9d1cf";
 const GRID_COLOUR = "rgba(255, 255, 255, 0.08)";
 const AXIS_COLOUR = "rgba(255, 255, 255, 0.35)";
@@ -29,16 +33,18 @@ function initialToggles(chart) {
 }
 
 // Each enabled axis' range for the series drawn now (a series is drawn when
-// its Points or Lines switch is on), widening a flat range so there is
-// something to draw.
-function resolveRanges(chart, toggles) {
+// its Points or Lines switch is on), with a little room beyond the data
+// (addDataMargins) and a flat range widened so there is something to draw.
+// An axis none of whose series is drawn gets no range, so it is hidden along
+// with anything placed on it (computeVisibleAxisRanges).
+export function resolveRanges(chart, toggles) {
   const drawn = chart.series.map((series, index) =>
     Boolean((series.enablePoints && toggles[`${index}:points`]) || (series.enableLines && toggles[`${index}:lines`]))
   );
   const fitted = computeVisibleAxisRanges(chart.axes, chart.series, drawn, chart.axisRanges);
   const ranges = {};
   for (const [side, axis] of Object.entries(chart.axes)) {
-    ranges[side] = axis.enabled ? padDegenerateRange(fitted[side] ?? null) : null;
+    ranges[side] = axis.enabled ? padDegenerateRange(addDataMargins(fitted[side] ?? null, axis)) : null;
   }
   return ranges;
 }
@@ -53,11 +59,12 @@ export function drawChart(canvas, chart, ranges, toggles, seriesColours) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, width, height);
 
+  const margin = (side) => (ranges[side] ? AXIS_MARGIN[side] : BARE_MARGIN);
   const plot = {
-    left: MARGIN.left,
-    right: width - MARGIN.right,
-    top: MARGIN.top,
-    bottom: height - MARGIN.bottom,
+    left: margin("left"),
+    right: width - margin("right"),
+    top: margin("top"),
+    bottom: height - margin("bottom"),
   };
   if (plot.right - plot.left < 20 || plot.bottom - plot.top < 20) return;
 

@@ -129,6 +129,8 @@ settings in the export.
 
 The axes fit the series that are shown: hide the smaller events, for example, and the magnitude
 axis closes in on the larger ones. An axis with a fixed minimum or maximum in the export keeps it.
+When every series on an axis is hidden, the axis is hidden too, as in mXrap, together with any
+chart note placed against it.
 
 ## Troubleshooting
 

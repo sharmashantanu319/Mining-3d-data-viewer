@@ -64,8 +64,11 @@ describe("point and RMQ import diagnostics", () => {
     expect(report.summaries[0]).toMatchObject({ total: 4, loaded: 1, skipped: 3 });
     expect(report.warnings).toEqual(expect.arrayContaining([
       expect.stringContaining("unknown vertex"), expect.stringContaining("fewer than two"),
-      expect.stringContaining("default 0–100 palette"), expect.stringContaining("invalid RQD"),
+      expect.stringContaining("invalid RQD"),
     ]));
+    // The viewer's own RQD palette is a note: nothing in the viewer can change it.
+    expect(report.warnings.filter((warning) => warning.includes("default 0–100 palette"))).toEqual([]);
+    expect(report.notes).toContainEqual(expect.stringContaining("default 0–100 palette"));
     expect((await parseExportFile(file)).scenes[0].lineSeries[0].lines.map((line) => line.id)).toEqual([10]);
   });
 
@@ -110,7 +113,10 @@ describe("point and RMQ import diagnostics", () => {
     expect(report.valid).toBe(true);
     expect(report.summaries.find((summary) => summary.kind === "lines")).toMatchObject({ loaded: 8877, skipped: 0 });
     expect(report.summaries.filter((summary) => summary.kind === "chart rows").map((summary) => summary.loaded)).toEqual([665, 5238, 665]);
-    expect(report.warnings).toContainEqual(expect.stringContaining("default 0–100 palette"));
+    expect(report.warnings).toEqual([]);
+    expect(report.notes).toContainEqual(
+      "s2-3dview > RMQ Intervals: no RQD colour definition supplied; using the viewer's default 0–100 palette."
+    );
   });
 });
 

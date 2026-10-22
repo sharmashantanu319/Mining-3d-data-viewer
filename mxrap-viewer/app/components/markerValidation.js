@@ -58,9 +58,14 @@ export async function checkMarkers(zip, series, rows, label, root, notes = null)
       }
     }
     if (!def) {
-      warnings.push(series.type === "lines" && name === "RQD"
-        ? `${label}: no RQD colour definition supplied; using the viewer's default 0–100 palette.`
-        : `${label}: marker "${name}" is unavailable; fallback styling will be used.`);
+      if (series.type === "lines" && name === "RQD") {
+        // Nothing in the viewer can change this, and the legend already
+        // names the colours as its default palette, so it is reported with
+        // the notes rather than counted as a warning.
+        (notes ?? warnings).push(`${label}: no RQD colour definition supplied; using the viewer's default 0–100 palette.`);
+      } else {
+        warnings.push(`${label}: marker "${name}" is unavailable; fallback styling will be used.`);
+      }
       continue;
     }
     if (isSingleColourDefinition(def)) {
