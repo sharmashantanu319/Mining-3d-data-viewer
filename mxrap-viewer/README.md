@@ -35,6 +35,16 @@ npm start       # serve it on http://localhost:3000 (use -p <port> for another p
 
 Because all processing happens in the browser, any host that can run a Next.js app works, for example [Vercel](https://vercel.com/docs/frameworks/nextjs) (import the repository and set the root directory to `mxrap-viewer`) or a server/VM running `npm start` behind a reverse proxy. No environment variables, database or storage are needed. No public hosted deployment is claimed here.
 
+### Static website
+
+Because everything runs in the browser, the viewer can also be built as a plain static website that needs no Node.js server to host:
+
+1. In `next.config.mjs`, add `output: "export",` inside `nextConfig`.
+2. Run `npm run build`. The site is written to `out/` (about 2 MB).
+3. Copy the contents of `out/` to any static web host or web server. To try it locally: `python3 -m http.server 8080 --directory out`, then open http://localhost:8080.
+
+`npm start` does not work while `output: "export"` is set, so leave the setting out when you want to use `npm start`. This was checked by serving `out/` from a plain static file server at the site root and loading `visualiser-export-2.zip` (3D view, chart and Colour by). Hosting under a sub-path, such as a GitHub Pages project site, also needs `basePath` in `next.config.mjs`; that case has not been tested.
+
 The interface fonts (Inter and JetBrains Mono) are bundled in `app/fonts`, so building and running the viewer need no internet access once `npm ci` has installed the dependencies.
 
 ## Demonstration in under five minutes
