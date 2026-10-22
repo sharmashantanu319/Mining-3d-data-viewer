@@ -108,3 +108,29 @@ export function resolveChartPointSizes(series) {
   if (!marker?.valid || marker.kind !== "mapped") return null;
   return rows.map((row) => Math.min(Math.max(mapSize(row?.[marker.input], marker), 1), MAX_CHART_POINT_DIAMETER));
 }
+
+/**
+ * Everything the chart canvas colours and sizes each series with: point
+ * colours and sizes, the line colour, and each line's own colours when it
+ * follows the colour marker (no fixed override colour). ChartView draws with
+ * exactly this, so the drawing tests can follow a Marker Style choice all the
+ * way to the canvas.
+ *
+ * @param {object} chart  a parsed chart whose series carry the Marker Style
+ *   choices (chartStyle.js applyChartSelections)
+ * @returns {{pointColours: string[]|null, pointSizes: number[]|null, lineColour: string, lineColours: (string[]|null)[]}[]}
+ */
+export function resolveChartSeriesColours(chart) {
+  return (chart?.series ?? []).map((series) => {
+    const lines = Array.isArray(series?.lines) ? series.lines : [];
+    const useLegendLines = !series?.lineOverrideColour && lines.length > 0;
+    return {
+      pointColours: resolveChartPointColours(series),
+      pointSizes: resolveChartPointSizes(series),
+      lineColour: resolveChartLineColour(series),
+      lineColours: lines.map((line) =>
+        useLegendLines ? resolveChartPointColours({ ...series, points: { rows: line.rows } }) : null
+      ),
+    };
+  });
+}

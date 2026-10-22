@@ -5,9 +5,7 @@ import { axisFraction, computeTicks, formatTick, padDegenerateRange } from "./ch
 import {
   DEFAULT_CHART_POINT_COLOUR,
   DEFAULT_CHART_POINT_DIAMETER,
-  resolveChartLineColour,
-  resolveChartPointColours,
-  resolveChartPointSizes,
+  resolveChartSeriesColours,
 } from "./chartColours";
 import { computeVisibleAxisRanges } from "./chartData";
 import { chartTextToPlain, parseChartText } from "./chartText";
@@ -254,24 +252,7 @@ export default function ChartView({ chart, toggles, onToggle }) {
 
   // Colours depend only on the data and markers, not on the toggles or the
   // canvas size, so they are resolved once per chart.
-  const seriesColours = useMemo(
-    () =>
-      chart.series.map((series) => {
-        const lineColour = resolveChartLineColour(series);
-        const useLegendLines = !series.lineOverrideColour && series.lines.length > 0;
-        return {
-          pointColours: resolveChartPointColours(series),
-          pointSizes: resolveChartPointSizes(series),
-          lineColour,
-          lineColours: series.lines.map((line) =>
-            useLegendLines
-              ? resolveChartPointColours({ ...series, points: { rows: line.rows } })
-              : null
-          ),
-        };
-      }),
-    [chart]
-  );
+  const seriesColours = useMemo(() => resolveChartSeriesColours(chart), [chart]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
