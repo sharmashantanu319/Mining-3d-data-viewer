@@ -17,7 +17,7 @@ To install and start the viewer, see the [quick start](../README.md#quick-start)
 
 Until you open a file, the viewer shows built-in demo data ("Demo data" in the header).
 
-![The viewer after opening the sample export: scene controls on the left, the 3D view in the middle, legends and point details on the right](images/overview.png)
+![The viewer with a client export open (TestHazards, coloured by hazard probability): scene controls on the left, the 3D view in the middle, legends and point details on the right](images/overview.png)
 
 **Import report.** Below the header, the collapsible **Import report** lists every data series
 with the number of records loaded and skipped, plus any warnings (for example rows with
@@ -50,7 +50,7 @@ current scene and keeps the current view. Orthographic has no perspective distor
 the bottom and left edges, which keeps about 6 to 8 lines on screen as you zoom. The grid
 disappears as soon as the view is tilted.
 
-![Top view in orthographic projection, with the coordinate grid and its labels](images/plan-view-grid.png)
+![Top view of the TestHazards export in orthographic projection, with the coordinate grid and its labels](images/plan-view-grid.png)
 
 The axis indicator in the bottom-left corner shows the X, Y and Z directions at all times (in
 mine exports X points east, Y north and Z up). Axes pointing away from you are drawn fainter.
@@ -97,7 +97,7 @@ or Date; its legend appears in the right panel) or **Single colour** and pick th
 **Opacity** makes the surface see-through, so events behind it stay visible. Like the other
 settings, each scene keeps its own surface styles.
 
-![Surface Style set to a single colour for the mine surface](images/surface-style.png)
+![Surface Style colouring the painted surveys by P[ppv>design], with their legend on the right](images/surface-style.png)
 
 ## 6. Annotations
 
@@ -134,7 +134,7 @@ data**; click **Show** to open **Other data**. The status bar also shows the poi
 row in the data file when there is no ID column) and its X, Y, Z coordinates. Click **Clear** to
 deselect.
 
-![A selected event, ringed in the 3D view, with its details in the right panel](images/point-details.png)
+![A selected point, ringed in the 3D view, with its details in the right panel](images/point-details.png)
 
 ## 9. Legends
 
