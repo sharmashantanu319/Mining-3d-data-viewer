@@ -43,10 +43,15 @@ function SectionTitle({ children }) {
   );
 }
 
+// A chart point comes with its sections already worked out
+// (chartPointDetails.js); a 3D point is described from its series here.
 function SelectedPointDetails({ inspection, kind, series, onClear, showOtherData, onToggleOtherData }) {
-  const { point } = inspection;
-  const description = useMemo(() => describePointSeries(series), [series]);
-  const sections = groupPointDetails(point, description);
+  const { point, sections: givenSections, seriesName } = inspection;
+  const description = useMemo(
+    () => (givenSections ? { seriesName: seriesName ?? null } : describePointSeries(series)),
+    [givenSections, seriesName, series]
+  );
+  const sections = givenSections ?? groupPointDetails(point, description);
   const selected = kind !== "hovered";
 
   return (
@@ -102,9 +107,9 @@ function SelectedPointDetails({ inspection, kind, series, onClear, showOtherData
   );
 }
 
-// `showInspection` is false while a chart is shown: hovering and selecting
-// points belong to the 3D view, so the panel then holds only the legends.
-export function RightPanel({ open, onToggle, inspection, inspectionSeries, kind, onClear, legends, showInspection = true }) {
+// `emptyHint` says how to pick a point when none is shown (the 3D view's
+// wording by default; the chart passes its own).
+export function RightPanel({ open, onToggle, inspection, inspectionSeries, kind, onClear, legends, emptyHint = null }) {
   // Kept here rather than in the details view, which unmounts whenever no
   // point is hovered, so "Show" stays open while moving between points.
   const [showOtherData, setShowOtherData] = useState(false);
@@ -117,9 +122,7 @@ export function RightPanel({ open, onToggle, inspection, inspectionSeries, kind,
         </button>
         <div style={{ width: 1, height: 8 }} />
         <button className="strip-btn" onClick={onToggle} title="Legend — expand panel"><IconLegend size={13} /></button>
-        {showInspection && (
-          <button className="strip-btn" onClick={onToggle} title="Selection — expand panel"><IconInfo size={13} /></button>
-        )}
+        <button className="strip-btn" onClick={onToggle} title="Selection — expand panel"><IconInfo size={13} /></button>
       </div>
     );
   }
@@ -136,13 +139,13 @@ export function RightPanel({ open, onToggle, inspection, inspectionSeries, kind,
           <IconChevronRight size={12} />
         </button>
         <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.07em", textTransform: "uppercase", color: "var(--color-fg-muted)" }}>
-          {showInspection ? <>Legend &amp; Details</> : "Legend"}
+          Legend &amp; Details
         </span>
         <div style={{ width: 22 }} />
       </div>
 
       <div style={{ flex: 1, overflowY: "auto" }}>
-        {!showInspection ? null : inspection?.point ? (
+        {inspection?.point ? (
           <SelectedPointDetails
             inspection={inspection}
             kind={kind}
@@ -158,12 +161,12 @@ export function RightPanel({ open, onToggle, inspection, inspectionSeries, kind,
               <span style={{ fontSize: 11 }}>No point selected</span>
             </div>
             <div style={{ fontSize: 10, color: "var(--color-fg-disabled)", marginTop: 3, paddingLeft: 19 }}>
-              {kind === "hovered" ? "Previewing a hovered point." : "Hover or click a point in the viewport to view its attributes."}
+              {emptyHint ?? (kind === "hovered" ? "Previewing a hovered point." : "Hover or click a point in the viewport to view its attributes.")}
             </div>
           </div>
         )}
 
-        <div style={{ padding: "8px 10px 10px", borderTop: showInspection && inspection?.point ? "1px solid var(--color-border)" : "none" }}>
+        <div style={{ padding: "8px 10px 10px", borderTop: inspection?.point ? "1px solid var(--color-border)" : "none" }}>
           <div style={{ fontSize: 9, fontWeight: 600, letterSpacing: "0.07em", textTransform: "uppercase", color: "var(--color-fg-muted)", marginBottom: 8 }}>
             Legend
           </div>

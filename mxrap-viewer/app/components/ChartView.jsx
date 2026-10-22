@@ -9,6 +9,7 @@ import {
 } from "./chartColours";
 import { addDataMargins, computeVisibleAxisRanges } from "./chartData";
 import { chartTextToPlain, parseChartText } from "./chartText";
+import { findChartPointAt } from "./chartPointDetails";
 import { parseCustomerDate } from "./customerDate";
 
 // Room around the plot for an axis' tick labels and title. A side with no
@@ -20,6 +21,9 @@ const TEXT_COLOUR = "#c9d1cf";
 const GRID_COLOUR = "rgba(255, 255, 255, 0.08)";
 const AXIS_COLOUR = "rgba(255, 255, 255, 0.35)";
 const POINT_RADIUS = DEFAULT_CHART_POINT_DIAMETER / 2;
+// The rings around a hovered or selected chart point, in the 3D view's colours.
+const HOVER_RING_COLOUR = "#84cc16";
+const SELECTED_RING_COLOUR = "#e8f7d1";
 
 // Each enabled axis' range for the series drawn now (a series is drawn when
 // its Points or Lines switch is on), with a little room beyond the data
@@ -38,7 +42,11 @@ export function resolveRanges(chart, toggles) {
   return ranges;
 }
 
-export function drawChart(canvas, chart, ranges, toggles, seriesColours) {
+// Draws the chart and returns where each point was drawn
+// ({ seriesIndex, index, x, y, r } in canvas pixels), so a point under the
+// mouse can be found (chartPointDetails.js). `highlights` ring the hovered and
+// selected points: [{ seriesIndex, index, kind: "hovered" | "selected" }].
+export function drawChart(canvas, chart, ranges, toggles, seriesColours, highlights = []) {
   const dpr = window.devicePixelRatio || 1;
   const width = canvas.clientWidth;
   const height = canvas.clientHeight;
@@ -55,7 +63,8 @@ export function drawChart(canvas, chart, ranges, toggles, seriesColours) {
     top: margin("top"),
     bottom: height - margin("bottom"),
   };
-  if (plot.right - plot.left < 20 || plot.bottom - plot.top < 20) return;
+  if (plot.right - plot.left < 20 || plot.bottom - plot.top < 20) return [];
+  const targets = [];
 
   const toX = (side, value) => {
     const f = axisFraction(value, ranges[side], chart.axes[side].scale);
@@ -177,6 +186,7 @@ export function drawChart(canvas, chart, ranges, toggles, seriesColours) {
         const y = toY(axisY.side, series.points.y[i]);
         if (x === null || y === null) continue;
         const radius = sizes ? sizes[i] / 2 : POINT_RADIUS;
+        targets.push({ seriesIndex: index, index: i, x, y, r: radius });
         if (cross) {
           ctx.strokeStyle = colour;
           ctx.beginPath();
@@ -190,6 +200,14 @@ export function drawChart(canvas, chart, ranges, toggles, seriesColours) {
       }
     }
   });
+
+  for (const highlight of Array.isArray(highlights) ? highlights : []) {
+    const target = targets.find((t) => t.seriesIndex === highlight.seriesIndex && t.index === highlight.index);
+    if (!target) continue;
+    ctx.strokeStyle = highlight.kind === "selected" ? SELECTED_RING_COLOUR : HOVER_RING_COLOUR;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(target.x, target.y, target.r + 3, 0, Math.PI * 2); ctx.stroke();
+  }
   ctx.restore();
 
   // Annotations are placed in axis coordinates (one horizontal and one
@@ -216,6 +234,7 @@ export function drawChart(canvas, chart, ranges, toggles, seriesColours) {
       ctx.fillText(line, x + (ctx.textAlign === "left" ? 8 : -8), y - 6 - (lines.length - 1 - i) * 13);
     });
   }
+  return targets;
 }
 
 function ChartText({ html, style }) {
@@ -252,24 +271,66 @@ function ChartText({ html, style }) {
  * (chartStyle.js). `toggles` say which series' points and lines are drawn;
  * the page keeps them, so the legend can leave out a series that is switched
  * off, and the check boxes change them through `onToggle`.
+ *
+ * Hovering or clicking a point reports it ({ seriesIndex, index }, or null)
+ * through `onPointHover` / `onPointSelect`, and `hovered` / `selected` ring it,
+ * so the Legend & Details panel can show the point as it does in the 3D view.
  */
-export default function ChartView({ chart, toggles, onToggle }) {
+export default function ChartView({ chart, toggles, onToggle, hovered = null, selected = null, onPointHover, onPointSelect }) {
   const canvasRef = useRef(null);
+  const targetsRef = useRef([]); // where the last draw put each point
   const ranges = useMemo(() => resolveRanges(chart, toggles), [chart, toggles]);
 
   // Colours depend only on the data and markers, not on the toggles or the
   // canvas size, so they are resolved once per chart.
   const seriesColours = useMemo(() => resolveChartSeriesColours(chart), [chart]);
 
+  const highlights = useMemo(() => {
+    const list = [];
+    if (selected) list.push({ ...selected, kind: "selected" });
+    if (hovered && !(selected && hovered.seriesIndex === selected.seriesIndex && hovered.index === selected.index)) {
+      list.push({ ...hovered, kind: "hovered" });
+    }
+    return list;
+  }, [hovered, selected]);
+
+  // Redraw when what is drawn changes, and when the canvas changes size. The
+  // size observer is set up once, so moving between points draws only once.
+  const redrawRef = useRef(() => {});
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    redrawRef.current = () => {
+      targetsRef.current = drawChart(canvas, chart, ranges, toggles, seriesColours, highlights);
+    };
+    redrawRef.current();
+  }, [chart, ranges, toggles, seriesColours, highlights]);
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return undefined;
-    const redraw = () => drawChart(canvas, chart, ranges, toggles, seriesColours);
-    redraw();
-    const observer = new ResizeObserver(redraw);
+    const observer = new ResizeObserver(() => redrawRef.current());
     observer.observe(canvas);
     return () => observer.disconnect();
-  }, [chart, ranges, toggles, seriesColours]);
+  }, []);
+
+  function pointAt(event) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    return findChartPointAt(targetsRef.current, event.clientX - rect.left, event.clientY - rect.top);
+  }
+
+  function handleMouseMove(event) {
+    const target = pointAt(event);
+    event.currentTarget.style.cursor = target ? "pointer" : "default";
+    const same = target
+      ? hovered?.seriesIndex === target.seriesIndex && hovered?.index === target.index
+      : hovered === null;
+    if (!same) onPointHover?.(target ? { seriesIndex: target.seriesIndex, index: target.index } : null);
+  }
+
+  function handleClick(event) {
+    const target = pointAt(event);
+    onPointSelect?.(target ? { seriesIndex: target.seriesIndex, index: target.index } : null);
+  }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", padding: "14px 18px", gap: 8, color: "var(--color-fg)" }}>
@@ -300,6 +361,9 @@ export default function ChartView({ chart, toggles, onToggle }) {
         role="img"
         aria-label={`${chart.title} chart`}
         style={{ flex: 1, minHeight: 0, width: "100%", display: "block" }}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={() => { if (hovered) onPointHover?.(null); }}
+        onClick={handleClick}
       />
 
       {chart.footer && (
