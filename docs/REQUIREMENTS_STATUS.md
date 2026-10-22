@@ -1,7 +1,7 @@
 # Requirements status
 
 This table lists every requirement the team received for the Mining 3D Data Viewer and what was
-delivered against it, as of the handover on 22 October 2026 (`main`, PR #143). It covers:
+delivered against it, as of the handover on 22 October 2026 (PR #143 and #144). It covers:
 
 1. the MVP agreed with the client on 13 August 2026 ([Business Requirements Analysis](Business_Requirements_Analysis_Group12_.pdf), sections 2.3–2.5);
 2. the export format the client described by email (4 August and 18 August 2026, with the sample exports);

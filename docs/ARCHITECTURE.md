@@ -128,7 +128,7 @@ unit-tested directly (`components/__tests__`); React components (`.jsx`) are thi
 
 ## Testing
 
-`npm test` runs the Vitest suite (754 tests in 42 files on 22 October 2026). Eleven test files
+`npm test` runs the Vitest suite (768 tests in 43 files on 22 October 2026). Twelve test files
 load real exports from `test-data`. `npm run lint` and `npm run build` complete the checks, and
 the GitHub Actions workflow runs all three on every pull request. React components and WebGL
 output are checked by hand in the browser. See [mxrap-viewer/README.md](../mxrap-viewer/README.md#running-the-checks).
