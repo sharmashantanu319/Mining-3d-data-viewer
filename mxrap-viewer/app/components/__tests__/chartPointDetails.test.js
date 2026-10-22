@@ -61,8 +61,9 @@ describe("chartPointDetails", () => {
     const [display, plotted, location, ids] = details.sections;
     // ML sets the colour (Mag/Spheres), so it is listed there, not again as the y value.
     expect(display.rows).toHaveLength(1);
-    expect(display.rows[0]).toMatchObject({ label: "ML", value: -0.91, tag: "colour" });
-    expect(display.rows[0].swatch).toMatch(/^rgba\(/);
+    expect(display.rows[0]).toMatchObject({ label: "ML", value: -0.91, tag: "colour", swatch: "rgba(167, 248, 255, 1)" });
+    // The swatch is the colour the chart paints the point in.
+    expect(resolveChartSeriesColours(chart)[0].pointColours[0]).toBe("rgba(167, 248, 255, 1)");
     expect(plotted.title).toBe("On the chart");
     expect(plotted.rows).toEqual([{ label: "DateTime", value: "2023-05-01 10:28:12.704" }]);
     expect(location.rows.map((row) => row.value)).toEqual(["10305.60", "10114.00", "2646.10"]);
@@ -72,6 +73,23 @@ describe("chartPointDetails", () => {
     const labels = details.sections.flatMap((section) => section.rows.map((row) => row.label));
     expect(labels.filter((label) => label === "DateTime")).toHaveLength(1);
     expect(labels.filter((label) => label === "ML")).toHaveLength(1);
+  });
+
+  it("lists both plotted values of a cross, whose colour is the same for every point", () => {
+    const details = chartPointDetails(chart.series[1], 0);
+    expect(details.seriesName).toBe("Events < threshold");
+    const [display, plotted, location, ids, other] = details.sections;
+    expect(display.rows).toEqual([
+      { label: "Colour", value: "Cross/Grey", tag: "same for every point", swatch: "rgba(159, 159, 159, 1)" },
+    ]);
+    expect(plotted.rows).toEqual([
+      { label: "DateTime", value: "2023-05-01 00:31:38.892" },
+      { label: "ML", value: -1.51 },
+    ]);
+    expect(location.rows.map((row) => row.value)).toEqual(["10524.30", "10191.10", "2893.20"]);
+    expect(ids.rows).toEqual([{ label: "ID", value: 3624546 }]);
+    expect(other.rows).toHaveLength(16);
+    expect(other.rows[0]).toEqual({ label: "SeismicMoment", value: 5400000 });
   });
 
   it("lists a Time after Trigger point's plotted values, and no Location without X/Y/Z", () => {
@@ -128,10 +146,14 @@ describe("drawChart and chart points", () => {
     expect(targets.filter((target) => target.seriesIndex === 0)).toHaveLength(665);
     expect(targets.filter((target) => target.seriesIndex === 1)).toHaveLength(5238);
 
-    // The point found at a target's position is that target (or one drawn on top of it).
-    const first = targets[0];
-    expect(findChartPointAt(targets, first.x, first.y)).not.toBeNull();
+    // A point with no other point within 20 px is found up to 4 px beyond its edge.
+    const lone = targets.find((target) => target.seriesIndex === 0 && target.index === 7);
+    expect(lone.r).toBe(2.5);
+    expect(targets.every((other) => other === lone || Math.hypot(other.x - lone.x, other.y - lone.y) > 20)).toBe(true);
+    expect(findChartPointAt(targets, lone.x + 5, lone.y)).toBe(lone);
+    expect(findChartPointAt(targets, lone.x + 7, lone.y)).toBeNull();
 
+    const first = targets[0];
     const ringed = recordingCanvas();
     drawChart(ringed.canvas, chart, ranges, toggles, colours, [{ seriesIndex: 0, index: 0, kind: "selected" }]);
     expect(ringed.ctx.arc).toHaveBeenCalledWith(first.x, first.y, first.r + 3, 0, Math.PI * 2);
