@@ -17,6 +17,8 @@ To install and start the viewer, see the [quick start](../README.md#quick-start)
 
 Until you open a file, the viewer shows built-in demo data ("Demo data" in the header).
 
+![The viewer after opening the sample export: scene controls on the left, the 3D view in the middle, legends and point details on the right](images/overview.png)
+
 **Import report.** Below the header, the collapsible **Import report** lists every data series
 with the number of records loaded and skipped, plus any warnings (for example rows with
 missing coordinates or references to data that is not in the export). Rows that fail validation
@@ -47,6 +49,8 @@ current scene and keeps the current view. Orthographic has no perspective distor
 **Top**, **Front** or **Side**. In those views it also shows a coordinate grid, labelled along
 the bottom and left edges, which keeps about 6 to 8 lines on screen as you zoom. The grid
 disappears as soon as the view is tilted.
+
+![Top view in orthographic projection, with the coordinate grid and its labels](images/plan-view-grid.png)
 
 The axis indicator in the bottom-left corner shows the X, Y and Z directions at all times (in
 mine exports X points east, Y north and Z up). Axes pointing away from you are drawn fainter.
@@ -91,6 +95,8 @@ or Date; its legend appears in the right panel) or **Single colour** and pick th
 **Opacity** makes the surface see-through, so events behind it stay visible. Like the other
 settings, each scene keeps its own surface styles.
 
+![Surface Style set to a single colour for the mine surface](images/surface-style.png)
+
 ## 6. Annotations
 
 The **Annotations** section turns text labels on or off and changes their size, font, text
@@ -109,6 +115,8 @@ colour and background colour.
 5. Points outside the filters are hidden immediately. Remove a filter with its **×** button, or
    clear them all with **Reset All Filters**. The status bar shows how many filters are active.
 
+![A filter card keeping events with ML from 0 to 2.8](images/filter-card.png)
+
 ## 8. Inspect a point
 
 Hover over a point to preview its attributes; click to keep them in the **Selected point**
@@ -117,6 +125,8 @@ colour and size, with the colour swatch), **Location**, **Time**, **IDs & groups
 data**; click **Show** to open **Other data**. The status bar also shows the point's ID (or its
 row in the data file when there is no ID column) and its X, Y, Z coordinates. Click **Clear** to
 deselect.
+
+![A selected event, ringed in the 3D view, with its details in the right panel](images/point-details.png)
 
 ## 9. Legends
 
@@ -144,6 +154,8 @@ right panel, and click it to keep them as the **Selected point**. The point is r
 and its details also list **On the chart**, the values it is plotted at (for example its date, or
 its hours after the trigger and cumulative count). Click **Clear** or an empty part of the chart to
 deselect.
+
+![The Magnitude-Time chart coloured by event date, with a selected point and its details](images/chart-point-details.png)
 
 The axes fit the series that are shown: hide the smaller events, for example, and the magnitude
 axis closes in on the larger ones. An axis with a fixed minimum or maximum in the export keeps it.

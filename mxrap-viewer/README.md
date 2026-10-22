@@ -188,15 +188,18 @@ Pure logic lives in plain `.js` modules so it can be unit-tested without a brows
 
 ## Known limitations and future work
 
-- **Browser validation:** RMQ, chart and visibility changes have source-level and automated-test evidence, but the team still needs to record full visual acceptance checks with the client's reference output. React components and WebGL output have no automated tests; they are checked manually. See [open issues](https://github.com/sharmashantanu319/Mining-3d-data-viewer/issues).
-- **Large exports:** ZIP files above the compressed-size limit are rejected before decompression, but the expanded size is not bounded and the whole allowed export is held in browser memory, so high-compression archives may exhaust it even below the limit. There is no streaming pipeline ([issue #101](https://github.com/sharmashantanu319/Mining-3d-data-viewer/issues/101)).
-- **Partial desktop parity:** Not every mXrap display, chart behaviour or desktop workflow is implemented; some advanced chart cases are covered by unit tests but have not been verified using representative client exports.
-- **Additional features:** Drag-and-drop import and image snapshots are in [PR #120](https://github.com/sharmashantanu319/Mining-3d-data-viewer/pull/120) and [PR #121](https://github.com/sharmashantanu319/Mining-3d-data-viewer/pull/121), respectively, and should not be represented as released before integration.
-- **Release branches:** Pull requests are merged into `Development` and released to `main` after review and testing; check that `main` is up to date before a handover.
+- **Large exports:** ZIP files above the compressed-size limit are rejected before decompression, but the expanded size is not bounded and the whole allowed export is held in browser memory, so high-compression archives may exhaust it even below the limit. There is no streaming pipeline ([issue #101](https://github.com/sharmashantanu319/Mining-3d-data-viewer/issues/101)). The largest export tested is the client's TestResponseViewer, 20.4 MB (92.8 MB uncompressed); load time and memory use for larger exports have not been measured.
+- **Browsers:** The team's recorded browser checks used Chromium only. Firefox and Safari should work with WebGL enabled but have not been checked.
+- **Interface tests:** React components and WebGL output have no automated tests; they are checked by hand in the browser.
+- **Partial desktop parity:** Not every mXrap display or option is implemented, for example CIE colour spaces, clipping, a dashboard layout of several displays and slide text. Charts have been checked against two real exports (the sample and TestResponseViewer). The full list, with next steps, is in [Requirements status](../docs/REQUIREMENTS_STATUS.md).
+- **Additional features:** Drag-and-drop import and image snapshots are in [PR #120](https://github.com/sharmashantanu319/Mining-3d-data-viewer/pull/120) and [PR #121](https://github.com/sharmashantanu319/Mining-3d-data-viewer/pull/121), respectively; their checks have not passed and they are not part of the release.
+- **Release branches:** Pull requests are merged into `Development` and released to `main` after review and testing.
 
 ## Project evidence and handover
 
 - [Business requirements](../docs/Business_Requirements_Analysis_Group12_.pdf)
+- [Requirements status](../docs/REQUIREMENTS_STATUS.md): every requirement and client request, with what was delivered
+- [Architecture](../docs/ARCHITECTURE.md): modules, data flow and design decisions
 - [Client meeting notes, 25 September 2026](../meetings/minutres-2026-09-24.md)
 - [Chart scoping and design decisions](../docs/chart-module-scoping.md) — historical proposal; some choices changed during implementation
 - [Three.js versus VTK.js technology analysis](../tech-docs/VTK.js%20vs%20Three.js%20-%20Technology%20Selection%20Analysis.docx)
