@@ -8,6 +8,8 @@ import {
   groupChartColumns,
   computeAxisExtent,
   computeChartAxisRanges,
+  computeVisibleAxisRanges,
+  addDataMargins,
 } from "../chartData";
 
 describe("joinChartRows", () => {
@@ -209,5 +211,95 @@ describe("computeChartAxisRanges", () => {
   it("resolves an enabled axis with no data and no fixed bounds to null", () => {
     const emptyAxes = { bottom: { enabled: true, scale: "linear", minimum: null, maximum: null } };
     expect(computeChartAxisRanges(emptyAxes, []).bottom).toBeNull();
+  });
+});
+
+describe("computeVisibleAxisRanges", () => {
+  const axes = {
+    bottom: { enabled: true, scale: "datetime", minimum: null, maximum: null },
+    left: { enabled: true, scale: "linear", minimum: null, maximum: null },
+    right: { enabled: true, scale: "linear", minimum: 0, maximum: null },
+    top: { enabled: false, scale: "linear", minimum: null, maximum: null },
+  };
+  // Shaped like the sample magnitude-time chart: larger and smaller events on
+  // the left axis, the cumulative count on the right.
+  const seriesList = [
+    { name: "Events > threshold", axisX: { side: "bottom" }, axisY: { side: "left" }, points: { x: [20, 30, 40], y: [-1, 0.5, 2.8] } },
+    { name: "Events < threshold", axisX: { side: "bottom" }, axisY: { side: "left" }, points: { x: [10, 25, 45], y: [-2.41, -1.5, -1] } },
+    { name: "Cumulative", axisX: { side: "bottom" }, axisY: { side: "right" }, points: { x: [20, 30, 40], y: [1, 2, 3] } },
+  ];
+  const full = computeChartAxisRanges(axes, seriesList);
+
+  it("gives the full ranges while every series is drawn", () => {
+    expect(computeVisibleAxisRanges(axes, seriesList, [true, true, true], full)).toEqual({
+      bottom: { min: 10, max: 45 },
+      left: { min: -2.41, max: 2.8 },
+      right: { min: 0, max: 3 },
+      top: null,
+    });
+  });
+
+  it("closes the axes in on the series still drawn", () => {
+    expect(computeVisibleAxisRanges(axes, seriesList, [true, false, true], full)).toEqual({
+      bottom: { min: 20, max: 40 },
+      left: { min: -1, max: 2.8 },
+      right: { min: 0, max: 3 },
+      top: null,
+    });
+  });
+
+  it("keeps a fixed bound from the export", () => {
+    const fixedLeft = { ...axes, left: { ...axes.left, minimum: -3 } };
+    const ranges = computeVisibleAxisRanges(fixedLeft, seriesList, [true, false, true], computeChartAxisRanges(fixedLeft, seriesList));
+    expect(ranges.left).toEqual({ min: -3, max: 2.8 });
+  });
+
+  it("hides an axis none of whose series is drawn, even one with a fixed bound", () => {
+    // Without the cumulative series its right axis (fixed minimum 0) goes, as in mXrap.
+    expect(computeVisibleAxisRanges(axes, seriesList, [true, true, false], full)).toEqual({
+      bottom: { min: 10, max: 45 },
+      left: { min: -2.41, max: 2.8 },
+      right: null,
+      top: null,
+    });
+    expect(computeVisibleAxisRanges(axes, seriesList, [false, false, false], full)).toEqual({
+      bottom: null,
+      left: null,
+      right: null,
+      top: null,
+    });
+  });
+
+  it("keeps the full range on an axis whose drawn series have no values", () => {
+    const noCumulativeValues = [seriesList[0], seriesList[1], { ...seriesList[2], points: { x: [], y: [] } }];
+    expect(computeVisibleAxisRanges(axes, noCumulativeValues, [true, true, true], full).right).toEqual({ min: 0, max: 3 });
+  });
+});
+
+describe("addDataMargins", () => {
+  const linear = { scale: "linear", minimum: null, maximum: null };
+
+  it("leaves 5% of the span free beyond each end that the data sets", () => {
+    expect(addDataMargins({ min: 0, max: 100 }, linear)).toEqual({ min: -5, max: 105 });
+    expect(addDataMargins({ min: 0, max: 86_400_000 }, { ...linear, scale: "datetime" })).toEqual({ min: -4_320_000, max: 90_720_000 });
+  });
+
+  it("keeps an end fixed in the export exactly where it is", () => {
+    expect(addDataMargins({ min: 0, max: 665 }, { ...linear, minimum: 0 })).toEqual({ min: 0, max: 698.25 });
+    expect(addDataMargins({ min: -3, max: 2.8 }, { ...linear, minimum: -3, maximum: 2.8 })).toEqual({ min: -3, max: 2.8 });
+  });
+
+  it("works in powers of ten on a log axis", () => {
+    const padded = addDataMargins({ min: 1, max: 1000 }, { ...linear, scale: "log10" });
+    expect(padded.min).toBeCloseTo(0.7079457843841379, 12);
+    expect(padded.max).toBeCloseTo(1412.537544622754, 9);
+  });
+
+  it("returns a flat, missing or unusable range unchanged", () => {
+    const flat = { min: 5, max: 5 };
+    expect(addDataMargins(flat, linear)).toBe(flat);
+    expect(addDataMargins(null, linear)).toBeNull();
+    const nonPositiveLog = { min: 0, max: 10 };
+    expect(addDataMargins(nonPositiveLog, { ...linear, scale: "log10" })).toBe(nonPositiveLog);
   });
 });

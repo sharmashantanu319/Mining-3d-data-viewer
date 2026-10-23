@@ -1,45 +1,35 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import {
   IconChevronLeft, IconChevronRight, IconChevronDown, IconChevronUp,
   IconEye, IconEyeOff, IconLayers, IconMap, IconFilter,
-  IconRefresh, IconSearch, IconX,
+  IconRefresh,
   IconSurface, IconDot, IconTag, IconSettings,
 } from "./icons";
-import { createCategoryFilter, createRangeFilter } from "./dataFilters";
+import { createCategoryFilter, createRangeFilter, niceRangeBounds, roundDateBound } from "./dataFilters";
+import { ActiveFilter } from "./FilterControls";
 import { ANNOTATION_FONT_CHOICES } from "./annotationStyleOptions";
 
-function toDateInput(epoch) {
-  if (!Number.isFinite(epoch)) return "";
-  return new Date(epoch).toISOString().slice(0, 10);
-}
-
-function fromDateInput(value, endBoundary = false) {
-  if (!value) return null;
-  const [year, month, day] = value.split("-").map(Number);
-  return Date.UTC(year, month - 1, day + (endBoundary ? 1 : 0));
-}
-
+// A new filter starts by letting every point through: the whole range (or
+// every category) and the points with no value in that column. Adding a
+// filter used to hide those points straight away (66 nodes in TestHazards)
+// before anything was changed.
 function defaultFilter(field) {
   if (field.kind === "category") {
-    return createCategoryFilter({ input: field.input, allowedValues: field.values });
+    return createCategoryFilter({ input: field.input, allowedValues: field.values, includeMissing: true });
   }
-  const maximum = field.inputType === "date" ? fromDateInput(toDateInput(field.max), true) - 1 : field.max;
-  return createRangeFilter({ input: field.input, inputType: field.inputType, min: field.min, max: maximum });
-}
-
-function summariseFilter(field, filter) {
-  if (filter.kind === "category") {
-    const values = [...filter.allowedValues];
-    return values.length > 3 ? `${values.slice(0, 3).join(", ")}, +${values.length - 3} more` : values.join(", ");
+  if (field.inputType === "date") {
+    return createRangeFilter({
+      input: field.input,
+      inputType: "date",
+      min: roundDateBound(field.min, "down"),
+      max: roundDateBound(field.max, "up"),
+      includeMissing: true,
+    });
   }
-  if (field?.inputType === "date") {
-    const from = Number.isFinite(filter.min) ? new Date(filter.min).toLocaleDateString() : "…";
-    const to = Number.isFinite(filter.max) ? new Date(filter.max).toLocaleDateString() : "…";
-    return `${from} – ${to}`;
-  }
-  const min = filter.min ?? field?.min;
-  const max = filter.max ?? field?.max;
-  return `${Number(min).toLocaleString()} – ${Number(max).toLocaleString()}`;
+  // Starts at the data's range rounded outwards, so the number boxes read
+  // "0" and "0.3764" rather than 3.1086244689504383e-15 (niceRangeBounds).
+  const bounds = niceRangeBounds(field.min, field.max);
+  return createRangeFilter({ input: field.input, inputType: field.inputType, min: bounds.min, max: bounds.max, includeMissing: true });
 }
 
 // A labelled colour override with a checkbox to switch between "use the
@@ -74,6 +64,7 @@ function ColourOverrideRow({ label, value, onChange, fallback, ariaLabel }) {
 
 const layerIcon = (type) => {
   if (type === "surface") return <IconSurface size={11} />;
+  if (type === "line") return <IconMap size={11} />;
   if (type === "event") return <IconDot size={11} />;
   if (type === "sensor") return <IconMap size={11} />;
   if (type === "marker") return <IconTag size={11} />;
@@ -81,7 +72,283 @@ const layerIcon = (type) => {
   return null;
 };
 
+// The Marker Style controls: which series, what it is coloured and sized by,
+// and whether points with no value are shown. The same controls style a 3D
+// point series and a chart series (chartStyle.js); the marker display size
+// slider and the symbol line only belong to the 3D view
+// (`showDisplayControls`).
+function MarkerStyleControls({
+  markerSeriesOptions,
+  markerSeriesIndex,
+  onMarkerSeriesChange,
+  colourChoices,
+  colourNoneLabel = null,
+  noColourHint = null,
+  colourValue,
+  onColourChange,
+  nullValueColumn,
+  nullValueCount,
+  showNulls,
+  onShowNullsChange,
+  sizeChoices,
+  sizeValue,
+  onSizeChange,
+  sizeMinValue,
+  sizeMaxValue,
+  onSizeMinChange,
+  onSizeMaxChange,
+  invertSize,
+  onInvertSizeChange,
+  sameSizeHint,
+  showDisplayControls = false,
+  markerScale,
+  onMarkerScaleChange,
+  resolvedSymbolLabel,
+}) {
+  return (
+    <div style={{ padding: "4px 0 6px" }}>
+      {markerSeriesOptions.length > 1 && (
+        <div className="ctrl-row">
+          <span className="ctrl-label">Series</span>
+          <select
+            className="ctrl-select"
+            value={markerSeriesIndex}
+            onChange={(e) => onMarkerSeriesChange(Number(e.target.value))}
+            style={{ maxWidth: 130 }}
+          >
+            {markerSeriesOptions.map((name, i) => (
+              <option key={`${name}-${i}`} value={i}>{name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+      {colourChoices.length > 0 ? (
+        <div className="ctrl-row">
+          <span className="ctrl-label">Colour by</span>
+          <select className="ctrl-select" aria-label="Colour points by" value={colourValue} onChange={(e) => onColourChange(e.target.value)} style={{ maxWidth: 130 }}>
+            {colourNoneLabel && <option value="">{colourNoneLabel}</option>}
+            {colourChoices.map((choice) => (
+              <option key={choice.name} value={choice.name}>{choice.name}{choice.input && choice.input !== choice.name ? ` · ${choice.input}` : ""}</option>
+            ))}
+          </select>
+        </div>
+      ) : noColourHint ? (
+        <div className="ctrl-row">
+          <span className="ctrl-label">Colour by</span>
+          <span className="ctrl-static" title={noColourHint}>Nothing to colour by</span>
+        </div>
+      ) : null}
+      {nullValueColumn && (
+        <div
+          className="ctrl-row"
+          style={{ justifyContent: "space-between" }}
+          title={`Points with an empty ${nullValueColumn} can't be coloured, so they are hidden unless this is on. When shown, they use the legend's missing-value colour.`}
+        >
+          <span className="ctrl-label" style={{ display: "flex", flexDirection: "column", gap: 1, whiteSpace: "normal" }}>
+            <span>Show points with no value</span>
+            <span className="ctrl-hint">
+              {nullValueCount > 0
+                ? `${nullValueCount.toLocaleString()} ${nullValueCount === 1 ? "point has" : "points have"} no ${nullValueColumn}`
+                : `No points are missing ${nullValueColumn}`}
+            </span>
+          </span>
+          <label className="toggle">
+            <input
+              type="checkbox"
+              aria-label="Show points with no colour value"
+              checked={showNulls}
+              disabled={nullValueCount === 0}
+              onChange={onShowNullsChange}
+            />
+            <div className="toggle-track"><div className="toggle-thumb" /></div>
+          </label>
+        </div>
+      )}
+      <div className="ctrl-row">
+        <span className="ctrl-label">Size by</span>
+        {/* A drop-down with only "None" in it looked like a choice that
+            could not be made; with nothing to pick it is plain text. */}
+        {sizeChoices.length > 0 ? (
+          <select className="ctrl-select" aria-label="Size points by" value={sizeValue} onChange={(e) => onSizeChange(e.target.value)} style={{ maxWidth: 130 }}>
+            <option value="">None</option>
+            {sizeChoices.map((choice) => (
+              <option key={choice.name} value={choice.name}>{choice.name}{choice.input && choice.input !== choice.name ? ` · ${choice.input}` : ""}</option>
+            ))}
+          </select>
+        ) : (
+          <span className="ctrl-static" title="The export has no size settings for this series">Nothing to size by</span>
+        )}
+      </div>
+      {/* Min / Max size only matter when a column sets the size. With
+          no size column every point is drawn at their midpoint, so
+          changing Min from 1 to 2 moved it from 13 to 13.5 and looked
+          like the boxes did nothing. */}
+      {sizeValue ? (
+        <>
+          <div className="ctrl-row">
+            <span className="ctrl-label">Min size</span>
+            <input
+              type="number"
+              className="ctrl-input"
+              aria-label="Marker size at the low end of the range"
+              min="0"
+              step="0.5"
+              value={Number.isNaN(sizeMinValue) ? "" : sizeMinValue}
+              onChange={(e) => onSizeMinChange(e.target.value === "" ? NaN : Number(e.target.value))}
+              style={{ width: 64 }}
+            />
+          </div>
+          <div className="ctrl-row">
+            <span className="ctrl-label">Max size</span>
+            <input
+              type="number"
+              className="ctrl-input"
+              aria-label="Marker size at the high end of the range"
+              min="0"
+              step="0.5"
+              value={Number.isNaN(sizeMaxValue) ? "" : sizeMaxValue}
+              onChange={(e) => onSizeMaxChange(e.target.value === "" ? NaN : Number(e.target.value))}
+              style={{ width: 64 }}
+            />
+          </div>
+          <div className="ctrl-row" style={{ justifyContent: "space-between" }}>
+            <span className="ctrl-label">Invert size</span>
+            <label className="toggle">
+              <input
+                type="checkbox"
+                aria-label="Invert size mapping (small values get the larger marker)"
+                checked={invertSize}
+                onChange={(e) => onInvertSizeChange(e.target.checked)}
+              />
+              <div className="toggle-track"><div className="toggle-thumb" /></div>
+            </label>
+          </div>
+        </>
+      ) : (
+        <div className="ctrl-row">
+          <span className="ctrl-hint" style={{ whiteSpace: "normal" }}>
+            {sameSizeHint}
+          </span>
+        </div>
+      )}
+      {showDisplayControls && (
+        <>
+          <label className="ctrl-row">
+            <span className="ctrl-label">Marker size</span>
+            <input
+              type="range"
+              className="ctrl-slider"
+              aria-label="Marker display size"
+              min="0.1"
+              max="1.5"
+              step="0.05"
+              value={markerScale}
+              onChange={(event) => onMarkerScaleChange(Number(event.target.value))}
+              style={{ width: 84 }}
+            />
+            <span style={{ width: 34, textAlign: "right", fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--color-fg-dim)" }}>
+              {Math.round(markerScale * 100)}%
+            </span>
+          </label>
+          <div className="ctrl-row" title="Set by the colour marker in the export">
+            <span className="ctrl-label">Symbol</span>
+            {/* Not a separate choice in this data model: the symbol comes
+                with the colour marker (markers.json, or a Symbol per ramp
+                entry), so this says what is drawn, in the legend's words. */}
+            <span className="ctrl-static">{resolvedSymbolLabel || "Dot"}</span>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// Surface Style: recolour a surface the way Marker Style recolours points
+// (surfaceStyle.js) — by one of its markers or in one colour — and set how
+// see-through it is.
+function SurfaceStyleControls({
+  surfaceOptions,
+  surfaceIndex,
+  onSurfaceChange,
+  colourChoices,
+  colourValue,
+  onColourChange,
+  colourHex,
+  onColourHexChange,
+  opacity,
+  onOpacityChange,
+}) {
+  const singleColour = colourValue === "";
+  return (
+    <div style={{ padding: "4px 0 6px" }}>
+      {surfaceOptions.length > 1 && (
+        <div className="ctrl-row">
+          <span className="ctrl-label">Surface</span>
+          <select
+            className="ctrl-select"
+            aria-label="Surface to style"
+            value={surfaceIndex}
+            onChange={(e) => onSurfaceChange(Number(e.target.value))}
+            style={{ maxWidth: 130 }}
+          >
+            {surfaceOptions.map((name, i) => (
+              <option key={`${name}-${i}`} value={i}>{name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+      <div className="ctrl-row">
+        <span className="ctrl-label">Colour by</span>
+        <select
+          className="ctrl-select"
+          aria-label="Colour surface by"
+          value={colourValue}
+          onChange={(e) => onColourChange(e.target.value)}
+          style={{ maxWidth: 130 }}
+        >
+          <option value="">Single colour</option>
+          {colourChoices.map((choice) => (
+            <option key={choice.name} value={choice.name}>{choice.name}{choice.input && choice.input !== choice.name ? ` · ${choice.input}` : ""}</option>
+          ))}
+        </select>
+      </div>
+      {singleColour && (
+        <div className="ctrl-row" style={{ justifyContent: "space-between" }}>
+          <span className="ctrl-label">Colour</span>
+          <input
+            type="color"
+            value={colourHex}
+            onChange={(e) => onColourHexChange(e.target.value)}
+            aria-label="Surface colour"
+            style={{ width: 22, height: 22, padding: 0, border: "1px solid var(--color-border)", borderRadius: 3, background: "none" }}
+          />
+        </div>
+      )}
+      <label className="ctrl-row">
+        <span className="ctrl-label">Opacity</span>
+        <input
+          type="range"
+          className="ctrl-slider"
+          aria-label="Surface opacity"
+          min="0.1"
+          max="1"
+          step="0.05"
+          value={opacity}
+          onChange={(e) => onOpacityChange(Number(e.target.value))}
+          style={{ width: 84 }}
+        />
+        <span style={{ width: 34, textAlign: "right", fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--color-fg-dim)" }}>
+          {Math.round(opacity * 100)}%
+        </span>
+      </label>
+    </div>
+  );
+}
+
 export function LeftSidebar({
+  mode = "3d",
+  surfaceStyle = null,
+  chartControls = null,
   open,
   onToggle,
   scenes,
@@ -121,30 +388,31 @@ export function LeftSidebar({
   annotationBackgroundColor,
   onAnnotationBackgroundColorChange,
   annotationBackgroundColorFallback,
-  hasNullVisibility,
+  nullValueColumn,
+  nullValueCount,
   showNulls,
   onShowNullsChange,
+  filterSeriesOptions = [],
+  filterSeriesIndex = 0,
+  onFilterSeriesChange,
   fields,
   filters,
+  filterHiddenCounts = {},
   onFiltersChange,
   onResetFilters,
   visibleCount,
   totalCount,
 }) {
   const [open_, setOpen] = useState({
-    scene: true, layers: true, markers: true, annotations: false, filters: false,
+    scene: true, layers: true, markers: true, surfaces: false, annotations: false, filters: false,
+    chartMarkers: true,
   });
-  const [filterSearch, setFilterSearch] = useState("");
+  const isChart = mode === "chart" && chartControls !== null;
   const toggle = (k) => setOpen((prev) => ({ ...prev, [k]: !prev[k] }));
 
   const activeByInput = new Map((filters ?? []).map((filter) => [filter.input, filter]));
   const activeFields = (fields ?? []).filter((field) => activeByInput.has(field.input));
   const inactiveFields = (fields ?? []).filter((field) => !activeByInput.has(field.input));
-  const query = filterSearch.trim().toLowerCase();
-  const visibleInactiveFields = useMemo(
-    () => (query ? inactiveFields.filter((field) => field.label.toLowerCase().includes(query)) : inactiveFields),
-    [inactiveFields, query]
-  );
 
   function addFilter(field) {
     onFiltersChange([...(filters ?? []), defaultFilter(field)]);
@@ -156,6 +424,13 @@ export function LeftSidebar({
     onFiltersChange((filters ?? []).map((filter) => (filter.input === input ? nextFilter : filter)));
   }
 
+  // The sidebar shows the controls of the view on screen, as the client
+  // asked at the final check-in before handover: the 3D view's scene,
+  // layers, styles and filters, or the chart's marker style (each chart
+  // series' Points and Lines check boxes stay above the chart, where the
+  // client uses them). An export with only charts has no 3D view to control.
+  if (!isChart && scenes.length === 0) return null;
+
   if (!open) {
     return (
       <div className="collapsed-strip">
@@ -163,10 +438,17 @@ export function LeftSidebar({
           <IconChevronRight size={14} />
         </button>
         <div style={{ width: 1, height: 8 }} />
-        <button className="strip-btn" onClick={onToggle} title="Scene — expand sidebar"><IconMap size={13} /></button>
-        <button className="strip-btn" onClick={onToggle} title="Layers — expand sidebar"><IconLayers size={13} /></button>
-        <button className="strip-btn" onClick={onToggle} title="Marker Style — expand sidebar"><IconDot size={13} /></button>
-        <button className="strip-btn" onClick={onToggle} title="Filters — expand sidebar"><IconFilter size={13} /></button>
+        {isChart ? (
+          <button className="strip-btn" onClick={onToggle} title="Marker Style — expand sidebar"><IconDot size={13} /></button>
+        ) : (
+          <>
+            <button className="strip-btn" onClick={onToggle} title="Scene — expand sidebar"><IconMap size={13} /></button>
+            <button className="strip-btn" onClick={onToggle} title="Layers — expand sidebar"><IconLayers size={13} /></button>
+            <button className="strip-btn" onClick={onToggle} title="Marker Style — expand sidebar"><IconDot size={13} /></button>
+            {surfaceStyle && <button className="strip-btn" onClick={onToggle} title="Surface Style — expand sidebar"><IconSurface size={13} /></button>}
+            <button className="strip-btn" onClick={onToggle} title="Filters — expand sidebar"><IconFilter size={13} /></button>
+          </>
+        )}
       </div>
     );
   }
@@ -195,7 +477,7 @@ export function LeftSidebar({
         }}
       >
         <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.07em", textTransform: "uppercase", color: "var(--color-fg-muted)" }}>
-          Scene Controls
+          {isChart ? "Chart Controls" : "Scene Controls"}
         </span>
         <button className="strip-btn" onClick={onToggle} title="Collapse" style={{ width: 22, height: 22 }}>
           <IconChevronLeft size={12} />
@@ -203,6 +485,27 @@ export function LeftSidebar({
       </div>
 
       <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>
+        {isChart ? (
+          <>
+            {/* CHART MARKER STYLE */}
+            <div>
+              <div className="section-header" onClick={() => toggle("chartMarkers")} style={{ borderTop: "none" }}>
+                <IconSettings size={11} />
+                <span style={{ flex: 1 }}>Marker Style</span>
+                {open_.chartMarkers ? <IconChevronUp size={10} /> : <IconChevronDown size={10} />}
+              </div>
+              {open_.chartMarkers && (
+                <MarkerStyleControls
+                  {...chartControls.markerStyle}
+                  colourNoneLabel="Default colour"
+                  noColourHint="The export gives this series no colour markers"
+                  sameSizeHint="Every point is the same size."
+                />
+              )}
+            </div>
+          </>
+        ) : (
+        <>
         {/* SCENE */}
         <div>
           <div className="section-header" onClick={() => toggle("scene")} style={{ borderTop: "none" }}>
@@ -279,104 +582,46 @@ export function LeftSidebar({
             {open_.markers ? <IconChevronUp size={10} /> : <IconChevronDown size={10} />}
           </div>
           {open_.markers && (
-            <div style={{ padding: "4px 0 6px" }}>
-              {markerSeriesOptions.length > 1 && (
-                <div className="ctrl-row">
-                  <span className="ctrl-label">Series</span>
-                  <select
-                    className="ctrl-select"
-                    value={markerSeriesIndex}
-                    onChange={(e) => onMarkerSeriesChange(Number(e.target.value))}
-                    style={{ maxWidth: 130 }}
-                  >
-                    {markerSeriesOptions.map((name, i) => (
-                      <option key={`${name}-${i}`} value={i}>{name}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              {colourChoices.length > 0 && (
-                <div className="ctrl-row">
-                  <span className="ctrl-label">Colour by</span>
-                  <select className="ctrl-select" value={colourValue} onChange={(e) => onColourChange(e.target.value)} style={{ maxWidth: 130 }}>
-                    {colourChoices.map((choice) => (
-                      <option key={choice.name} value={choice.name}>{choice.name}{choice.input ? ` · ${choice.input}` : ""}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              <div className="ctrl-row">
-                <span className="ctrl-label">Size by</span>
-                <select className="ctrl-select" value={sizeValue} onChange={(e) => onSizeChange(e.target.value)} style={{ maxWidth: 130 }}>
-                  <option value="">None (constant size)</option>
-                  {sizeChoices.map((choice) => (
-                    <option key={choice.name} value={choice.name}>{choice.name}{choice.input ? ` · ${choice.input}` : ""}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="ctrl-row">
-                <span className="ctrl-label">Min size</span>
-                <input
-                  type="number"
-                  aria-label="Marker size at the low end of the range"
-                  min="0"
-                  step="0.5"
-                  value={Number.isNaN(sizeMinValue) ? "" : sizeMinValue}
-                  onChange={(e) => onSizeMinChange(e.target.value === "" ? NaN : Number(e.target.value))}
-                  style={{ width: 60 }}
-                />
-              </div>
-              <div className="ctrl-row">
-                <span className="ctrl-label">Max size</span>
-                <input
-                  type="number"
-                  aria-label="Marker size at the high end of the range"
-                  min="0"
-                  step="0.5"
-                  value={Number.isNaN(sizeMaxValue) ? "" : sizeMaxValue}
-                  onChange={(e) => onSizeMaxChange(e.target.value === "" ? NaN : Number(e.target.value))}
-                  style={{ width: 60 }}
-                />
-              </div>
-              <div className="ctrl-row" style={{ justifyContent: "space-between" }}>
-                <span className="ctrl-label">Invert size</span>
-                <label className="toggle">
-                  <input
-                    type="checkbox"
-                    aria-label="Invert size mapping (small values get the larger marker)"
-                    checked={invertSize}
-                    onChange={(e) => onInvertSizeChange(e.target.checked)}
-                  />
-                  <div className="toggle-track"><div className="toggle-thumb" /></div>
-                </label>
-              </div>
-              <label className="ctrl-row">
-                <span className="ctrl-label">Marker size</span>
-                <input
-                  type="range"
-                  aria-label="Marker display size"
-                  min="0.1"
-                  max="1.5"
-                  step="0.05"
-                  value={markerScale}
-                  onChange={(event) => onMarkerScaleChange(Number(event.target.value))}
-                  style={{ width: 80 }}
-                />
-                <span>{Math.round(markerScale * 100)}%</span>
-              </label>
-              <div className="ctrl-row">
-                <span className="ctrl-label">Symbol</span>
-                {/* Not a real independent axis in this data model: symbols
-                    come from the colour marker's ramp entries
-                    (markers.json's Symbol field per value), so this shows
-                    what's resolved rather than offering a fake selector. */}
-                <select className="ctrl-select" value="" disabled style={{ maxWidth: 130 }}>
-                  <option value="">{resolvedSymbolLabel || "Auto (from data)"}</option>
-                </select>
-              </div>
-            </div>
+            <MarkerStyleControls
+              markerSeriesOptions={markerSeriesOptions}
+              markerSeriesIndex={markerSeriesIndex}
+              onMarkerSeriesChange={onMarkerSeriesChange}
+              colourChoices={colourChoices}
+              colourValue={colourValue}
+              onColourChange={onColourChange}
+              nullValueColumn={nullValueColumn}
+              nullValueCount={nullValueCount}
+              showNulls={showNulls}
+              onShowNullsChange={onShowNullsChange}
+              sizeChoices={sizeChoices}
+              sizeValue={sizeValue}
+              onSizeChange={onSizeChange}
+              sizeMinValue={sizeMinValue}
+              sizeMaxValue={sizeMaxValue}
+              onSizeMinChange={onSizeMinChange}
+              onSizeMaxChange={onSizeMaxChange}
+              invertSize={invertSize}
+              onInvertSizeChange={onInvertSizeChange}
+              sameSizeHint="Every point is the same size. Use Marker size to make them bigger or smaller."
+              showDisplayControls
+              markerScale={markerScale}
+              onMarkerScaleChange={onMarkerScaleChange}
+              resolvedSymbolLabel={resolvedSymbolLabel}
+            />
           )}
         </div>
+
+        {/* SURFACE STYLE */}
+        {surfaceStyle && (
+          <div>
+            <div className="section-header" onClick={() => toggle("surfaces")}>
+              <IconSurface size={11} />
+              <span style={{ flex: 1 }}>Surface Style</span>
+              {open_.surfaces ? <IconChevronUp size={10} /> : <IconChevronDown size={10} />}
+            </div>
+            {open_.surfaces && <SurfaceStyleControls {...surfaceStyle} />}
+          </div>
+        )}
 
         {/* ANNOTATIONS */}
         <div>
@@ -438,15 +683,6 @@ export function LeftSidebar({
                 fallback={annotationBackgroundColorFallback}
                 ariaLabel="Annotation background colour"
               />
-              {hasNullVisibility && (
-                <div className="ctrl-row" style={{ justifyContent: "space-between" }}>
-                  <span className="ctrl-label">Show null marker values</span>
-                  <label className="toggle">
-                    <input type="checkbox" checked={showNulls} onChange={onShowNullsChange} />
-                    <div className="toggle-track"><div className="toggle-thumb" /></div>
-                  </label>
-                </div>
-              )}
             </div>
           )}
         </div>
@@ -471,147 +707,66 @@ export function LeftSidebar({
           </div>
           {open_.filters && (
             <div style={{ padding: "6px 10px 8px" }}>
+              {filterSeriesOptions.length > 1 && (
+                <div className="ctrl-row" style={{ paddingInline: 0, marginBottom: 2 }}>
+                  <span className="ctrl-label">Series</span>
+                  <select
+                    className="ctrl-select"
+                    value={filterSeriesIndex}
+                    onChange={(e) => onFilterSeriesChange?.(Number(e.target.value))}
+                    style={{ maxWidth: 140 }}
+                    aria-label="Series to filter"
+                  >
+                    {filterSeriesOptions.map((name, i) => (
+                      <option key={`${name}-${i}`} value={i}>{name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 4 }}>
                 <span style={{ fontSize: 10, color: "var(--color-fg-muted)" }}>
-                  {visibleCount.toLocaleString()} / {totalCount.toLocaleString()} visible
+                  {visibleCount.toLocaleString()} of {totalCount.toLocaleString()} points shown
                 </span>
               </div>
 
-              <div style={{ position: "relative", marginBottom: 6 }}>
-                <IconSearch
-                  size={11}
-                  style={{ position: "absolute", left: 6, top: "50%", transform: "translateY(-50%)", color: "var(--color-fg-muted)", pointerEvents: "none" }}
-                />
-                <input
-                  type="text"
-                  className="ctrl-input"
-                  placeholder="Search fields…"
-                  value={filterSearch}
-                  onChange={(e) => setFilterSearch(e.target.value)}
-                  style={{ paddingLeft: 22 }}
-                  aria-label="Search fields"
-                />
-              </div>
-
-              <div style={{ marginBottom: 6 }}>
-                {visibleInactiveFields.length === 0 && (
-                  <div style={{ fontSize: 10, color: "var(--color-fg-muted)", padding: "2px 6px" }}>
-                    {inactiveFields.length === 0 ? "All fields have an active filter." : "No fields match your search."}
-                  </div>
-                )}
-                {visibleInactiveFields.map((field) => (
-                  <button
-                    key={field.input}
-                    style={{
-                      display: "flex", alignItems: "center", width: "100%", padding: "3px 6px",
-                      background: "none", border: "none", borderRadius: 4, fontSize: 11,
-                      color: "var(--color-fg-dim)", cursor: "pointer", textAlign: "left", gap: 5,
-                    }}
-                    onMouseEnter={(e) => (e.currentTarget.style.background = "var(--color-surface)")}
-                    onMouseLeave={(e) => (e.currentTarget.style.background = "none")}
-                    onClick={() => addFilter(field)}
-                  >
-                    <span style={{ color: "var(--color-fg-muted)", fontSize: 10 }}>+</span>
-                    {field.label}
-                  </button>
-                ))}
-              </div>
-
+              {/* Active filters first: they are what changes the view. A
+                  dropdown adds more, instead of a list of every column
+                  above them that pushed the active ones out of sight. */}
               {activeFields.length > 0 && (
-                <div style={{ borderTop: "1px solid var(--color-border)", paddingTop: 6, marginBottom: 6 }}>
-                  <div style={{ fontSize: 10, color: "var(--color-fg-muted)", marginBottom: 4 }}>Active</div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    {activeFields.map((field) => {
-                      const filter = activeByInput.get(field.input);
-                      return (
-                        <div key={field.input}>
-                          <div className="filter-tag" style={{ justifyContent: "space-between", width: "100%", display: "flex" }}>
-                            <span>{field.label}: {summariseFilter(field, filter)}</span>
-                            <button
-                              style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: "var(--color-fg-muted)", display: "flex" }}
-                              onClick={() => removeFilter(field.input)}
-                              title={`Remove ${field.label} filter`}
-                            >
-                              <IconX size={10} />
-                            </button>
-                          </div>
-
-                          {filter?.kind === "range" && field.inputType === "number" && (
-                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5, marginTop: 4 }}>
-                              <input
-                                type="number"
-                                className="ctrl-input"
-                                min={field.min}
-                                max={filter.max ?? field.max}
-                                step="any"
-                                value={filter.min ?? ""}
-                                onChange={(e) =>
-                                  replaceFilter(field.input, createRangeFilter({ ...filter, min: e.target.value === "" ? undefined : Number(e.target.value) }))
-                                }
-                              />
-                              <input
-                                type="number"
-                                className="ctrl-input"
-                                min={filter.min ?? field.min}
-                                max={field.max}
-                                step="any"
-                                value={filter.max ?? ""}
-                                onChange={(e) =>
-                                  replaceFilter(field.input, createRangeFilter({ ...filter, max: e.target.value === "" ? undefined : Number(e.target.value) }))
-                                }
-                              />
-                            </div>
-                          )}
-
-                          {filter?.kind === "range" && field.inputType === "date" && (
-                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5, marginTop: 4 }}>
-                              <input
-                                type="date"
-                                className="ctrl-input"
-                                value={toDateInput(filter.min)}
-                                onChange={(e) => replaceFilter(field.input, createRangeFilter({ ...filter, min: fromDateInput(e.target.value) }))}
-                              />
-                              <input
-                                type="date"
-                                className="ctrl-input"
-                                value={toDateInput(filter.max)}
-                                onChange={(e) => {
-                                  const boundary = fromDateInput(e.target.value, true);
-                                  replaceFilter(field.input, createRangeFilter({ ...filter, max: boundary === null ? undefined : boundary - 1 }));
-                                }}
-                              />
-                            </div>
-                          )}
-
-                          {filter?.kind === "category" && (
-                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, marginTop: 4 }}>
-                              {field.values.map((value) => {
-                                const selected = filter.allowedValues.has(value);
-                                return (
-                                  <label key={value} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: "var(--color-fg-dim)" }}>
-                                    <input
-                                      type="checkbox"
-                                      className="ctrl-check"
-                                      checked={selected}
-                                      onChange={(e) => {
-                                        const nextValues = new Set(filter.allowedValues);
-                                        if (e.target.checked) nextValues.add(value);
-                                        else nextValues.delete(value);
-                                        if (nextValues.size === 0) return;
-                                        replaceFilter(field.input, createCategoryFilter({ ...filter, allowedValues: [...nextValues] }));
-                                      }}
-                                    />
-                                    {value}
-                                  </label>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 6 }}>
+                  {activeFields.map((field) => (
+                    <ActiveFilter
+                      key={field.input}
+                      field={field}
+                      filter={activeByInput.get(field.input)}
+                      hiddenCount={filterHiddenCounts[field.input] ?? 0}
+                      totalCount={totalCount}
+                      onChange={(next) => replaceFilter(field.input, next)}
+                      onRemove={() => removeFilter(field.input)}
+                    />
+                  ))}
                 </div>
+              )}
+
+              {fields?.length > 0 ? (
+                <select
+                  className="ctrl-select"
+                  value=""
+                  onChange={(e) => {
+                    const field = inactiveFields.find((candidate) => candidate.input === e.target.value);
+                    if (field) addFilter(field);
+                  }}
+                  disabled={inactiveFields.length === 0}
+                  aria-label="Add a filter"
+                  style={{ width: "100%", marginBottom: 6 }}
+                >
+                  <option value="">{inactiveFields.length > 0 ? "Add a filter…" : "Every column has a filter"}</option>
+                  {inactiveFields.map((field) => (
+                    <option key={field.input} value={field.input}>{field.label}</option>
+                  ))}
+                </select>
+              ) : (
+                <div className="ctrl-hint" style={{ marginBottom: 6 }}>This series has no columns to filter by.</div>
               )}
 
               <button
@@ -625,6 +780,8 @@ export function LeftSidebar({
             </div>
           )}
         </div>
+        </>
+        )}
       </div>
 
       {/* Point count footer */}
@@ -639,10 +796,10 @@ export function LeftSidebar({
           background: "var(--color-surface)",
         }}
       >
-        <span style={{ fontSize: 10, color: "var(--color-fg-muted)" }}>Visible points</span>
+        <span style={{ fontSize: 10, color: "var(--color-fg-muted)" }}>{isChart ? "Points in chart" : "Visible points"}</span>
         <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--color-fg-dim)" }}>
-          <span style={{ color: "var(--color-lime)" }}>{visibleCount.toLocaleString()}</span>
-          <span style={{ color: "var(--color-fg-muted)" }}> / {totalCount.toLocaleString()}</span>
+          <span style={{ color: "var(--color-lime)" }}>{(isChart ? chartControls.drawnPointCount : visibleCount).toLocaleString()}</span>
+          <span style={{ color: "var(--color-fg-muted)" }}> / {(isChart ? chartControls.totalPointCount : totalCount).toLocaleString()}</span>
         </span>
       </div>
     </div>

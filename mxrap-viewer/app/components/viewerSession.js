@@ -1,13 +1,15 @@
-// Per-file viewer session persistence (scene, filters, marker selections,
-// panel/legend visibility, projection mode, camera position) via
-// localStorage, so reopening the same export can offer to pick up where
-// the user left off instead of starting from scratch every time.
+// Per-file viewer session persistence via localStorage (the current scene,
+// every visited scene's own settings and camera, and the viewer preferences
+// shared by all scenes; see sceneViewState.js), so reopening the same export
+// can offer to pick up where the user left off instead of starting from
+// scratch every time.
 //
 // The file's name+size is used as a lightweight "same file" fingerprint —
 // not a content hash, which would be expensive for a large export and is
 // more precision than this needs.
 
 import { ANNOTATION_FONT_CHOICES, isHexColour } from "./annotationStyleOptions";
+import { createCategoryFilter, createRangeFilter } from "./dataFilters";
 
 const STORAGE_PREFIX = "mxrap-viewer-session:";
 
@@ -38,6 +40,50 @@ export function saveSession(key, session) {
   } catch {
     // Same rationale as loadSession: never let a storage failure surface.
   }
+}
+
+/**
+ * Filters in a form JSON can hold: a category filter's allowed values are a
+ * Set, which JSON.stringify writes as {} and loses.
+ *
+ * @param {Record<string, object[]>} filtersBySeries
+ */
+export function serializeFilters(filtersBySeries) {
+  return Object.fromEntries(
+    Object.entries(filtersBySeries ?? {}).map(([series, filters]) => [
+      series,
+      (Array.isArray(filters) ? filters : []).map((filter) =>
+        filter?.kind === "category" ? { ...filter, allowedValues: [...(filter.allowedValues ?? [])] } : filter
+      ),
+    ])
+  );
+}
+
+/**
+ * Filters read back from a saved session, rebuilt with createRangeFilter /
+ * createCategoryFilter so they are validated again and a category filter
+ * has its Set of allowed values back (a saved one used to come back as {},
+ * which crashed filtering). Anything unrecognisable is dropped.
+ *
+ * @param {unknown} saved
+ * @returns {Record<string, object[]>}
+ */
+export function restoreFilters(saved) {
+  if (!saved || typeof saved !== "object") return {};
+  const restored = {};
+  for (const [series, filters] of Object.entries(saved)) {
+    if (!Array.isArray(filters)) continue;
+    restored[series] = filters
+      .map((filter) => {
+        if (!filter || typeof filter !== "object" || typeof filter.input !== "string") return null;
+        if (filter.kind === "category") {
+          return Array.isArray(filter.allowedValues) ? createCategoryFilter(filter) : null;
+        }
+        return filter.kind === "range" ? createRangeFilter(filter) : null;
+      })
+      .filter(Boolean);
+  }
+  return restored;
 }
 
 /**

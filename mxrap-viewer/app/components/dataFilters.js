@@ -302,6 +302,19 @@ export function applyFiltersWithStats(points, filters) {
   };
 }
 
+/**
+ * How many points have no value in `input` (empty, null or missing): the
+ * points applyNullVisibility hides. 0 when there is no input column.
+ */
+export function countMissingValues(points, input) {
+  if (!input || !Array.isArray(points)) return 0;
+  let count = 0;
+  for (const point of points) {
+    if (isMissing(point?.[input])) count += 1;
+  }
+  return count;
+}
+
 /** Exclude null marker inputs while retaining filter statistics and indices. */
 export function applyNullVisibility(result, markerInput, showNullValues) {
   if (showNullValues || !markerInput) return result;
@@ -328,6 +341,178 @@ export function applyNullVisibility(result, markerInput, showNullValues) {
   };
 }
 
+// Smallest and largest of a list, without spreading it into Math.min/max:
+// spreading 125,000 or more values overflows the call stack.
+function extent(values) {
+  let min = Infinity;
+  let max = -Infinity;
+  for (const value of values) {
+    if (value < min) min = value;
+    if (value > max) max = value;
+  }
+  return { min, max };
+}
+
+/**
+ * Bounds a little wider than [min, max] that read cleanly in the filter's
+ * number boxes: the range to four significant figures, rounded outwards so
+ * every value stays inside. The customer's "P[ML within R]" runs from
+ * 3.1086244689504383e-15 to 0.37630996500485625; with those exact values the
+ * narrow Minimum box showed "3.10862446895" with the "e-15" cut off. Rounded
+ * outwards they are 0 and 0.3764.
+ *
+ * @param {number} min
+ * @param {number} max
+ * @returns {{min: number, max: number}} unchanged when the range is empty or not finite
+ */
+export function niceRangeBounds(min, max) {
+  if (!Number.isFinite(min) || !Number.isFinite(max) || !(max > min)) return { min, max };
+  const power = Math.floor(Math.log10(max - min)) - 3;
+  const step = 10 ** power;
+  const decimals = Math.min(Math.max(0, -power), 100);
+  let niceMin = Number((Math.floor(min / step) * step).toFixed(decimals));
+  let niceMax = Number((Math.ceil(max / step) * step).toFixed(decimals));
+  if (!(niceMin <= min)) niceMin = min;
+  if (!(niceMax >= max)) niceMax = max;
+  return { min: niceMin, max: niceMax };
+}
+
+// Positions on a filter's range slider. The slider moves by share of points,
+// not by value: the customer's columns are often very skewed (Energy runs
+// from 0.0086 to 200,000,000 with half the events below 1), so on a value
+// scale nearly every point sat in the first sliver of the track and the
+// +/- buttons, stepping by 1, either hid half the data or nothing visible.
+export const FILTER_SLIDER_STEPS = 1000;
+
+/**
+ * Slider position for a bound: the share of the sorted values that lie
+ * below it (edge "min") or at or below it (edge "max"), on 0..steps.
+ *
+ * @param {ArrayLike<number>} sortedValues ascending
+ * @param {number|null} value null means no bound on that side
+ * @param {"min"|"max"} edge
+ * @returns {number}
+ */
+export function sliderPositionForValue(sortedValues, value, edge, steps = FILTER_SLIDER_STEPS) {
+  const n = sortedValues?.length ?? 0;
+  if (value === null || value === undefined || !Number.isFinite(value) || n < 2) return edge === "max" ? steps : 0;
+  // First index whose value is >= value ("min") or > value ("max").
+  let lo = 0;
+  let hi = n;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (edge === "max" ? sortedValues[mid] <= value : sortedValues[mid] < value) lo = mid + 1;
+    else hi = mid;
+  }
+  const index = edge === "max" ? lo - 1 : lo;
+  return Math.round((Math.min(Math.max(index, 0), n - 1) / (n - 1)) * steps);
+}
+
+/**
+ * The data value at a slider position: the value that share of the points
+ * lies below. null when there are no values.
+ *
+ * @param {ArrayLike<number>} sortedValues ascending
+ * @param {number} position 0..steps
+ * @returns {number|null}
+ */
+export function valueForSliderPosition(sortedValues, position, steps = FILTER_SLIDER_STEPS) {
+  const n = sortedValues?.length ?? 0;
+  if (n === 0) return null;
+  const clamped = Math.min(Math.max(Number(position) || 0, 0), steps);
+  return sortedValues[Math.round((clamped / steps) * (n - 1))];
+}
+
+/**
+ * A slider bound rounded to three significant figures, outwards (down for a
+ * lowest value, up for a highest one) so the points at the thumb stay in.
+ * The customer's columns hold full-precision numbers, and the exact data
+ * value under a thumb (0.008844774445477932) didn't fit in the number box.
+ *
+ * @param {number} value
+ * @param {"down"|"up"} direction
+ * @returns {number}
+ */
+export function roundSliderBound(value, direction) {
+  if (!Number.isFinite(value) || value === 0) return value;
+  const power = Math.floor(Math.log10(Math.abs(value))) - 2;
+  const step = 10 ** power;
+  const scaled = value / step;
+  const whole = direction === "down" ? Math.floor(scaled + 1e-9) : Math.ceil(scaled - 1e-9);
+  return Number((whole * step).toFixed(Math.min(Math.max(0, -power), 100)));
+}
+
+const MINUTE_MS = 60_000;
+
+/**
+ * A date filter bound on a whole minute, rounded outwards so the points at
+ * the bound stay in: a lower bound ("down") to the start of its minute, an
+ * upper bound ("up") to the last millisecond of its minute. The From / To
+ * boxes show minutes, and the response exports span less than a day, so a
+ * whole day was far too coarse.
+ *
+ * @param {number} epoch epoch milliseconds
+ * @param {"down"|"up"} direction
+ * @returns {number}
+ */
+export function roundDateBound(epoch, direction) {
+  if (!Number.isFinite(epoch)) return epoch;
+  const start = Math.floor(epoch / MINUTE_MS) * MINUTE_MS;
+  return direction === "down" ? start : start + MINUTE_MS - 1;
+}
+
+/**
+ * A date bound as a date-and-time box shows it ("2021-10-17T05:36"). The
+ * export's times carry no time zone and are read as UTC (customerDate.js),
+ * so they are shown in UTC too: the same clock time as in the export.
+ *
+ * @param {number|null} epoch
+ * @returns {string} "" when there is no bound
+ */
+export function toDateTimeInputValue(epoch) {
+  if (!Number.isFinite(epoch)) return "";
+  return new Date(epoch).toISOString().slice(0, 16);
+}
+
+/**
+ * The bound a date-and-time box's text stands for: the start of that minute
+ * for a lower bound, its last millisecond for an upper bound (so "to 04:35"
+ * keeps everything up to 04:35:59.999).
+ *
+ * @param {string} text "YYYY-MM-DDTHH:MM", optionally with seconds
+ * @param {"min"|"max"} edge
+ * @returns {number|null} null for an empty or unreadable box
+ */
+export function fromDateTimeInputValue(text, edge) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::\d{2}(?:\.\d+)?)?$/.exec(String(text ?? "").trim());
+  if (!match) return null;
+  const [year, month, day, hour, minute] = match.slice(1).map(Number);
+  const start = Date.UTC(year, month - 1, day, hour, minute);
+  // Date.UTC rolls an impossible date over ("02-30" becomes 2 March) and
+  // reads years below 100 as 19xx; both are refused instead.
+  const date = new Date(start);
+  if (
+    !Number.isFinite(start) || hour > 23 || minute > 59 ||
+    date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day
+  ) {
+    return null;
+  }
+  return edge === "max" ? start + MINUTE_MS - 1 : start;
+}
+
+/**
+ * How many points one filter hides on its own (ignoring the other filters),
+ * so each filter can say what it is doing.
+ */
+export function countHiddenByFilter(points, filter) {
+  if (!Array.isArray(points)) return 0;
+  let hidden = 0;
+  for (const point of points) {
+    if (!pointMatchesFilter(point, filter)) hidden += 1;
+  }
+  return hidden;
+}
+
 /**
  * Infer useful filter controls from one point series. Coordinates and private
  * fields are excluded because they describe geometry rather than attributes.
@@ -352,8 +537,7 @@ export function inferFilterFields(points, { maxCategories = 20 } = {}) {
 
       const numericValues = present.filter(Number.isFinite);
       if (numericValues.length > 0 && numericValues.length >= present.length / 2) {
-        const min = Math.min(...numericValues);
-        const max = Math.max(...numericValues);
+        const { min, max } = extent(numericValues);
         return {
           input,
           label: input,
@@ -361,6 +545,9 @@ export function inferFilterFields(points, { maxCategories = 20 } = {}) {
           inputType: "number",
           min,
           max,
+          // For the range slider, which moves by share of points
+          // (sliderPositionForValue / valueForSliderPosition).
+          sortedValues: Float64Array.from(numericValues).sort(),
           validCount: numericValues.length,
           missingCount: rows.length - present.length,
           invalidCount: present.length - numericValues.length,
@@ -372,13 +559,16 @@ export function inferFilterFields(points, { maxCategories = 20 } = {}) {
         ? present.map(parseCustomerDate).filter(Number.isFinite)
         : [];
       if (dateValues.length > 0) {
+        const { min, max } = extent(dateValues);
         return {
           input,
           label: input,
           kind: "range",
           inputType: "date",
-          min: Math.min(...dateValues),
-          max: Math.max(...dateValues),
+          min,
+          max,
+          // Epoch milliseconds, for the same range slider as numbers.
+          sortedValues: Float64Array.from(dateValues).sort(),
           validCount: dateValues.length,
           missingCount: rows.length - present.length,
           invalidCount: present.length - dateValues.length,

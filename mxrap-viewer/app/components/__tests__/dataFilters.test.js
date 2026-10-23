@@ -13,6 +13,15 @@ import {
   applyFiltersWithStats,
   applyNullVisibility,
   inferFilterFields,
+  niceRangeBounds,
+  FILTER_SLIDER_STEPS,
+  countHiddenByFilter,
+  fromDateTimeInputValue,
+  roundDateBound,
+  roundSliderBound,
+  sliderPositionForValue,
+  toDateTimeInputValue,
+  valueForSliderPosition,
 } from "../dataFilters";
 
 // These are deterministic unit tests of pure functions. They do not render
@@ -255,6 +264,11 @@ describe("inferFilterFields", () => {
       inputType: "date",
       invalidCount: 1,
     });
+    // Sorted epoch milliseconds, for the date range slider.
+    expect(Array.from(fields.find((field) => field.input === "DateTime").sortedValues)).toEqual([
+      Date.UTC(2023, 0, 1),
+      Date.UTC(2023, 0, 2),
+    ]);
     expect(fields.find((field) => field.input === "material")).toMatchObject({
       kind: "category",
       values: ["ore", "waste"],
@@ -323,6 +337,27 @@ describe("dataFilters (real event/sensor data from visualiser-export-2)", () => 
     expect(result.includedCount).toBe(6);
   });
 
+  it("slides a time window through the month of events", () => {
+    const field = inferFilterFields(events).find((candidate) => candidate.input === "DateTime");
+    expect(field.sortedValues).toHaveLength(5903);
+    expect(field.min).toBe(Date.UTC(2023, 4, 1, 0, 31, 38, 892));
+    expect(field.max).toBe(Date.UTC(2023, 4, 31, 23, 45, 16, 650));
+
+    // Thumbs at a quarter and three quarters of the events.
+    const from = roundDateBound(valueForSliderPosition(field.sortedValues, 250), "down");
+    const to = roundDateBound(valueForSliderPosition(field.sortedValues, 750), "up");
+    expect(toDateTimeInputValue(from)).toBe("2023-05-06T07:03");
+    expect(toDateTimeInputValue(to)).toBe("2023-05-20T11:07");
+    expect(to).toBe(Date.UTC(2023, 4, 20, 11, 7, 59, 999));
+    // The thumbs stay where they were put.
+    expect(sliderPositionForValue(field.sortedValues, from, "min")).toBe(250);
+    expect(sliderPositionForValue(field.sortedValues, to, "max")).toBe(750);
+
+    const result = applyFilters(events, [createRangeFilter({ input: "DateTime", inputType: "date", min: from, max: to })]);
+    expect(result.includedCount).toBe(2953);
+    expect(result.excludedCount).toBe(2950);
+  });
+
   it("handles a real CSV column whose header spans multiple quoted lines", () => {
     // The sensors CSV header for natural frequency is a quoted multi-line
     // field ("Natural\r\nFrequency\r\n[Hz]"); the parsed attribute name
@@ -334,5 +369,127 @@ describe("dataFilters (real event/sensor data from visualiser-export-2)", () => 
     const filter = createRangeFilter({ input: freqKey, min: 20 });
     const result = applyFilters(sensors, [filter]);
     expect(result.includedCount).toBe(39);
+  });
+});
+
+describe("niceRangeBounds", () => {
+  it("rounds the customer's tiny probability range outwards to readable numbers", () => {
+    expect(niceRangeBounds(3.1086244689504383e-15, 0.37630996500485625)).toEqual({ min: 0, max: 0.3764 });
+  });
+
+  it("keeps four significant figures of the range", () => {
+    expect(niceRangeBounds(-2.132007729392872, 2.8006)).toEqual({ min: -2.133, max: 2.801 });
+    expect(niceRangeBounds(1, 5148)).toEqual({ min: 1, max: 5148 });
+    expect(niceRangeBounds(1e5, 1e13)).toEqual({ min: 0, max: 1e13 });
+  });
+
+  it("always keeps every value inside", () => {
+    const ranges = [[0.1, 0.3], [0.30000000000000004, 0.7], [-0.7, -0.1], [12.7151, 12.7152], [1e-15, 3e-15]];
+    for (const [min, max] of ranges) {
+      const bounds = niceRangeBounds(min, max);
+      expect(bounds.min).toBeLessThanOrEqual(min);
+      expect(bounds.max).toBeGreaterThanOrEqual(max);
+    }
+  });
+
+  it("leaves a single value or a non-finite range alone", () => {
+    expect(niceRangeBounds(2, 2)).toEqual({ min: 2, max: 2 });
+    expect(niceRangeBounds(NaN, 1)).toEqual({ min: NaN, max: 1 });
+  });
+});
+
+describe("inferFilterFields on a large series", () => {
+  it("finds the range of 200,000 points without overflowing the stack", () => {
+    const rows = Array.from({ length: 200000 }, (_, i) => ({ x: 0, y: 0, z: 0, ML: (i % 1000) / 100 - 3 }));
+    const [field] = inferFilterFields(rows);
+    expect(field).toMatchObject({ input: "ML", kind: "range", min: -3, max: 6.99, validCount: 200000 });
+  });
+});
+
+describe("filter slider positions", () => {
+  const sorted = Float64Array.from([1, 2, 3, 4, 5]);
+
+  it("places a lower bound by the share of values below it", () => {
+    expect(FILTER_SLIDER_STEPS).toBe(1000);
+    expect([0, 1, 3, 3.5, 6].map((value) => sliderPositionForValue(sorted, value, "min"))).toEqual([0, 0, 500, 750, 1000]);
+    expect(sliderPositionForValue(sorted, null, "min")).toBe(0);
+  });
+
+  it("places an upper bound by the share of values at or below it", () => {
+    expect([0.5, 3, 3.5, 5, 9].map((value) => sliderPositionForValue(sorted, value, "max"))).toEqual([0, 500, 500, 1000, 1000]);
+    expect(sliderPositionForValue(sorted, undefined, "max")).toBe(1000);
+  });
+
+  it("reads the data value at a position", () => {
+    expect([0, 500, 625, 1000, -10, 2000].map((position) => valueForSliderPosition(sorted, position))).toEqual([1, 3, 4, 5, 1, 5]);
+    expect(valueForSliderPosition(new Float64Array(0), 500)).toBeNull();
+  });
+
+  it("hides about a tenth of the points when the lower thumb moves a tenth of the way, however skewed the values", () => {
+    // Heavy-tailed like the customer's Energy column: most values tiny, a few huge.
+    const points = Array.from({ length: 1000 }, (_, i) => ({ energy: i < 990 ? (i + 1) / 1000 : 10 ** (i - 985) }));
+    const values = Float64Array.from(points.map((point) => point.energy)).sort();
+    const min = valueForSliderPosition(values, 100);
+    expect(countHiddenByFilter(points, createRangeFilter({ input: "energy", min }))).toBe(100);
+    expect(sliderPositionForValue(values, min, "min")).toBe(100);
+  });
+});
+
+describe("countHiddenByFilter", () => {
+  const points = [{ v: 1 }, { v: 5 }, { v: "" }, { v: 9 }];
+
+  it("counts the points one filter hides, keeping or hiding blanks as asked", () => {
+    expect(countHiddenByFilter(points, createRangeFilter({ input: "v", min: 2, max: 8 }))).toBe(3);
+    expect(countHiddenByFilter(points, createRangeFilter({ input: "v", min: 2, max: 8, includeMissing: true }))).toBe(2);
+    expect(countHiddenByFilter(points, createRangeFilter({ input: "v", min: 0, max: 10, includeMissing: true }))).toBe(0);
+  });
+
+  it("returns 0 without points", () => {
+    expect(countHiddenByFilter(null, createRangeFilter({ input: "v", min: 2 }))).toBe(0);
+  });
+});
+
+describe("roundSliderBound", () => {
+  it("keeps three significant figures, rounding outwards", () => {
+    expect(roundSliderBound(0.008844774445477932, "down")).toBe(0.00884);
+    expect(roundSliderBound(0.008844774445477932, "up")).toBe(0.00885);
+    expect(roundSliderBound(0.99, "down")).toBe(0.99);
+    expect(roundSliderBound(-2.41, "down")).toBe(-2.41);
+    expect(roundSliderBound(-2.4137, "down")).toBe(-2.42);
+    expect(roundSliderBound(-2.4137, "up")).toBe(-2.41);
+    expect(roundSliderBound(123456789, "up")).toBe(124000000);
+    expect(roundSliderBound(0, "down")).toBe(0);
+  });
+});
+
+describe("date filter bounds", () => {
+  const at = (minute, second = 0, ms = 0) => Date.UTC(2021, 9, 17, 5, minute, second, ms);
+
+  it("rounds a bound outwards to its whole minute", () => {
+    expect(roundDateBound(at(36, 16, 981), "down")).toBe(at(36));
+    expect(roundDateBound(at(36, 16, 981), "up")).toBe(at(36, 59, 999));
+    expect(roundDateBound(at(36), "down")).toBe(at(36));
+    expect(roundDateBound(at(36), "up")).toBe(at(36, 59, 999));
+    expect(roundDateBound(NaN, "down")).toBeNaN();
+  });
+
+  it("shows a bound to the minute, in the export's own clock time", () => {
+    expect(toDateTimeInputValue(at(36, 59, 999))).toBe("2021-10-17T05:36");
+    expect(toDateTimeInputValue(at(0))).toBe("2021-10-17T05:00");
+    expect(toDateTimeInputValue(null)).toBe("");
+  });
+
+  it("reads a typed time as the start of its minute, or the end of it for the upper bound", () => {
+    expect(fromDateTimeInputValue("2021-10-17T05:36", "min")).toBe(at(36));
+    expect(fromDateTimeInputValue("2021-10-17T05:36", "max")).toBe(at(36, 59, 999));
+    expect(fromDateTimeInputValue("2021-10-17T05:36:30", "min")).toBe(at(36));
+  });
+
+  it("refuses an empty or impossible time", () => {
+    expect(fromDateTimeInputValue("", "min")).toBeNull();
+    expect(fromDateTimeInputValue("2021-02-30T10:00", "min")).toBeNull();
+    expect(fromDateTimeInputValue("2021-10-17T24:00", "max")).toBeNull();
+    expect(fromDateTimeInputValue("0099-01-01T00:00", "min")).toBeNull();
+    expect(fromDateTimeInputValue("17/10/2021 05:36", "min")).toBeNull();
   });
 });

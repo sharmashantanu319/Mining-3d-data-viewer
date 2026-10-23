@@ -802,3 +802,72 @@ describe("toHex / toCssRgba", () => {
     expect(toHex({ r: 2, g: -1, b: 0.5 })).toBe("#ff0080");
   });
 });
+
+describe("open top bucket (blank Up to) when the data stays below the thresholds", () => {
+  // Same shape as the customer's material.csv: blank top row, then
+  // descending thresholds, every row a solid colour ("none" ramp).
+  const materialLike = rampCsv([
+    rampRow({ upTo: "", start: [0.1666, 0.5, 1], curve: "none" }),
+    rampRow({ upTo: 5.5, start: [0.5, 0.3333, 1], curve: "none" }),
+    rampRow({ upTo: 4.5, start: [0.092, 0.5868, 0.8352], curve: "none" }),
+    rampRow({ upTo: 3.5, start: [0.2193, 0.596, 1], curve: "none" }),
+    rampRow({ upTo: 2.5, start: [0.056, 0.502, 1], curve: "none" }),
+    rampRow({ upTo: 1.5, start: [0, 0, 0.6], curve: "none" }),
+  ]);
+
+  it("colours a column that is 1 everywhere with the 'Up to 1.5' colour, not the top bucket", () => {
+    const m = normalizeColourMarker(
+      { input: "Material", minimum: null, maximum: null },
+      parseColourRampCsv(materialLike),
+      { dataMin: 1, dataMax: 1 }
+    );
+    expect(m.valid).toBe(true);
+    expect(m.segments.map((s) => s.upperBoundRaw)).toEqual([1.5, 2.5, 3.5, 4.5, 5.5, 5.5]);
+    const c = mapColour(1, m);
+    expect([c.r, c.g, c.b]).toEqual([0.6, 0.6, 0.6]);
+    expect(c.segmentIndex).toBe(0);
+    const codes = m.warnings.map((w) => w.code);
+    expect(codes).toContain("degenerate-domain");
+    expect(codes).not.toContain("ramp-reordered");
+    expect(codes).not.toContain("duplicate-threshold");
+  });
+
+  it("puts a value under an explicit threshold in that threshold's bucket even when the data max is lower", () => {
+    const csv = rampCsv([
+      rampRow({ upTo: "", start: [0.9, 1, 1], curve: "none" }),
+      rampRow({ upTo: 3, start: [0.6, 1, 1], curve: "none" }),
+      rampRow({ upTo: 2, start: [0.3, 1, 1], curve: "none" }),
+      rampRow({ upTo: 1, start: [0.1, 1, 1], curve: "none" }),
+    ]);
+    const fromData = normalizeColourMarker(
+      { input: "x", minimum: null, maximum: null },
+      parseColourRampCsv(csv),
+      { dataMin: 0.5, dataMax: 2.2 }
+    );
+    const wide = normalizeColourMarker(
+      { input: "x", minimum: 0.5, maximum: 4 },
+      parseColourRampCsv(csv)
+    );
+    expect(fromData.segments.map((s) => s.upperBoundRaw)).toEqual([1, 2, 3, 3]);
+    expect(mapColour(2.1, fromData).segmentIndex).toBe(2);
+    expect(mapColour(2.1, fromData)).toEqual(mapColour(2.1, wide));
+    expect(fromData.warnings.map((w) => w.code)).not.toContain("ramp-reordered");
+  });
+
+  it("still reaches the top bucket above the highest threshold", () => {
+    const m = normalizeColourMarker(
+      { input: "Material", minimum: null, maximum: null },
+      parseColourRampCsv(materialLike),
+      { dataMin: 1, dataMax: 6 }
+    );
+    expect(m.segments.map((s) => s.upperBoundRaw)).toEqual([1.5, 2.5, 3.5, 4.5, 5.5, 6]);
+    expect(mapColour(6, m).segmentIndex).toBe(5);
+    expect(mapColour(1, m).segmentIndex).toBe(0);
+  });
+
+  it("warns when more than one row leaves Up to blank", () => {
+    const csv = rampCsv([rampRow({ upTo: "" }), rampRow({ upTo: "" }), rampRow({ upTo: 0 })]);
+    const m = markerFor({ minimum: -4, maximum: 4 }, csv);
+    expect(m.warnings.map((w) => w.code)).toContain("duplicate-threshold");
+  });
+});
