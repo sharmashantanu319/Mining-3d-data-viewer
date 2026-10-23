@@ -9,6 +9,8 @@ import ImportReport from "./components/ImportReport";
 import { LeftSidebar } from "./components/LeftSidebar";
 import { RightPanel } from "./components/RightPanel";
 import { StatusBar } from "./components/StatusBar";
+import DropOverlay from "./components/DropOverlay";
+import { useFileDrop } from "./components/useFileDrop";
 import { mockScenes } from "./components/mockScenes";
 import { validateExportFile } from "./components/validateExportFile";
 import { parseExportFile } from "./components/parseExportFile";
@@ -697,10 +699,16 @@ export default function Home() {
     return markerSymbolLabel(previewSeries);
   }, [markerActiveSeries, markerSelections, safeMarkerSeriesIndex]);
 
-  async function handleFileChange(event) {
+  // <input type="file"> entry point. Clearing the value lets the same file
+  // be chosen again (e.g. after editing and re-exporting it).
+  function handleFileChange(event) {
     const file = event.target.files?.[0];
-    if (!file) return;
+    event.target.value = "";
+    if (file) loadExportFile(file);
+  }
 
+  // Shared by the file picker and drag-and-drop.
+  async function loadExportFile(file) {
     setFileName(file.name);
     setErrors([]);
     setImportReport({ warnings: [], notes: [], summaries: [] });
@@ -820,6 +828,8 @@ export default function Home() {
     setRestoreBanner(null);
   }
 
+  const isDraggingFile = useFileDrop(loadExportFile, (message) => setErrors([message]), isLoadingExport);
+
   const dataState = errors.length > 0 ? "error" : isLoadingExport ? "loading" : "loaded";
   // What the header and status bar name: the chart while one is shown,
   // otherwise the 3D scene. Everything else about the 3D view (point
@@ -828,6 +838,7 @@ export default function Home() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh", overflow: "hidden", background: "var(--color-base)" }}>
+      <DropOverlay visible={isDraggingFile} />
       <Header
         fileName={fileName}
         viewTitle={viewTitle}
