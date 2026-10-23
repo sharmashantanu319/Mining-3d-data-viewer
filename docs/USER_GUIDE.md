@@ -134,7 +134,7 @@ data**; click **Show** to open **Other data**. The status bar also shows the poi
 row in the data file when there is no ID column) and its X, Y, Z coordinates. Click **Clear** to
 deselect.
 
-![A selected point, ringed in the 3D view, with its details in the right panel](images/point-details.png)
+![The TestResponseViewer export with its response-volume spheres, coloured by trigger: a selected event is ringed and its details are in the right panel](images/point-details.png)
 
 ## 9. Legends
 
