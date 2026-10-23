@@ -717,6 +717,7 @@ describe("parseExportFile - annotations", () => {
       color: "rgb(255,0,0)",
       faceCamera: true,
       render2d: false,
+      callout: true,
     }]);
   });
 

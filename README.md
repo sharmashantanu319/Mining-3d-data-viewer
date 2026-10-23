@@ -39,6 +39,8 @@ Full setup, build, hosting and troubleshooting instructions are in the
 | [User guide](docs/USER_GUIDE.md) | How to load an export and use every panel and control |
 | [Application guide](mxrap-viewer/README.md) | Install, run, test, build and host the viewer; supported input and known limitations |
 | [Business requirements analysis](docs/Business_Requirements_Analysis_Group12_.pdf) | Client requirements and agreed MVP |
+| [Requirements status](docs/REQUIREMENTS_STATUS.md) | Every requirement and client request, with what was delivered, what is partly done and suggested next steps |
+| [Architecture](docs/ARCHITECTURE.md) | Modules, data flow from export to screen, and key design decisions |
 | [Chart module scoping](docs/chart-module-scoping.md) | Design of the Magnitude-Time chart |
 | [Technology selection](tech-docs/) | VTK.js vs Three.js analysis |
 | [Meeting minutes](meetings/) | Client and facilitator meetings |
@@ -50,7 +52,7 @@ Full setup, build, hosting and troubleshooting instructions are in the
 
 ```text
 mxrap-viewer/   Next.js application (source in app/, tests in app/components/__tests__/)
-docs/           Requirements, user guide and design documents
+docs/           Requirements and their status, user guide, architecture and design documents
 tech-docs/      Technology selection analysis
 meetings/       Meeting minutes
 .github/        CI workflow (lint, test and build on every pull request)

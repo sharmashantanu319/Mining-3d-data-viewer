@@ -90,6 +90,8 @@ function MarkerStyleControls({
   nullValueCount,
   showNulls,
   onShowNullsChange,
+  showLegend,
+  onShowLegendChange,
   sizeChoices,
   sizeValue,
   onSizeChange,
@@ -159,6 +161,24 @@ function MarkerStyleControls({
               checked={showNulls}
               disabled={nullValueCount === 0}
               onChange={onShowNullsChange}
+            />
+            <div className="toggle-track"><div className="toggle-thumb" /></div>
+          </label>
+        </div>
+      )}
+      {onShowLegendChange && (
+        <div
+          className="ctrl-row"
+          style={{ justifyContent: "space-between" }}
+          title="Show or hide this series' colour legend in the right panel."
+        >
+          <span className="ctrl-label">Show legend</span>
+          <label className="toggle">
+            <input
+              type="checkbox"
+              aria-label="Show this series' legend"
+              checked={Boolean(showLegend)}
+              onChange={onShowLegendChange}
             />
             <div className="toggle-track"><div className="toggle-thumb" /></div>
           </label>
@@ -392,6 +412,8 @@ export function LeftSidebar({
   nullValueCount,
   showNulls,
   onShowNullsChange,
+  showLegend,
+  onShowLegendChange,
   filterSeriesOptions = [],
   filterSeriesIndex = 0,
   onFilterSeriesChange,
@@ -593,6 +615,8 @@ export function LeftSidebar({
               nullValueCount={nullValueCount}
               showNulls={showNulls}
               onShowNullsChange={onShowNullsChange}
+              showLegend={showLegend}
+              onShowLegendChange={onShowLegendChange}
               sizeChoices={sizeChoices}
               sizeValue={sizeValue}
               onSizeChange={onSizeChange}

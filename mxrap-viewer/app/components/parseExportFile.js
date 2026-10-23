@@ -241,6 +241,9 @@ function parseDisplayAnnotations(rawAnnotations, displayName) {
             color: rawAnnotation.colour ?? rawAnnotation.color,
             faceCamera: true,
             render2d: false,
+            // A display annotation calls out a location: its label is drawn
+            // beside the point with an arrow pointing to it.
+            callout: true,
         }];
     });
 }
