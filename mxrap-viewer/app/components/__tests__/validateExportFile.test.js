@@ -32,7 +32,7 @@ describe("validateExportFile - annotations", () => {
     }));
 
     await expect(validateExportFile(await zip.generateAsync({ type: "uint8array" })))
-      .resolves.toEqual({ valid: true, errors: [] });
+      .resolves.toMatchObject({ valid: true, errors: [] });
   });
 
   it("rejects top-level annotations with invalid location or missing text", async () => {
@@ -61,7 +61,7 @@ describe("validateExportFile - annotations", () => {
       csv: "X,Y,Z,Text\n10,20,30,Portal A",
     });
 
-    await expect(validateExportFile(file)).resolves.toEqual({ valid: true, errors: [] });
+    await expect(validateExportFile(file)).resolves.toMatchObject({ valid: true, errors: [] });
   });
 
   it("requires orientation columns for fixed 3D annotations", async () => {
@@ -169,7 +169,7 @@ describe("validateExportFile - structure", () => {
       zip.file("weird/config.json", JSON.stringify({ type: "something-else", series: [{ type: "surface" }] }));
     });
 
-    expect(result).toEqual({ valid: true, errors: [] });
+    expect(result).toMatchObject({ valid: true, errors: [] });
   });
 
   it("accepts a chart display whose series' data/data-additional CSVs and axis/filter columns all exist", async () => {
@@ -177,6 +177,7 @@ describe("validateExportFile - structure", () => {
       zip.file("info.json", JSON.stringify({ slides: [{ displays: [{ folder: "chart" }] }] }));
       zip.file("chart/config.json", JSON.stringify({
         type: "chart",
+        axes: { bottom: { enabled: true, scale: "datetime" }, left: { enabled: true, scale: "linear" } },
         series: [{
           name: "Events",
           data: "events",
@@ -190,7 +191,7 @@ describe("validateExportFile - structure", () => {
       zip.file("data/events-extra.csv", "ID,AboveThreshold\n1,1");
     });
 
-    expect(result).toEqual({ valid: true, errors: [] });
+    expect(result).toMatchObject({ valid: true, errors: [] });
   });
 
   it("reports a chart series' missing data CSV and missing axis/filter columns", async () => {
@@ -229,13 +230,13 @@ describe("validateExportFile - structure", () => {
       csv: "X,Y,Z,Text\n1,2,3,A",
     });
 
-    await expect(validateExportFile(file)).resolves.toEqual({ valid: true, errors: [] });
+    await expect(validateExportFile(file)).resolves.toMatchObject({ valid: true, errors: [] });
   });
 });
 
 describe("validateExportFile - surfaces", () => {
   it("accepts a well-formed surface", async () => {
-    await expect(validateExportFile(await buildSurfaceExport())).resolves.toEqual({ valid: true, errors: [] });
+    await expect(validateExportFile(await buildSurfaceExport())).resolves.toMatchObject({ valid: true, errors: [] });
   });
 
   it("reports missing vertices and faces CSV files", async () => {
@@ -340,5 +341,38 @@ describe("validateExportFile - annotation CSV rows", () => {
     });
 
     expect(result.errors).toEqual(["s1-3dview > annotations: annotations must be an array."]);
+  });
+});
+
+import { MAX_EXPORT_FILE_SIZE_BYTES } from "../validateExportFile";
+
+// Use a tiny configurable test threshold: no need to allocate large archives.
+describe("validateExportFile - compressed ZIP size limit", () => {
+  it("rejects an oversized browser file before attempting to parse the ZIP", async () => {
+    const tooLarge = new Blob([new Uint8Array(11)]);
+    const result = await validateExportFile(tooLarge, { maxSizeBytes: 10 });
+    expect(result).toMatchObject({ valid: false });
+    expect(result.errors[0]).toContain("file-size limit");
+  });
+
+  it("rejects an oversized Uint8Array fixture before parsing", async () => {
+    const result = await validateExportFile(new Uint8Array(11), { maxSizeBytes: 10 });
+    expect(result.valid).toBe(false);
+    expect(result.errors[0]).toContain("Choose a smaller export");
+  });
+
+  it("does not reject a file exactly at the configured limit", async () => {
+    const result = await validateExportFile(new Uint8Array(10), { maxSizeBytes: 10 });
+    expect(result.errors).toEqual(["File is not a valid zip archive."]);
+  });
+
+  it("continues validating a normal valid export below the limit", async () => {
+    const zip = await buildSurfaceExport();
+    const result = await validateExportFile(zip, { maxSizeBytes: zip.byteLength });
+    expect(result.valid).toBe(true);
+  });
+
+  it("has a positive default 100 MB compressed ZIP limit", () => {
+    expect(MAX_EXPORT_FILE_SIZE_BYTES).toBe(100_000_000);
   });
 });

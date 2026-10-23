@@ -20,14 +20,19 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import * as THREE from "three";
 import { buildAnnotation, disposeAnnotations, resolveLabelFont } from "./annotationsBuilder";
-import { applyCameraState, snapshotCameraState } from "./cameraState";
+import { applyCameraState, convertCameraState, snapshotCameraState } from "./cameraState";
 import { buildSurfaceMesh } from "./geometryBuilder";
-import { createOrientationGizmo, renderOrientationGizmo } from "./orientationGizmo";
+import { buildLineSegments, lineObjectHasSegments } from "./linesBuilder";
+import { axisIndicatorTitle, updateAxisIndicator } from "./orientationGizmo";
+import AxisIndicator from "./AxisIndicator";
+import PlanGridLabels, { updatePlanGridLabels } from "./PlanGridLabels";
+import { computePlanGrid } from "./planGrid";
 import { buildPointCloud, getHardwarePointSizeRange } from "./pointsBuilder";
 import {
   resolveMarkerRenderOptions,
 } from "./pointMarkerResolver";
 import { resolveSurfaceVertexColours } from "./surfaceMarkerResolver";
+import { applySurfaceStyle } from "./surfaceStyle";
 import {
   orthoParallelScaleFromCamera,
   parallelCartoonScale as computeParallelCartoonScale,
@@ -36,6 +41,11 @@ import {
   animateCameraTo,
   createCamera,
   createCameraControls,
+  fitBoxToView,
+  levelCameraUp,
+  presetCameraOffset,
+  setPlanNavigation,
+  stopCameraGlide,
   updateCameraAspect,
 } from "./cameraControls";
 
@@ -47,6 +57,11 @@ const DEFAULT_CAMERA = {
   focal: { x: 0, y: 0, z: 0 },
   up: { x: 0, y: 1, z: 0 },
 };
+
+// Plan-view grid lines (planGrid.js): a little lighter than the viewport
+// background (0x121a20), and drawn before everything else so the data stays
+// on top of them.
+const PLAN_GRID_COLOUR = 0x2b3a44;
 
 // The renderer/camera-dependent inputs to the customer point-size model
 // (see pointSizing.js), shared by every point cloud regardless of whether
@@ -178,6 +193,13 @@ function applyAnnotationScale(object, factor) {
 
 // Shared between the initial scene build and the style-override rebuild
 // effect so the filter/build/baseScale logic only lives in one place.
+// A surface's mesh as the user styled it (Surface Style, surfaceStyle.js):
+// its colour marker, single colour and opacity.
+function buildStyledSurfaceMesh(surfaceData, style) {
+  const styled = applySurfaceStyle(surfaceData, style);
+  return buildSurfaceMesh(styled, resolveSurfaceVertexColours(styled));
+}
+
 function buildAnnotationObjects(sceneData, style) {
   return (sceneData.annotations ?? [])
     .filter((annotationData) => annotationData?.text)
@@ -191,6 +213,9 @@ const ThreeScene = forwardRef(function ThreeScene(
   {
     sceneData,
     visiblePointClouds = null,
+    lineVisibility = {},
+    surfaceVisibility = {},
+    surfaceStyles = {},
     projectionMode = "perspective",
     annotationsVisible = true,
     annotationScale = 1,
@@ -206,15 +231,61 @@ const ThreeScene = forwardRef(function ThreeScene(
   ref
 ) {
   const containerRef = useRef(null);
+  const linesRef = useRef([]);
+  const lineVisibilityRef = useRef(lineVisibility);
+  useEffect(() => {
+    lineVisibilityRef.current = lineVisibility;
+    linesRef.current.forEach((object, index) => {
+      object.visible = (lineVisibility[index] ?? sceneData.lineSeries?.[index]?.visible !== false) && lineObjectHasSegments(object);
+    });
+  }, [lineVisibility, sceneData]);
   const cameraRef = useRef(null);
   const rendererRef = useRef(null);
-  const gizmoRef = useRef(null);
   const controlsRef = useRef(null);
+  const axisIndicatorRef = useRef(null); // the XYZ indicator's <svg>
+  const planGridOverlayRef = useRef(null); // the plan-view grid's labels
+  const homeDistanceRef = useRef(null); // export camera to focal distance; sizes the orthographic frustum
   const homeViewRef = useRef(null); // { position, target } to return to on reset
   const cancelAnimationRef = useRef(null);
   const sceneRef = useRef(null);
   const pointCloudsRef = useRef([]);
   const meshesRef = useRef([]);
+  const surfaceVisibilityRef = useRef(surfaceVisibility);
+  useEffect(() => {
+    surfaceVisibilityRef.current = surfaceVisibility;
+    // Change only the mesh visibility. Rebuilding the scene here would reset
+    // the camera and unnecessarily recreate the point and RMQ geometry.
+    meshesRef.current.forEach((mesh, index) => {
+      mesh.visible = surfaceVisibility[index] ?? sceneData.surfaces?.[index]?.visible !== false;
+    });
+  }, [surfaceVisibility, sceneData]);
+  // Each surface mesh is built with its Surface Style; a change of style
+  // rebuilds only that surface's mesh, so the camera and everything else
+  // stay as they are. A colour picker fires on every drag step, so the
+  // rebuild waits until the colour settles.
+  const surfaceStylesRef = useRef(surfaceStyles);
+  surfaceStylesRef.current = surfaceStyles;
+  const builtSurfaceStylesRef = useRef([]); // the style each mesh in meshesRef was built with
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      const scene = sceneRef.current;
+      if (!scene) return;
+      const surfaces = sceneData.surfaces ?? [];
+      meshesRef.current = meshesRef.current.map((mesh, index) => {
+        const style = surfaceStyles[index];
+        if (builtSurfaceStylesRef.current[index] === style || !surfaces[index]) return mesh;
+        const nextMesh = buildStyledSurfaceMesh(surfaces[index], style);
+        nextMesh.visible = mesh.visible;
+        scene.remove(mesh);
+        mesh.geometry.dispose();
+        mesh.material.dispose();
+        scene.add(nextMesh);
+        builtSurfaceStylesRef.current[index] = style;
+        return nextMesh;
+      });
+    }, 120);
+    return () => clearTimeout(timeoutId);
+  }, [surfaceStyles, sceneData]);
   const markerScaleRef = useRef(markerScale);
   markerScaleRef.current = markerScale;
   const buildPointCloudRef = useRef(null);
@@ -279,7 +350,7 @@ const ThreeScene = forwardRef(function ThreeScene(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [annotationFont, annotationTextColor, annotationBackgroundColor]);
 
-  // Bounding box of the currently rendered point clouds and surfaces (not
+  // Bounding box of the currently rendered point clouds, lines and surfaces (not
   // the annotations, rings, or axes helper), used by fitScene()/
   // setPresetView() to frame what's actually visible right now rather than
   // the export's original camera framing (which can be badly off after
@@ -287,7 +358,7 @@ const ThreeScene = forwardRef(function ThreeScene(
   function computeSceneBounds() {
     const box = new THREE.Box3();
     let hasContent = false;
-    for (const object of [...pointCloudsRef.current, ...meshesRef.current]) {
+    for (const object of [...pointCloudsRef.current, ...linesRef.current, ...meshesRef.current]) {
       if (!object.visible) continue;
       const objectBox = new THREE.Box3().setFromObject(object);
       if (Number.isFinite(objectBox.min.x) && Number.isFinite(objectBox.max.x)) {
@@ -307,6 +378,19 @@ const ThreeScene = forwardRef(function ThreeScene(
     return (Math.max(radius, 1e-6) / Math.sin(THREE.MathUtils.degToRad(fovDegrees / 2))) * 1.2;
   }
 
+  // Animates the camera to look at the box's centre from `direction` (from
+  // the centre towards the camera), close enough - or for an orthographic
+  // camera, zoomed in enough - that the box fills the view (fitBoxToView).
+  function frameBox(camera, controls, box, direction) {
+    const center = box.getCenter(new THREE.Vector3());
+    const framing = fitBoxToView(camera, box, direction, camera.up) ?? {
+      distance: fitDistance(camera, box.getBoundingSphere(new THREE.Sphere()).radius),
+      zoom: null,
+    };
+    const position = center.clone().add(direction.clone().normalize().multiplyScalar(framing.distance));
+    cancelAnimationRef.current?.();
+    cancelAnimationRef.current = animateCameraTo(camera, controls, position, center, undefined, framing.zoom);
+  }
 
   useImperativeHandle(ref, () => ({
     resetView() {
@@ -316,7 +400,8 @@ const ThreeScene = forwardRef(function ThreeScene(
       if (!camera || !controls || !home) return;
 
       cancelAnimationRef.current?.();
-      cancelAnimationRef.current = animateCameraTo(camera, controls, home.position, home.target);
+      // An orthographic camera starts at zoom 1, so that is "home" too.
+      cancelAnimationRef.current = animateCameraTo(camera, controls, home.position, home.target, undefined, 1);
     },
 
     // Current camera state (position, orbit target, up vector, orthographic
@@ -331,27 +416,38 @@ const ThreeScene = forwardRef(function ThreeScene(
     },
 
     // Snaps straight to the given state — no animation, since this is
-    // "restore exactly where I left off", not a guided navigation.
+    // "restore exactly where I left off", not a guided navigation. A state
+    // captured through the other kind of camera (before a perspective /
+    // orthographic switch) is converted so the same view stays on screen.
     setCameraState(state) {
       const camera = cameraRef.current;
       const controls = controlsRef.current;
       if (!camera || !controls) return;
+      const projection = camera.isOrthographicCamera ? "orthographic" : "perspective";
+      const converted = convertCameraState(state, projection, homeDistanceRef.current);
+      if (!converted) return;
       cancelAnimationRef.current?.();
-      applyCameraState(camera, controls, state);
+      stopCameraGlide(controls);
+      applyCameraState(camera, controls, converted);
     },
 
-    // Renders the current frame (scene + orientation gizmo) and returns it as
-    // a PNG Blob. The render and toBlob happen in the same task, which is what
-    // lets this work without `preserveDrawingBuffer` (a per-frame cost):
-    // toBlob copies the bitmap at call time.
+    // Render the current Three.js frame and return it as a PNG Blob. Calling
+    // toBlob immediately after render copies the bitmap without requiring
+    // preserveDrawingBuffer, which would add a cost to every rendered frame.
     captureSnapshot() {
       const renderer = rendererRef.current;
       const camera = cameraRef.current;
       const scene = sceneRef.current;
-      if (!renderer || !camera || !scene) return Promise.resolve(null);
+
+      if (!renderer || !camera || !scene) {
+        return Promise.resolve(null);
+      }
+
       renderer.render(scene, camera);
-      if (gizmoRef.current) renderOrientationGizmo(renderer, gizmoRef.current);
-      return new Promise((resolve) => renderer.domElement.toBlob(resolve, "image/png"));
+
+      return new Promise((resolve) => {
+        renderer.domElement.toBlob(resolve, "image/png");
+      });
     },
 
     // Reframes on the currently visible data, keeping the current viewing
@@ -364,42 +460,33 @@ const ThreeScene = forwardRef(function ThreeScene(
       const box = computeSceneBounds();
       if (!box) return;
 
-      const center = box.getCenter(new THREE.Vector3());
-      const radius = box.getBoundingSphere(new THREE.Sphere()).radius;
       const direction = camera.position.clone().sub(controls.target);
       if (direction.lengthSq() < 1e-9) direction.set(0, 0, 1);
-      direction.normalize().multiplyScalar(fitDistance(camera, radius));
-
-      cancelAnimationRef.current?.();
-      cancelAnimationRef.current = animateCameraTo(camera, controls, center.clone().add(direction), center);
+      frameBox(camera, controls, box, direction);
     },
 
-    // Snaps to a world-axis-aligned view (assumes the scene's own "up" is
-    // world +Y, true for every mock and real sample seen so far — a tilted
-    // export "up" would need each axis re-derived from it, out of scope
-    // here). Frames on the currently visible data like fitScene().
-    setPresetView(axis) {
+    // Plan / section views like mXrap's XY, XZ and YZ buttons ("top",
+    // "front", "side"; see presetCameraOffset), framed on the currently
+    // visible data like fitScene(). The camera's up is not changed, so
+    // orbiting afterwards still turns around the scene's vertical.
+    setPresetView(view) {
       const camera = cameraRef.current;
       const controls = controlsRef.current;
       if (!camera || !controls) return;
+      const offset = presetCameraOffset(view, camera.up, 1);
+      if (!offset) return;
+      const direction = new THREE.Vector3(offset.x, offset.y, offset.z);
+
       const box = computeSceneBounds();
-      const center = box ? box.getCenter(new THREE.Vector3()) : controls.target.clone();
-      const radius = box
-        ? box.getBoundingSphere(new THREE.Sphere()).radius
-        : camera.position.distanceTo(controls.target);
-      const distance = fitDistance(camera, radius);
-
-      const presets = {
-        top: { offset: new THREE.Vector3(0, distance, 0), up: new THREE.Vector3(0, 0, -1) },
-        front: { offset: new THREE.Vector3(0, 0, distance), up: new THREE.Vector3(0, 1, 0) },
-        side: { offset: new THREE.Vector3(distance, 0, 0), up: new THREE.Vector3(0, 1, 0) },
-      };
-      const preset = presets[axis];
-      if (!preset) return;
-
-      camera.up.copy(preset.up);
+      if (box) {
+        frameBox(camera, controls, box, direction);
+        return;
+      }
+      // Nothing visible to frame: turn to the view, keeping distance and zoom.
+      const target = controls.target.clone();
+      direction.normalize().multiplyScalar(camera.position.distanceTo(target));
       cancelAnimationRef.current?.();
-      cancelAnimationRef.current = animateCameraTo(camera, controls, center.clone().add(preset.offset), center);
+      cancelAnimationRef.current = animateCameraTo(camera, controls, target.clone().add(direction), target);
     },
   }));
 
@@ -421,6 +508,7 @@ const ThreeScene = forwardRef(function ThreeScene(
 
     const distanceToTarget =
       Math.hypot(camPos.x - camFocal.x, camPos.y - camFocal.y, camPos.z - camFocal.z) || 10;
+    homeDistanceRef.current = distanceToTarget;
 
     // projectionMode lets the parent switch between perspective (default)
     // and orthographic (parallel projection, no foreshortening) — see
@@ -432,7 +520,9 @@ const ThreeScene = forwardRef(function ThreeScene(
     );
 
     camera.position.set(camPos.x, camPos.y, camPos.z);
-    camera.up.set(camUp.x, camUp.y, camUp.z); // 必须在 lookAt 之前设置，否则不生效
+    // A level export camera orbits around true vertical (see levelCameraUp).
+    const levelUp = levelCameraUp(camUp, camPos, camFocal);
+    camera.up.set(levelUp.x, levelUp.y, levelUp.z); // 必须在 lookAt 之前设置，否则不生效
     camera.lookAt(camFocal.x, camFocal.y, camFocal.z);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -545,16 +635,25 @@ const ThreeScene = forwardRef(function ThreeScene(
 
     // ---------- 3. 根据 sceneData 加载真实内容 ----------
     const meshes = [];
-    (sceneData.surfaces ?? []).forEach((surfaceData) => {
+    (sceneData.surfaces ?? []).forEach((surfaceData, index) => {
       // Real marker-def data (parsed from the export's markers.json) takes
       // priority; surfaces with no resolvable colour marker fall back to
       // the flat placeholder colour buildSurfaceMesh's own default handles.
-      const vertexColours = resolveSurfaceVertexColours(surfaceData);
-      const mesh = buildSurfaceMesh(surfaceData, vertexColours);
+      const style = surfaceStylesRef.current[index];
+      const mesh = buildStyledSurfaceMesh(surfaceData, style);
+      builtSurfaceStylesRef.current[index] = style;
+      mesh.visible = surfaceVisibilityRef.current[index] ?? surfaceData.visible !== false;
       scene.add(mesh);
       meshes.push(mesh);
     });
     meshesRef.current = meshes;
+    const lineObjects = (sceneData.lineSeries ?? []).map((series, index) => {
+      const object = buildLineSegments(series);
+      object.visible = (lineVisibilityRef.current[index] ?? series.visible !== false) && lineObjectHasSegments(object);
+      scene.add(object);
+      return object;
+    });
+    linesRef.current = lineObjects;
 
 function createPointCloud(pointSeriesData) {
   const contentOptions =
@@ -630,7 +729,7 @@ function createPointCloud(pointSeriesData) {
       {
         ...renderOptions,
         pointTexture,
-        tintTextureWithVertexColor: false,
+        tintTextureWithVertexColor: contentOptions.tintSymbols === true,
       }
     );
 
@@ -793,20 +892,70 @@ function createPointCloud(pointSeriesData) {
       }
     }
 
-    // Bottom-left XYZ orientation gizmo. It lives outside the scene graph (it
-    // is drawn in its own corner viewport), so it never affects picking or
-    // the scene bounds.
-    const orientationGizmo = createOrientationGizmo(camera, renderer.domElement);
-    gizmoRef.current = orientationGizmo;
+    // Bottom-left XYZ indicator (an SVG over the canvas, see
+    // orientationGizmo.js). Forgetting the last orientation makes the first
+    // frame of a rebuilt scene draw it.
+    const axisIndicatorMemo = {};
+
+    // Plan-view grid (planGrid.js): shown only while the orthographic camera
+    // looks straight along an axis. Its lines ignore depth and are drawn
+    // first, so surfaces, lines and points always cover them. In the same
+    // views a drag pans instead of rotating (setPlanNavigation).
+    const planGrid = new THREE.LineSegments(
+      new THREE.BufferGeometry(),
+      new THREE.LineBasicMaterial({ color: PLAN_GRID_COLOUR, depthTest: false, depthWrite: false })
+    );
+    planGrid.renderOrder = -1;
+    planGrid.frustumCulled = false;
+    planGrid.visible = false;
+    scene.add(planGrid);
+    const planGridMemo = { key: null, plan: false };
+    const planGridOverlay = planGridOverlayRef.current;
+
+    function refreshPlanGrid() {
+      const width = container.clientWidth;
+      const height = container.clientHeight;
+      const key = [
+        camera.position.x, camera.position.y, camera.position.z,
+        camera.quaternion.x, camera.quaternion.y, camera.quaternion.z, camera.quaternion.w,
+        camera.zoom, camera.left, camera.right, camera.top, camera.bottom,
+        controls.target.x, controls.target.y, controls.target.z, width, height,
+      ].join(",");
+      if (key === planGridMemo.key) return;
+      planGridMemo.key = key;
+
+      const grid = computePlanGrid(camera, controls.target, width, height);
+      if (grid) {
+        const positions = new Float32Array(grid.lines.length * 6);
+        grid.lines.forEach((line, index) => {
+          line.from.toArray(positions, index * 6);
+          line.to.toArray(positions, index * 6 + 3);
+        });
+        planGrid.geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+      }
+      planGrid.visible = Boolean(grid);
+      updatePlanGridLabels(planGridOverlay, grid, width, height);
+      if (planGridMemo.plan !== Boolean(grid)) {
+        planGridMemo.plan = Boolean(grid);
+        setPlanNavigation(controls, planGridMemo.plan);
+      }
+    }
 
     // ---------- 4. Resize 监听 ----------
     function handleResize() {
       const width = container.clientWidth;
       const height = container.clientHeight;
+      if (!width || !height) return;
       updateCameraAspect(camera, width, height);
       renderer.setSize(width, height);
     }
     window.addEventListener("resize", handleResize);
+    // The viewport also changes size while the window stays the same: the
+    // side panels collapse and expand, and the import report opens above it.
+    // Listening to the window alone left the canvas at its old size - an
+    // empty strip beside the legend, or part of the scene hidden under it.
+    const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(handleResize);
+    resizeObserver?.observe(container);
 
     // ---------- 5. 渲染循环 ----------
     let animationId;
@@ -814,8 +963,9 @@ function createPointCloud(pointSeriesData) {
       animationId = requestAnimationFrame(animate);
       controls.update();
       refreshOrthographicPointSizing();
+      refreshPlanGrid();
       renderer.render(scene, camera);
-      renderOrientationGizmo(renderer, orientationGizmo);
+      updateAxisIndicator(axisIndicatorRef.current, camera.quaternion, axisIndicatorMemo);
     }
     animate();
 
@@ -824,14 +974,21 @@ function createPointCloud(pointSeriesData) {
       cancelAnimationFrame(animationId);
       cancelAnimationRef.current?.();
       window.removeEventListener("resize", handleResize);
+      resizeObserver?.disconnect();
       renderer.domElement.removeEventListener("pointermove", handlePointerMove);
       renderer.domElement.removeEventListener("pointerleave", handlePointerLeave);
       renderer.domElement.removeEventListener("click", handleClick);
 
-      meshes.forEach((mesh) => {
+      // The meshes now in the scene: a Surface Style change replaces them.
+      meshesRef.current.forEach((mesh) => {
         mesh.geometry.dispose();
         mesh.material.dispose();
       });
+      lineObjects.forEach((object) => {
+        object.geometry.dispose();
+        object.material.dispose();
+      });
+      linesRef.current = [];
 
       pointCloudsRef.current.forEach(disposePointObject);
       textureCache.forEach((texture) => texture.dispose());
@@ -847,9 +1004,13 @@ function createPointCloud(pointSeriesData) {
       disposeAnnotations(annotationsRef.current);
       annotationsRef.current = [];
 
+      planGrid.geometry.dispose();
+      planGrid.material.dispose();
+      scene.remove(planGrid);
+      updatePlanGridLabels(planGridOverlay, null);
+
       controls.removeEventListener("change", handleControlsChange);
       controls.dispose();
-      orientationGizmo.dispose();
       renderer.dispose();
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
@@ -857,7 +1018,6 @@ function createPointCloud(pointSeriesData) {
 
       cameraRef.current = null;
       rendererRef.current = null;
-      gizmoRef.current = null;
       controlsRef.current = null;
       sceneRef.current = null;
       pointCloudsRef.current = [];
@@ -907,8 +1067,13 @@ function createPointCloud(pointSeriesData) {
     }));
   }, [markerScale, visiblePointClouds, sceneData, projectionMode]);
 
-  return <div ref={containerRef} style={{ width: "100%", height: "100%" }} />;
+  return (
+    <div style={{ position: "relative", width: "100%", height: "100%" }}>
+      <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
+      <PlanGridLabels ref={planGridOverlayRef} />
+      <AxisIndicator ref={axisIndicatorRef} title={axisIndicatorTitle(sceneData?.camera?.up ?? DEFAULT_CAMERA.up)} />
+    </div>
+  );
 });
 
 export default ThreeScene;
-

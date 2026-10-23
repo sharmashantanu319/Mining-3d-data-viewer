@@ -41,5 +41,14 @@ export const IconPerspective= (p) => <I {...p}><path d="M2 13L5 4h6l3 9H2z" stro
 export const IconOrtho      = (p) => <I {...p}><rect x="2" y="2" width="12" height="12" rx="1" stroke="currentColor" strokeWidth="1.5"/><path d="M2 6h12M2 10h12M6 2v12M10 2v12" stroke="currentColor" strokeWidth="1" strokeOpacity="0.5"/></I>;
 export const IconLegend     = (p) => <I {...p}><rect x="2" y="3" width="4" height="4" rx="1" fill="currentColor" opacity="0.7"/><rect x="2" y="9" width="4" height="4" rx="1" fill="currentColor" opacity="0.4"/><path d="M9 5h5M9 11h5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></I>;
 export const IconSpinner    = (p) => <I {...p}><path d="M8 1.5A6.5 6.5 0 0 1 14.5 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><animateTransform attributeName="transform" type="rotate" from="0 8 8" to="360 8 8" dur="0.8s" repeatCount="indefinite"/></path></I>;
-export const IconMxrap      = (p) => <I {...p} size={p.size ?? 16}><path d="M2 13V4l4 5 2-4 2 4 4-5v9H2z" fill="currentColor" opacity="0.9"/><path d="M2 4l4 5 2-4 2 4 4-5" stroke="currentColor" strokeWidth="1" fill="none" opacity="0.5"/></I>;
-
+// App mark: a geological block diagram, an isometric block of ground with
+// two strata lines running round its sides.
+export const IconMxrap      = (p) => (
+  <I {...p} size={p.size ?? 16}>
+    <path d="M8 1.5l5.6 3.25L8 8 2.4 4.75z" fill="currentColor" fillOpacity="0.32" />
+    <path d="M2.4 4.75L8 8v6.5L2.4 11.25z" fill="currentColor" fillOpacity="0.1" />
+    <path d="M8 8l5.6-3.25v6.5L8 14.5z" fill="currentColor" fillOpacity="0.18" />
+    <path d="M2.4 7.1L8 10.35l5.6-3.25M2.4 9.2L8 12.45l5.6-3.25" stroke="currentColor" strokeWidth="0.85" strokeOpacity="0.75" strokeLinejoin="round" />
+    <path d="M8 1.5l5.6 3.25v6.5L8 14.5l-5.6-3.25v-6.5zM2.4 4.75L8 8l5.6-3.25M8 8v6.5" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" />
+  </I>
+);
