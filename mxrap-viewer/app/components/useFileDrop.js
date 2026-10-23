@@ -20,7 +20,9 @@ import { dragHasFiles, pickExportFile } from "./dropFile";
 export function useFileDrop(onFile, onReject, disabled = false) {
   const [isDragging, setIsDragging] = useState(false);
   const handlersRef = useRef({ onFile, onReject, disabled });
+  useEffect(() => {
   handlersRef.current = { onFile, onReject, disabled };
+}, [onFile, onReject, disabled]);
 
   useEffect(() => {
     let depth = 0;
