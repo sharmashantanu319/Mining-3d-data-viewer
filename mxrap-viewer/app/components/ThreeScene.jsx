@@ -185,7 +185,10 @@ function getDemoRenderOptions(pointSeriesData) {
 function applyAnnotationScale(object, factor) {
   if (object.isSprite) {
     const aspect = object.userData.aspectRatio ?? 1;
-    object.scale.set(aspect * factor, factor, 1);
+    // A callout's sprite also holds its arrow, so it is taller than the
+    // label alone by heightRatio (see annotationsBuilder.js).
+    const height = factor * (object.userData.heightRatio ?? 1);
+    object.scale.set(aspect * height, height, 1);
   } else {
     object.scale.setScalar(factor);
   }
@@ -240,6 +243,7 @@ const ThreeScene = forwardRef(function ThreeScene(
     });
   }, [lineVisibility, sceneData]);
   const cameraRef = useRef(null);
+  const rendererRef = useRef(null);
   const controlsRef = useRef(null);
   const axisIndicatorRef = useRef(null); // the XYZ indicator's <svg>
   const planGridOverlayRef = useRef(null); // the plan-view grid's labels
@@ -430,6 +434,25 @@ const ThreeScene = forwardRef(function ThreeScene(
       applyCameraState(camera, controls, converted);
     },
 
+    // Render the current Three.js frame and return it as a PNG Blob. Calling
+    // toBlob immediately after render copies the bitmap without requiring
+    // preserveDrawingBuffer, which would add a cost to every rendered frame.
+    captureSnapshot() {
+      const renderer = rendererRef.current;
+      const camera = cameraRef.current;
+      const scene = sceneRef.current;
+
+      if (!renderer || !camera || !scene) {
+        return Promise.resolve(null);
+      }
+
+      renderer.render(scene, camera);
+
+      return new Promise((resolve) => {
+        renderer.domElement.toBlob(resolve, "image/png");
+      });
+    },
+
     // Reframes on the currently visible data, keeping the current viewing
     // direction (just moving along it), rather than jumping back to the
     // export's original camera position/angle the way resetView() does.
@@ -509,6 +532,7 @@ const ThreeScene = forwardRef(function ThreeScene(
     renderer.setSize(container.clientWidth, container.clientHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     container.appendChild(renderer.domElement);
+    rendererRef.current = renderer;
 
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
@@ -996,6 +1020,7 @@ function createPointCloud(pointSeriesData) {
       }
 
       cameraRef.current = null;
+      rendererRef.current = null;
       controlsRef.current = null;
       sceneRef.current = null;
       pointCloudsRef.current = [];

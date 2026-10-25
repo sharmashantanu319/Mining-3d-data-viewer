@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import ThreeScene from "./components/ThreeScene";
 import { lineColourSeries } from "./components/lineSeriesData";
 import ChartView from "./components/ChartView";
@@ -9,6 +9,8 @@ import ImportReport from "./components/ImportReport";
 import { LeftSidebar } from "./components/LeftSidebar";
 import { RightPanel } from "./components/RightPanel";
 import { StatusBar } from "./components/StatusBar";
+import DropOverlay from "./components/DropOverlay";
+import { useFileDrop } from "./components/useFileDrop";
 import { mockScenes } from "./components/mockScenes";
 import { validateExportFile } from "./components/validateExportFile";
 import { parseExportFile } from "./components/parseExportFile";
@@ -34,7 +36,15 @@ import {
 } from "./components/chartStyle";
 import { applySurfaceStyle, getSurfaceColourChoices, surfaceColourHex } from "./components/surfaceStyle";
 import { chartPointDetails } from "./components/chartPointDetails";
-import { IconFitView, IconPerspective, IconOrtho, IconRefresh } from "./components/icons";
+import {
+  IconFitView,
+  IconPerspective,
+  IconOrtho,
+  IconRefresh,
+  IconCamera,
+  IconFolder,
+} from "./components/icons";
+import { canPickFolder, pickSnapshotFolder, saveSnapshot, snapshotFilename } from "./components/snapshot";
 import { loadSession, saveSession, sanitizeAnnotationStyle, sessionKeyFor } from "./components/viewerSession";
 import { isValidCameraState, sanitizeSceneCameras } from "./components/cameraState";
 import {
@@ -55,6 +65,10 @@ function colourMarkerInput(series) {
 // finds no data in it.
 const NO_3D_VIEW = Object.freeze({ id: "no-3d-view", title: "", surfaces: [], pointClouds: [], lineSeries: [], annotations: [] });
 
+// Folder-picker support is a browser capability that does not change during
+// a page session. The server snapshot stays false so hydration is consistent.
+const subscribeToBrowserCapabilities = () => () => {};
+
 export default function Home() {
   const [scenes, setScenes] = useState(mockScenes); // 初始用 mock 数据占位，上传真实文件后会替换
   const [charts, setCharts] = useState([]); // chart displays from the export (none for the mock demo)
@@ -72,6 +86,8 @@ export default function Home() {
   const [lineVisibility, setLineVisibility] = useState({});
   const [surfaceVisibility, setSurfaceVisibility] = useState({});
   const [nullVisibility, setNullVisibility] = useState({});
+  // The user's own "Show legend" choices for the scene's point series.
+  const [legendVisibility, setLegendVisibility] = useState({});
   const [annotationsVisible, setAnnotationsVisible] = useState(true);
   const [annotationScale, setAnnotationScale] = useState(1);
   const [annotationFont, setAnnotationFont] = useState(null);
@@ -97,6 +113,14 @@ export default function Home() {
   const [hoveredPoint, setHoveredPoint] = useState(null);
   const [selectedPoint, setSelectedPoint] = useState(null);
   const threeSceneRef = useRef(null);
+  const snapshotFolderRef = useRef(null);
+  const [snapshotFolderName, setSnapshotFolderName] = useState(null);
+  const [snapshotNotice, setSnapshotNotice] = useState(null);
+  const folderPickerAvailable = useSyncExternalStore(
+    subscribeToBrowserCapabilities,
+    canPickFolder,
+    () => false
+  );
   const sessionKeyRef = useRef(null); // which file's session to save to, or null for the initial mock demo (not persisted)
   const sceneViewStatesRef = useRef({}); // { [sceneIndex]: scene view state } recorded when a scene is left, so switching back restores its settings (sceneViewState.js)
   const sceneCamerasRef = useRef({}); // { [sceneIndex]: camera state } recorded when a scene is left, so switching back restores its camera
@@ -262,6 +286,7 @@ export default function Home() {
     lineVisibility,
     surfaceVisibility,
     nullVisibility,
+    legendVisibility,
     markerSelections,
     markerSeriesIndex,
     surfaceStyles,
@@ -504,6 +529,14 @@ export default function Home() {
     return [{ ...legend, missingCount, sizeLabel: null, symbolLabel: null }];
   }, [styledActiveSurface, surfaceStyles, showChart, surfaceVisibility, safeSurfaceStyleIndex]);
 
+  // Whether the series chosen in Marker Style shows a legend in the 3D view:
+  // the export's choice (or the default rule) until the user sets it.
+  const markerSeriesHasLegend = pickLegendSeriesIndices(
+    [...renderedPointClouds, ...(currentScene.lineSeries ?? [])],
+    safeMarkerSeriesIndex,
+    legendVisibility
+  ).includes(safeMarkerSeriesIndex);
+
   const colourLegends = useMemo(
     () =>
       (showChart
@@ -513,7 +546,7 @@ export default function Home() {
           // A chart follows the 3D rule too: the series the export marks for
           // a legend, or else the one chosen in Marker Style, so a colour
           // picked there is always explained.
-          pickLegendSeriesIndices(all, showChart ? chartMarkerIndex : safeMarkerSeriesIndex).includes(index) &&
+          pickLegendSeriesIndices(all, showChart ? chartMarkerIndex : safeMarkerSeriesIndex, showChart ? {} : legendVisibility).includes(index) &&
           // A chart series switched off in Chart Series has nothing on screen to explain.
           (!showChart ||
             (series.enablePoints && activeChartToggles[`${index}:points`]) ||
@@ -555,7 +588,7 @@ export default function Home() {
         })
         .filter(Boolean)
         .concat(showChart ? [] : surfaceLegends),
-    [renderedPointClouds, fullRenderedPointClouds, currentScene, styledChart, showChart, safeMarkerSeriesIndex, chartMarkerIndex, activeChartToggles, nullVisibility, surfaceLegends]
+    [renderedPointClouds, fullRenderedPointClouds, currentScene, styledChart, showChart, safeMarkerSeriesIndex, chartMarkerIndex, activeChartToggles, nullVisibility, legendVisibility, surfaceLegends]
   );
 
   // Selection survives a filter/visibility change as long as the selected
@@ -697,10 +730,16 @@ export default function Home() {
     return markerSymbolLabel(previewSeries);
   }, [markerActiveSeries, markerSelections, safeMarkerSeriesIndex]);
 
-  async function handleFileChange(event) {
+  // <input type="file"> entry point. Clearing the value lets the same file
+  // be chosen again (e.g. after editing and re-exporting it).
+  function handleFileChange(event) {
     const file = event.target.files?.[0];
-    if (!file) return;
+    event.target.value = "";
+    if (file) loadExportFile(file);
+  }
 
+  // Shared by the file picker and drag-and-drop.
+  async function loadExportFile(file) {
     setFileName(file.name);
     setErrors([]);
     setImportReport({ warnings: [], notes: [], summaries: [] });
@@ -767,6 +806,7 @@ export default function Home() {
       lineVisibility,
       surfaceVisibility,
       nullVisibility,
+      legendVisibility,
       annotationsVisible,
       markerSelections,
       markerSeriesIndex,
@@ -783,6 +823,7 @@ export default function Home() {
     setLineVisibility(state.lineVisibility);
     setSurfaceVisibility(state.surfaceVisibility);
     setNullVisibility(state.nullVisibility);
+    setLegendVisibility(state.legendVisibility ?? {});
     setAnnotationsVisible(state.annotationsVisible);
     setMarkerSelections(state.markerSelections);
     setMarkerSeriesIndex(state.markerSeriesIndex);
@@ -820,6 +861,30 @@ export default function Home() {
     setRestoreBanner(null);
   }
 
+  const isDraggingFile = useFileDrop(loadExportFile, (message) => setErrors([message]), isLoadingExport);
+
+  async function handleTakeSnapshot() {
+    const blob = await threeSceneRef.current?.captureSnapshot();
+    if (!blob) return;
+
+    const filename = snapshotFilename(currentScene?.title);
+    const destination = await saveSnapshot(blob, filename, snapshotFolderRef.current);
+    setSnapshotNotice(
+      destination === "folder"
+        ? `Saved ${filename} to ${snapshotFolderName}`
+        : `Downloaded ${filename}`
+    );
+    setTimeout(() => setSnapshotNotice(null), 4000);
+  }
+
+  async function handleChooseSnapshotFolder() {
+    const handle = await pickSnapshotFolder();
+    if (!handle) return;
+
+    snapshotFolderRef.current = handle;
+    setSnapshotFolderName(handle.name);
+  }
+
   const dataState = errors.length > 0 ? "error" : isLoadingExport ? "loading" : "loaded";
   // What the header and status bar name: the chart while one is shown,
   // otherwise the 3D scene. Everything else about the 3D view (point
@@ -828,6 +893,7 @@ export default function Home() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh", overflow: "hidden", background: "var(--color-base)" }}>
+      <DropOverlay visible={isDraggingFile} />
       <Header
         fileName={fileName}
         viewTitle={viewTitle}
@@ -945,6 +1011,10 @@ export default function Home() {
           onShowNullsChange={(e) =>
             setNullVisibility((current) => ({ ...current, [safeMarkerSeriesIndex]: e.target.checked }))
           }
+          showLegend={markerSeriesHasLegend}
+          onShowLegendChange={(e) =>
+            setLegendVisibility((current) => ({ ...current, [safeMarkerSeriesIndex]: e.target.checked }))
+          }
           filterSeriesOptions={pointSeries.map((series, index) => series.name || `Point series ${index + 1}`)}
           filterSeriesIndex={safeSelectedSeries}
           onFilterSeriesChange={setSelectedSeries}
@@ -1039,6 +1109,27 @@ export default function Home() {
             </div>
           )}
 
+          {snapshotNotice && !showChart && (
+            <div
+              role="status"
+              style={{
+                position: "absolute",
+                bottom: 12,
+                left: "50%",
+                transform: "translateX(-50%)",
+                zIndex: 6,
+                padding: "5px 12px",
+                fontSize: 11,
+                color: "var(--color-fg)",
+                background: "rgba(18,25,24,0.92)",
+                border: "1px solid var(--color-border)",
+                borderRadius: "var(--radius-sm)",
+              }}
+            >
+              {snapshotNotice}
+            </div>
+          )}
+
           {/* Viewport toolbar — the single place camera controls live (not
               duplicated in the sidebar). Every button carries a word, not
               just an icon: Fit / Reset move the camera, Top / Front / Side
@@ -1051,6 +1142,30 @@ export default function Home() {
             <button className="vp-btn vp-btn-label" onClick={() => threeSceneRef.current?.resetView()} title="Reset — go back to the camera saved in the export">
               <IconRefresh size={12} /> Reset
             </button>
+            <button
+              className="vp-btn"
+              onClick={handleTakeSnapshot}
+              title={
+                snapshotFolderName
+                  ? `Take Snapshot — save a PNG to "${snapshotFolderName}"`
+                  : "Take Snapshot — download a PNG of the current view"
+              }
+            >
+              <IconCamera size={14} />
+            </button>
+            {folderPickerAvailable && (
+              <button
+                className={`vp-btn ${snapshotFolderName ? "active" : ""}`}
+                onClick={handleChooseSnapshotFolder}
+                title={
+                  snapshotFolderName
+                    ? `Snapshot folder: ${snapshotFolderName} (click to change)`
+                    : "Choose a folder to save snapshots into"
+                }
+              >
+                <IconFolder size={14} />
+              </button>
+            )}
             <div className="vp-group" role="group" aria-label="Preset views">
               <button className="vp-btn vp-btn-label" onClick={() => threeSceneRef.current?.setPresetView("top")} title="Top — plan view looking straight down (XY), north up">
                 Top
