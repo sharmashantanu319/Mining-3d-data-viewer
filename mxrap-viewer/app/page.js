@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import ThreeScene from "./components/ThreeScene";
 import { lineColourSeries } from "./components/lineSeriesData";
 import ChartView from "./components/ChartView";
@@ -36,7 +36,15 @@ import {
 } from "./components/chartStyle";
 import { applySurfaceStyle, getSurfaceColourChoices, surfaceColourHex } from "./components/surfaceStyle";
 import { chartPointDetails } from "./components/chartPointDetails";
-import { IconFitView, IconPerspective, IconOrtho, IconRefresh } from "./components/icons";
+import {
+  IconFitView,
+  IconPerspective,
+  IconOrtho,
+  IconRefresh,
+  IconCamera,
+  IconFolder,
+} from "./components/icons";
+import { canPickFolder, pickSnapshotFolder, saveSnapshot, snapshotFilename } from "./components/snapshot";
 import { loadSession, saveSession, sanitizeAnnotationStyle, sessionKeyFor } from "./components/viewerSession";
 import { isValidCameraState, sanitizeSceneCameras } from "./components/cameraState";
 import {
@@ -56,6 +64,10 @@ function colourMarkerInput(series) {
 // the 3D panels are hidden then, and anything that still reads the scene
 // finds no data in it.
 const NO_3D_VIEW = Object.freeze({ id: "no-3d-view", title: "", surfaces: [], pointClouds: [], lineSeries: [], annotations: [] });
+
+// Folder-picker support is a browser capability that does not change during
+// a page session. The server snapshot stays false so hydration is consistent.
+const subscribeToBrowserCapabilities = () => () => {};
 
 export default function Home() {
   const [scenes, setScenes] = useState(mockScenes); // 初始用 mock 数据占位，上传真实文件后会替换
@@ -101,6 +113,14 @@ export default function Home() {
   const [hoveredPoint, setHoveredPoint] = useState(null);
   const [selectedPoint, setSelectedPoint] = useState(null);
   const threeSceneRef = useRef(null);
+  const snapshotFolderRef = useRef(null);
+  const [snapshotFolderName, setSnapshotFolderName] = useState(null);
+  const [snapshotNotice, setSnapshotNotice] = useState(null);
+  const folderPickerAvailable = useSyncExternalStore(
+    subscribeToBrowserCapabilities,
+    canPickFolder,
+    () => false
+  );
   const sessionKeyRef = useRef(null); // which file's session to save to, or null for the initial mock demo (not persisted)
   const sceneViewStatesRef = useRef({}); // { [sceneIndex]: scene view state } recorded when a scene is left, so switching back restores its settings (sceneViewState.js)
   const sceneCamerasRef = useRef({}); // { [sceneIndex]: camera state } recorded when a scene is left, so switching back restores its camera
@@ -843,6 +863,28 @@ export default function Home() {
 
   const isDraggingFile = useFileDrop(loadExportFile, (message) => setErrors([message]), isLoadingExport);
 
+  async function handleTakeSnapshot() {
+    const blob = await threeSceneRef.current?.captureSnapshot();
+    if (!blob) return;
+
+    const filename = snapshotFilename(currentScene?.title);
+    const destination = await saveSnapshot(blob, filename, snapshotFolderRef.current);
+    setSnapshotNotice(
+      destination === "folder"
+        ? `Saved ${filename} to ${snapshotFolderName}`
+        : `Downloaded ${filename}`
+    );
+    setTimeout(() => setSnapshotNotice(null), 4000);
+  }
+
+  async function handleChooseSnapshotFolder() {
+    const handle = await pickSnapshotFolder();
+    if (!handle) return;
+
+    snapshotFolderRef.current = handle;
+    setSnapshotFolderName(handle.name);
+  }
+
   const dataState = errors.length > 0 ? "error" : isLoadingExport ? "loading" : "loaded";
   // What the header and status bar name: the chart while one is shown,
   // otherwise the 3D scene. Everything else about the 3D view (point
@@ -1067,6 +1109,27 @@ export default function Home() {
             </div>
           )}
 
+          {snapshotNotice && !showChart && (
+            <div
+              role="status"
+              style={{
+                position: "absolute",
+                bottom: 12,
+                left: "50%",
+                transform: "translateX(-50%)",
+                zIndex: 6,
+                padding: "5px 12px",
+                fontSize: 11,
+                color: "var(--color-fg)",
+                background: "rgba(18,25,24,0.92)",
+                border: "1px solid var(--color-border)",
+                borderRadius: "var(--radius-sm)",
+              }}
+            >
+              {snapshotNotice}
+            </div>
+          )}
+
           {/* Viewport toolbar — the single place camera controls live (not
               duplicated in the sidebar). Every button carries a word, not
               just an icon: Fit / Reset move the camera, Top / Front / Side
@@ -1079,6 +1142,30 @@ export default function Home() {
             <button className="vp-btn vp-btn-label" onClick={() => threeSceneRef.current?.resetView()} title="Reset — go back to the camera saved in the export">
               <IconRefresh size={12} /> Reset
             </button>
+            <button
+              className="vp-btn"
+              onClick={handleTakeSnapshot}
+              title={
+                snapshotFolderName
+                  ? `Take Snapshot — save a PNG to "${snapshotFolderName}"`
+                  : "Take Snapshot — download a PNG of the current view"
+              }
+            >
+              <IconCamera size={14} />
+            </button>
+            {folderPickerAvailable && (
+              <button
+                className={`vp-btn ${snapshotFolderName ? "active" : ""}`}
+                onClick={handleChooseSnapshotFolder}
+                title={
+                  snapshotFolderName
+                    ? `Snapshot folder: ${snapshotFolderName} (click to change)`
+                    : "Choose a folder to save snapshots into"
+                }
+              >
+                <IconFolder size={14} />
+              </button>
+            )}
             <div className="vp-group" role="group" aria-label="Preset views">
               <button className="vp-btn vp-btn-label" onClick={() => threeSceneRef.current?.setPresetView("top")} title="Top — plan view looking straight down (XY), north up">
                 Top
