@@ -182,6 +182,11 @@ export function RightPanel({ open, onToggle, inspection, inspectionSeries, kind,
   );
 }
 
+// A two-line date label read on one line, for the "Visible … Full range" note.
+function oneLine(label) {
+  return typeof label === "string" ? label.replace(/\s*\n\s*/g, " ") : label;
+}
+
 function LegendCard({ legend }) {
   const [collapsed, setCollapsed] = useState(false);
 
@@ -244,8 +249,19 @@ function LegendCard({ legend }) {
                 <rect x="0" y="0" width="100%" height="14" fill={`url(#${gradientId})`} />
               </svg>
               <div style={{ display: "flex", justifyContent: legend.ticks.length === 1 ? "center" : "space-between", marginTop: 3 }}>
+                {/* A date format can span two lines ("yyyy-MM-dd\n hh:mm ap"):
+                    each tick keeps its line breaks and lines up with its end. */}
                 {legend.ticks.map((tick) => (
-                  <span key={tick.position} style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: "var(--color-fg-muted)" }}>
+                  <span
+                    key={tick.position}
+                    style={{
+                      fontSize: 9,
+                      fontFamily: "var(--font-mono)",
+                      color: "var(--color-fg-muted)",
+                      whiteSpace: "pre-line",
+                      textAlign: tick.position === 0 ? "left" : tick.position === 1 ? "right" : "center",
+                    }}
+                  >
                     {tick.label}
                   </span>
                 ))}
@@ -261,8 +277,8 @@ function LegendCard({ legend }) {
 
           {legend.fullRange && (
             <div style={{ marginTop: 3, fontSize: 9, color: "var(--color-fg-muted)" }}>
-              Visible: {legend.ticks[0]?.label} – {legend.ticks[legend.ticks.length - 1]?.label} · Full range:{" "}
-              {legend.fullRange.minLabel} – {legend.fullRange.maxLabel}
+              Visible: {oneLine(legend.ticks[0]?.label)} – {oneLine(legend.ticks[legend.ticks.length - 1]?.label)} · Full range:{" "}
+              {oneLine(legend.fullRange.minLabel)} – {oneLine(legend.fullRange.maxLabel)}
             </div>
           )}
 

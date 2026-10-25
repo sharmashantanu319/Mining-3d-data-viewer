@@ -74,6 +74,8 @@ export default function Home() {
   const [lineVisibility, setLineVisibility] = useState({});
   const [surfaceVisibility, setSurfaceVisibility] = useState({});
   const [nullVisibility, setNullVisibility] = useState({});
+  // The user's own "Show legend" choices for the scene's point series.
+  const [legendVisibility, setLegendVisibility] = useState({});
   const [annotationsVisible, setAnnotationsVisible] = useState(true);
   const [annotationScale, setAnnotationScale] = useState(1);
   const [annotationFont, setAnnotationFont] = useState(null);
@@ -264,6 +266,7 @@ export default function Home() {
     lineVisibility,
     surfaceVisibility,
     nullVisibility,
+    legendVisibility,
     markerSelections,
     markerSeriesIndex,
     surfaceStyles,
@@ -506,6 +509,14 @@ export default function Home() {
     return [{ ...legend, missingCount, sizeLabel: null, symbolLabel: null }];
   }, [styledActiveSurface, surfaceStyles, showChart, surfaceVisibility, safeSurfaceStyleIndex]);
 
+  // Whether the series chosen in Marker Style shows a legend in the 3D view:
+  // the export's choice (or the default rule) until the user sets it.
+  const markerSeriesHasLegend = pickLegendSeriesIndices(
+    [...renderedPointClouds, ...(currentScene.lineSeries ?? [])],
+    safeMarkerSeriesIndex,
+    legendVisibility
+  ).includes(safeMarkerSeriesIndex);
+
   const colourLegends = useMemo(
     () =>
       (showChart
@@ -515,7 +526,7 @@ export default function Home() {
           // A chart follows the 3D rule too: the series the export marks for
           // a legend, or else the one chosen in Marker Style, so a colour
           // picked there is always explained.
-          pickLegendSeriesIndices(all, showChart ? chartMarkerIndex : safeMarkerSeriesIndex).includes(index) &&
+          pickLegendSeriesIndices(all, showChart ? chartMarkerIndex : safeMarkerSeriesIndex, showChart ? {} : legendVisibility).includes(index) &&
           // A chart series switched off in Chart Series has nothing on screen to explain.
           (!showChart ||
             (series.enablePoints && activeChartToggles[`${index}:points`]) ||
@@ -557,7 +568,7 @@ export default function Home() {
         })
         .filter(Boolean)
         .concat(showChart ? [] : surfaceLegends),
-    [renderedPointClouds, fullRenderedPointClouds, currentScene, styledChart, showChart, safeMarkerSeriesIndex, chartMarkerIndex, activeChartToggles, nullVisibility, surfaceLegends]
+    [renderedPointClouds, fullRenderedPointClouds, currentScene, styledChart, showChart, safeMarkerSeriesIndex, chartMarkerIndex, activeChartToggles, nullVisibility, legendVisibility, surfaceLegends]
   );
 
   // Selection survives a filter/visibility change as long as the selected
@@ -775,6 +786,7 @@ export default function Home() {
       lineVisibility,
       surfaceVisibility,
       nullVisibility,
+      legendVisibility,
       annotationsVisible,
       markerSelections,
       markerSeriesIndex,
@@ -791,6 +803,7 @@ export default function Home() {
     setLineVisibility(state.lineVisibility);
     setSurfaceVisibility(state.surfaceVisibility);
     setNullVisibility(state.nullVisibility);
+    setLegendVisibility(state.legendVisibility ?? {});
     setAnnotationsVisible(state.annotationsVisible);
     setMarkerSelections(state.markerSelections);
     setMarkerSeriesIndex(state.markerSeriesIndex);
@@ -955,6 +968,10 @@ export default function Home() {
           }
           onShowNullsChange={(e) =>
             setNullVisibility((current) => ({ ...current, [safeMarkerSeriesIndex]: e.target.checked }))
+          }
+          showLegend={markerSeriesHasLegend}
+          onShowLegendChange={(e) =>
+            setLegendVisibility((current) => ({ ...current, [safeMarkerSeriesIndex]: e.target.checked }))
           }
           filterSeriesOptions={pointSeries.map((series, index) => series.name || `Point series ${index + 1}`)}
           filterSeriesIndex={safeSelectedSeries}

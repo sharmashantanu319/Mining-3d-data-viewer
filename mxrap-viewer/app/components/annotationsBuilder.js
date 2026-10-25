@@ -64,7 +64,15 @@ export function resolveLabelStyle(annotation, style = {}) {
   return { font, hasBackground, backgroundColor, textColor, borderColor, borderWidth, padding, borderRadius };
 }
 
-function createLabelTexture(annotation, style = {}) {
+// Callout geometry in label-canvas pixels: the arrow runs from the
+// location (tip, bottom-left) up and right to the label's lower-left corner.
+export const CALLOUT_LEAD_X = 44;
+export const CALLOUT_LEAD_Y = 52;
+const CALLOUT_TIP_INSET = 4;
+const CALLOUT_HEAD_LENGTH = 12;
+const CALLOUT_LINE_WIDTH = 3;
+
+function drawLabel(annotation, style = {}) {
   const text = stripMarkup(annotation.text ?? "");
   const { font, hasBackground, backgroundColor, textColor, borderColor, borderWidth, padding, borderRadius } =
     resolveLabelStyle(annotation, style);
@@ -102,9 +110,76 @@ function createLabelTexture(annotation, style = {}) {
     context.fillText(text, padding, canvas.height / 2);
   }
 
+  return canvas;
+}
+
+/**
+ * The label drawn beside its location with an arrow pointing to it, on one
+ * canvas: the label sits up and to the right, the arrow's tip is near the
+ * bottom-left corner. `tip` is where the tip is, as a share of the canvas
+ * from its bottom-left corner, so a sprite anchored there (Sprite.center)
+ * puts the tip on the location at any zoom.
+ */
+function drawCallout(annotation, style = {}) {
+  const label = drawLabel(annotation, style);
+  const { textColor } = resolveLabelStyle(annotation, style);
+  const arrowColour = annotation.color ?? textColor;
+  const canvas = document.createElement("canvas");
+  canvas.width = label.width + CALLOUT_LEAD_X;
+  canvas.height = label.height + CALLOUT_LEAD_Y;
+  const context = canvas.getContext("2d");
+  context.drawImage(label, CALLOUT_LEAD_X, 0);
+
+  const tipX = CALLOUT_TIP_INSET;
+  const tipY = canvas.height - CALLOUT_TIP_INSET;
+  const endX = CALLOUT_LEAD_X + 2;
+  const endY = label.height - 2;
+  const angle = Math.atan2(endY - tipY, endX - tipX);
+  const head = (side) => [
+    tipX + CALLOUT_HEAD_LENGTH * Math.cos(angle + side * 0.45),
+    tipY + CALLOUT_HEAD_LENGTH * Math.sin(angle + side * 0.45),
+  ];
+  const path = () => {
+    context.beginPath();
+    context.moveTo(endX, endY);
+    context.lineTo(tipX, tipY);
+    context.moveTo(...head(1));
+    context.lineTo(tipX, tipY);
+    context.lineTo(...head(-1));
+  };
+  context.lineCap = "round";
+  context.lineJoin = "round";
+  // A dark edge under the coloured line keeps the arrow visible on any
+  // background, as the label's outline does for its text.
+  context.strokeStyle = "rgba(9, 13, 11, 0.85)";
+  context.lineWidth = CALLOUT_LINE_WIDTH + 3;
+  path();
+  context.stroke();
+  context.strokeStyle = arrowColour;
+  context.lineWidth = CALLOUT_LINE_WIDTH;
+  path();
+  context.stroke();
+
+  return {
+    canvas,
+    tip: { x: tipX / canvas.width, y: 1 - tipY / canvas.height },
+    labelHeight: label.height,
+  };
+}
+
+function toTexture(canvas) {
   const texture = new THREE.CanvasTexture(canvas);
   texture.needsUpdate = true;
-  return { texture, width: canvas.width, height: canvas.height };
+  return texture;
+}
+
+function createLabelTexture(annotation, style = {}) {
+  if (annotation.callout === true && annotation.render2d !== true) {
+    const { canvas, tip, labelHeight } = drawCallout(annotation, style);
+    return { texture: toTexture(canvas), width: canvas.width, height: canvas.height, tip, labelHeight };
+  }
+  const canvas = drawLabel(annotation, style);
+  return { texture: toTexture(canvas), width: canvas.width, height: canvas.height, tip: null, labelHeight: canvas.height };
 }
 
 /**
@@ -119,14 +194,21 @@ function createLabelTexture(annotation, style = {}) {
  * unset fall back to the annotation's own values from the export.
  */
 export function buildAnnotation(annotation, style = {}) {
-  const { texture, width, height } = createLabelTexture(annotation, style);
-  const scale = finiteOr(annotation.scale, 10);
+  const { texture, width, height, tip, labelHeight } = createLabelTexture(annotation, style);
+  // A callout's canvas is taller than its label (the arrow is below it);
+  // its sprite is made taller to match, so the text is the same size as
+  // other labels'. ThreeScene keeps this ratio when the size control changes.
+  const heightRatio = height / labelHeight;
+  const scale = finiteOr(annotation.scale, 10) * heightRatio;
   const isOverlay = annotation.render2d === true;
   const faceCamera = annotation.faceCamera === true;
   const materialOptions = {
     map: texture,
     transparent: true,
-    depthTest: !isOverlay && annotation.depthTest !== false,
+    // A callout is drawn on top of the scene, as the client described it
+    // ("drawn on top of or beside the 3D view, with an arrow pointing to
+    // the XYZ location"), so tunnels in front cannot hide it.
+    depthTest: !isOverlay && !tip && annotation.depthTest !== false,
     depthWrite: false,
     side: THREE.DoubleSide,
   };
@@ -144,7 +226,14 @@ export function buildAnnotation(annotation, style = {}) {
     // and needs this to stay aspect-aware too, not just the initial value set
     // here.
     object.userData.aspectRatio = width / height;
+    object.userData.heightRatio = heightRatio;
     object.scale.set((width / height) * scale, scale, 1);
+    // Anchor a callout at its arrow's tip, so the tip stays on the location
+    // and the label stays beside it in screen space.
+    if (tip) {
+      object.center.set(tip.x, tip.y);
+      object.renderOrder = 10;
+    }
   } else {
     object = new THREE.Mesh(new THREE.PlaneGeometry(width, height), new THREE.MeshBasicMaterial(materialOptions));
     // Three.js applies these local rotations in the same sequence as the
